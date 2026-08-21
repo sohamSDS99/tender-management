@@ -33,7 +33,7 @@ from app.db import SessionLocal, init_db
 from app.jobs.schedule import next_run_local
 from app.logging_config import configure_logging, log_ctx
 from app.models import FetchRun, SlackNotification, Tender, utcnow
-from app.services import ingest, notifier
+from app.services import automation, ingest, notifier
 from app.settings import Settings, get_settings, redact
 
 logger = logging.getLogger(__name__)
@@ -192,6 +192,13 @@ async def run_once(
         seed=seed,
         notify=notify,
     )
+
+    # A run orphaned by an earlier crash would otherwise stay "running" for ever.
+    db = SessionLocal()
+    try:
+        automation.reap_interrupted_runs(db, settings, started_at)
+    finally:
+        db.close()
 
     if seed:
         report.seeded = _seed_fixtures(seed_reset, settings)

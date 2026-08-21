@@ -10,6 +10,8 @@ import {
   formatDate,
   formatDateTime,
   formatValue,
+  linkLabel,
+  safeHref,
   scoreTone,
 } from '../labels';
 import { Drawer } from './Drawer';
@@ -140,6 +142,8 @@ export function DetailDrawer({
   const rounded = Math.round(weighted);
   const capped = tender ? rounded !== tender.relevance_score : false;
   const urgency = tender ? deadlineUrgency(tender.deadline) : null;
+  // Feed-supplied; must be scheme-checked before it becomes an href.
+  const noticeHref = safeHref(tender?.source_url);
 
   return (
     <Drawer
@@ -419,20 +423,31 @@ export function DetailDrawer({
             <section className="dsection">
               <h3>Links &amp; documents</h3>
               <div className="linklist">
-                {tender.source_url ? (
-                  <a href={tender.source_url} target="_blank" rel="noreferrer noopener">
+                {noticeHref ? (
+                  <a href={noticeHref} target="_blank" rel="noreferrer noopener">
                     Original notice on {tender.source}
                     <Icon name="external" size={12} />
                   </a>
                 ) : (
-                  <p className="muted">This feed published no notice URL.</p>
+                  <p className="muted">
+                    {tender.source_url
+                      ? 'This feed published a notice link that is not a usable web address.'
+                      : 'This feed published no notice URL.'}
+                  </p>
                 )}
-                {tender.document_urls.map((url) => (
-                  <a key={url} href={url} target="_blank" rel="noreferrer noopener">
-                    {url.split('/').pop() || url}
-                    <Icon name="external" size={12} />
-                  </a>
-                ))}
+                {tender.document_urls.map((url) => {
+                  const href = safeHref(url);
+                  return href ? (
+                    <a key={url} href={href} target="_blank" rel="noreferrer noopener">
+                      {linkLabel(href)}
+                      <Icon name="external" size={12} />
+                    </a>
+                  ) : (
+                    <span key={url} className="muted mono">
+                      {url}
+                    </span>
+                  );
+                })}
               </div>
             </section>
 
@@ -480,10 +495,10 @@ export function DetailDrawer({
           <Icon name="link" size={12} />
           Copy link
         </button>
-        {tender?.source_url ? (
+        {noticeHref ? (
           <a
             className="btn btn--primary"
-            href={tender.source_url}
+            href={noticeHref}
             target="_blank"
             rel="noreferrer noopener"
           >

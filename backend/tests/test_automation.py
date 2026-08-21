@@ -156,3 +156,74 @@ def test_health_names_the_database_engine(client) -> None:
     assert body["status"] == "ok"
     assert body["database"]["ok"] is True
     assert body["database"]["dialect"] == "sqlite"
+
+
+# --- interrupted runs -----------------------------------------------------
+
+
+def test_an_orphaned_run_is_closed_out(db_session, settings) -> None:
+    """A run cannot survive the process dying; it must not stay 'running'."""
+    stale = datetime(2026, 8, 21, 6, 0)
+    now = stale + timedelta(minutes=settings.stale_run_minutes + 5)
+    run = FetchRun(source="ted", status="running", trigger="cron", started_at=stale, finished_at=None)
+    db_session.add(run)
+    db_session.commit()
+
+    assert automation.reap_interrupted_runs(db_session, settings, now) == 1
+    db_session.refresh(run)
+    assert run.status == "failed"
+    assert run.finished_at == now
+    assert "Interrupted" in (run.error_message or "")
+
+
+def test_a_queued_run_is_reaped_too(db_session, settings) -> None:
+    stale = datetime(2026, 8, 21, 6, 0)
+    db_session.add(FetchRun(source="sam", status="queued", trigger="cron", started_at=stale))
+    db_session.commit()
+    now = stale + timedelta(minutes=settings.stale_run_minutes + 1)
+    assert automation.reap_interrupted_runs(db_session, settings, now) == 1
+
+
+def test_a_run_still_within_the_window_is_left_alone(db_session, settings) -> None:
+    """An operator's CLI run must not be killed because the API restarted."""
+    started = datetime(2026, 8, 21, 6, 0)
+    run = FetchRun(source="ted", status="running", trigger="cron", started_at=started)
+    db_session.add(run)
+    db_session.commit()
+    # A full live sweep takes ~13 minutes; the default window is 60.
+    assert automation.reap_interrupted_runs(db_session, settings, started + timedelta(minutes=13)) == 0
+    db_session.refresh(run)
+    assert run.status == "running"
+
+
+def test_finished_runs_are_never_touched(db_session, settings) -> None:
+    started = datetime(2026, 8, 21, 6, 0)
+    for status in ("success", "partial", "failed", "skipped"):
+        db_session.add(
+            FetchRun(
+                source=status,
+                status=status,
+                trigger="cron",
+                started_at=started,
+                finished_at=started + timedelta(minutes=1),
+            )
+        )
+    db_session.commit()
+    assert automation.reap_interrupted_runs(db_session, settings, started + timedelta(hours=5)) == 0
+
+
+def test_reaping_makes_the_dashboard_stop_reporting_running(db_session, settings) -> None:
+    stale = datetime(2026, 8, 21, 6, 0)
+    add_run(db_session, source="ted", status="success", batch="b1", started=stale)
+    db_session.add(
+        FetchRun(
+            source="pncp", status="running", trigger="cron", batch_id="b1", started_at=stale, window_to=stale
+        )
+    )
+    db_session.commit()
+
+    assert automation.automation_status(db_session, settings)["last_run"]["status"] == "running"
+    automation.reap_interrupted_runs(db_session, settings, stale + timedelta(hours=2))
+    after = automation.automation_status(db_session, settings)["last_run"]
+    assert after["status"] == "failed"
+    assert after["sources_failed"] == 1

@@ -148,3 +148,36 @@ export function runTone(status: string | null): 'good' | 'warning' | 'critical' 
 export function pluralise(count: number, singular: string, plural?: string): string {
   return count === 1 ? singular : (plural ?? `${singular}s`);
 }
+
+/**
+ * Only allow a feed-supplied URL to become a link if its scheme is http(s).
+ *
+ * `source_url` and `document_urls` come from eight external feeds, and React
+ * does not block `javascript:` in an href — it renders it and the browser will
+ * execute it on click. Anything that is not plainly http(s) is rendered as
+ * inert text instead of a link.
+ */
+export function safeHref(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  // An explicit http(s) scheme is required rather than resolved against our own
+  // origin: a blank or relative value from a feed is meaningless as a notice
+  // link, and resolving it would silently produce a link back into this app.
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    return new URL(trimmed).href;
+  } catch {
+    return null;
+  }
+}
+
+/** Filename-ish label for a document URL, falling back to the URL itself. */
+export function linkLabel(url: string): string {
+  try {
+    const path = new URL(url, window.location.origin).pathname;
+    const last = path.split('/').filter(Boolean).pop();
+    return last ? decodeURIComponent(last) : url;
+  } catch {
+    return url;
+  }
+}

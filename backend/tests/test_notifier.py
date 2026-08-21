@@ -32,6 +32,9 @@ def slack_settings() -> Settings:
         slack_max_items=8,
         public_app_url="http://localhost:8080/",
         enable_slack_notifications=True,
+        # Retries are exercised deliberately below; never sleep for real.
+        retry_backoff_seconds=0.0,
+        max_retries=3,
     )
 
 
@@ -411,3 +414,142 @@ def test_a_dry_run_builds_the_payload_without_claiming_or_posting(db_session, sl
     assert outcome.payload is not None and outcome.payload["blocks"]
     assert recorder.payloads == [], "a dry run must not send anything"
     assert db_session.query(SlackNotification).count() == 0, "a dry run must not claim"
+
+
+# --- webhook retry behaviour ----------------------------------------------
+
+
+class CountingRecorder(Recorder):
+    """Fails a set number of times, then succeeds."""
+
+    def __init__(self, failures: int, status: int = 503) -> None:
+        super().__init__()
+        self.failures = failures
+        self.fail_status = status
+        self.calls = 0
+
+    def transport(self) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.calls += 1
+            self.requests.append(json.loads(request.content.decode()))
+            if self.calls <= self.failures:
+                return httpx.Response(self.fail_status, text="server_error")
+            return httpx.Response(200, text="ok")
+
+        return httpx.MockTransport(handler)
+
+
+def test_a_transient_slack_failure_is_retried_and_succeeds(db_session, slack_settings) -> None:
+    """A momentary blip must not cost a digest that then waits 12 hours."""
+    make_tender(db_session, notice="RETRY-503")
+    recorder = CountingRecorder(failures=2)
+    delays: list[float] = []
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b1",
+        settings=slack_settings,
+        now=NOW,
+        client=recorder.client(),
+        sleep=delays.append,
+    )
+    assert outcome.status == "sent"
+    assert recorder.calls == 3, "should have retried twice before succeeding"
+    assert len(delays) == 2, "each retry must be preceded by a backoff"
+    assert db_session.query(SlackNotification).one().status == SENT
+
+
+def test_retries_are_bounded(db_session, slack_settings) -> None:
+    make_tender(db_session, notice="RETRY-BOUND")
+    recorder = CountingRecorder(failures=99)
+    delays: list[float] = []
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b1",
+        settings=slack_settings,
+        now=NOW,
+        client=recorder.client(),
+        sleep=delays.append,
+    )
+    assert outcome.status == "failed"
+    assert recorder.calls == slack_settings.max_retries, "must not retry forever"
+
+
+def test_a_rate_limit_honours_retry_after(slack_settings) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="rate_limited", headers={"Retry-After": "7"})
+
+    delays: list[float] = []
+    code, error = notifier.post_webhook(
+        {"text": "x"},
+        slack_settings,
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=delays.append,
+    )
+    assert code == 429
+    assert delays and all(d == 7.0 for d in delays), delays
+
+
+def test_an_invalid_payload_is_not_retried(slack_settings) -> None:
+    """A 4xx that is not a rate limit will not become valid on a second try."""
+    recorder = CountingRecorder(failures=99, status=400)
+    delays: list[float] = []
+    code, _error = notifier.post_webhook(
+        {"text": "x"}, slack_settings, recorder.client(), sleep=delays.append
+    )
+    assert code == 400
+    assert recorder.calls == 1
+    assert delays == []
+
+
+# --- feed-supplied URLs are untrusted -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "https://evil.test/x|Click%20here",
+        "https://evil.test/x>bad",
+        "https://evil.test/a<b",
+        "  ftp://evil.test/x  ",
+        "https://evil.test/\nsecond-line",
+    ],
+)
+def test_a_hostile_notice_url_never_reaches_a_slack_link(db_session, slack_settings, hostile) -> None:
+    """Slack link syntax is <url|text>; a URL carrying those delimiters could
+    otherwise close the link early and inject arbitrary mrkdwn."""
+    tender = make_tender(db_session, notice="HOSTILE-URL")
+    tender.source_url = hostile
+    db_session.commit()
+    blob = json.dumps(notifier.build_digest([tender], slack_settings, now=NOW))
+    assert "Original notice" not in blob, "an unsafe URL must not become a link"
+    assert "javascript:" not in blob
+    assert "data:text/html" not in blob
+
+
+def test_a_normal_notice_url_still_becomes_a_link(db_session, slack_settings) -> None:
+    tender = make_tender(db_session, notice="GOOD-URL")
+    blob = json.dumps(notifier.build_digest([tender], slack_settings, now=NOW))
+    assert "<https://ted.europa.eu/notice/GOOD-URL|Original notice>" in blob
+
+
+def test_safe_url_accepts_only_http_schemes() -> None:
+    assert notifier.safe_url("https://x.test/a") == "https://x.test/a"
+    assert notifier.safe_url("http://x.test/a") == "http://x.test/a"
+    assert notifier.safe_url(None) is None
+    assert notifier.safe_url("") is None
+    assert notifier.safe_url("javascript:alert(1)") is None
+    assert notifier.safe_url("//x.test/a") is None
+
+
+def test_hostile_text_fields_are_escaped(db_session, slack_settings) -> None:
+    tender = make_tender(db_session, notice="HOSTILE-TEXT")
+    tender.buyer_country = "<http://evil.test|DEU>"
+    tender.source = "ted<|>"
+    db_session.commit()
+    blob = json.dumps(notifier.build_digest([tender], slack_settings, now=NOW))
+    assert "<http://evil.test|DEU>" not in blob
+    assert "&lt;http://evil.test|DEU&gt;" in blob

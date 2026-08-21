@@ -122,6 +122,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
+
       - name: Formatting
         working-directory: frontend
         run: npm run format:check

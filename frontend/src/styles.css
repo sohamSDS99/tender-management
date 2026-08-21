@@ -1877,3 +1877,44 @@ html[data-theme='dark'] .sk::after {
     text-align: left;
   }
 }
+
+/* ============================================================
+   FIXES ON TOP OF THE PORTED MOCKUP
+   ============================================================ */
+
+/* A closed drawer is translated off-screen but still focusable, which strands
+   keyboard users in an invisible form. visibility:hidden fixes that, but flipping
+   it instantly would also cancel the slide-out — so on close it is delayed until
+   the transform finishes, and on open it applies immediately. */
+.drawer {
+  visibility: hidden;
+  transition:
+    transform 0.34s var(--ease),
+    visibility 0s linear 0.34s;
+}
+.drawer.is-on {
+  visibility: visible;
+  transition:
+    transform 0.34s var(--ease),
+    visibility 0s linear 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer,
+  .drawer.is-on,
+  .scrim,
+  .stat,
+  .rescard,
+  .btn {
+    transition-duration: 0.01ms;
+  }
+  .sk::after {
+    animation: none;
+  }
+}
+
+/* The mockup only styled the three terminal run states; a run can also be
+   queued or still running, which would otherwise render unstyled. */
+.pill--queued,
+.pill--running {
+  color: var(--ink-soft);
+}

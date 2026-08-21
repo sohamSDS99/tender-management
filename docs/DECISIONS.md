@@ -476,6 +476,59 @@ twice.
 
 ---
 
+## D13 — Two dev-only frontend dependencies were added: `vitest` and `jsdom`
+
+**Decision.** `frontend/package.json` gains `vitest` and `jsdom` as
+**devDependencies**, with `npm test` wired into `.github/workflows/ci.yml`. The
+shipped bundle is unchanged: 197.5 kB before and after, and the runtime
+dependencies are still exactly `react` and `react-dom`.
+
+**Why.** The brief allows a frontend dependency with a justification, and one is
+warranted here. `src/state/urlFilters.ts` is load-bearing for the Slack digest:
+`notifier.digest_permalink` emits `?minimum_score=<n>&active_only=true&sort=first_seen_desc`
+and every entry emits `?tender=<id>`. If that codec stops understanding those
+parameter names, every link in every digest silently lands on an unfiltered
+dashboard — a defect that type-checks perfectly and would only be noticed live.
+`src/labels.ts` carries the deadline-urgency bands and currency rendering that
+deliberately mirror the backend, so it can drift silently too.
+
+Writing the tests immediately paid for the dependency: they caught two real bugs.
+`safeHref('   ')` resolved a blank feed URL against `window.location.origin` and
+returned a link back into the app, and a test of mine asserted an unreachable
+branch (a "1 day left" label, when anything past 72 hours is at least 3 days).
+
+**Alternatives rejected.** No tests at all — the codec is too load-bearing.
+A hand-rolled assertion script run through `node` — cheaper in dependencies, but
+it needs its own DOM shims for `URLSearchParams`/`window.location` and would be a
+worse-maintained test runner than the one Vite already ships against.
+
+**Consequences / accepted risk.** `npm ci` installs more in CI. Nothing reaches
+production. 32 frontend tests run in about 0.6 s.
+
+## D14 — A run orphaned by a restart is closed out, not left "running" for ever
+
+**Decision.** `automation.reap_interrupted_runs()` marks any `FetchRun` still at
+`running` or `queued` after `STALE_RUN_MINUTES` (default 60) as `failed`, with an
+explicit message saying the process stopped and that a re-run will pick up the
+rest. It is called at API startup and at the start of every run.
+
+**Why.** A run executes in-process, so it cannot survive the process dying. This
+was found on the live stack: a container rebuild during a 13-minute live sweep
+left one `pncp` row at `running`, and the dashboard reported the last run as
+"running" indefinitely — a permanently misleading state, and exactly the kind of
+thing a demo audience would ask about.
+
+**Alternatives rejected.** Reaping every non-terminal row unconditionally at
+startup — that would kill a genuinely in-flight run started by an operator via
+`docker compose exec` while the API happened to restart. The age threshold is
+comfortably above the ~13 minutes a full sweep takes, so a live run is never
+mistaken for an orphan.
+
+**Consequences / accepted risk.** An orphaned run stays visible as "running" for
+up to an hour before it is reclassified. Ingested notices are unaffected: they
+are committed per notice as they arrive, so a partial sweep keeps everything it
+already stored.
+
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their

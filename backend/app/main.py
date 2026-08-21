@@ -9,9 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.logging_config import configure_logging
 from app.security import SecurityHeadersMiddleware
+from app.services import automation
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.settings import get_settings
 
@@ -32,6 +33,13 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     init_db()
+    # A previous process may have died mid-fetch, leaving runs marked running.
+    # Close them out so the dashboard reports the truth.
+    db = SessionLocal()
+    try:
+        automation.reap_interrupted_runs(db, settings)
+    finally:
+        db.close()
     start_scheduler(settings)
     try:
         yield

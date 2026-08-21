@@ -8,17 +8,21 @@ All three are read-only projections over ``fetch_runs`` and
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.jobs.schedule import next_run_local, next_run_utc, observes_dst, utc_cron_expressions
+from app.logging_config import log_ctx
 from app.models import SENT, FetchRun, SlackNotification, utcnow
 from app.services.dhaka import format_dhaka
 from app.services.scheduler import scheduler_state
 from app.settings import Settings, get_settings, redact
+
+logger = logging.getLogger(__name__)
 
 # Worst-first: the status of a batch is the worst status among its sources.
 STATUS_RANK = {"failed": 0, "partial": 1, "running": 2, "queued": 3, "skipped": 4, "success": 5}
@@ -28,6 +32,41 @@ def _batch_status(statuses: list[str]) -> str:
     if not statuses:
         return "unknown"
     return min(statuses, key=lambda s: STATUS_RANK.get(s, 99))
+
+
+def reap_interrupted_runs(db: Session, settings: Settings | None = None, now: datetime | None = None) -> int:
+    """Close out runs that a restart orphaned. Returns how many were reaped.
+
+    A run executes in-process, so it cannot survive the process dying: rows left
+    at running/queued would otherwise sit there for ever and the dashboard would
+    keep reporting "running". Only rows older than STALE_RUN_MINUTES are touched,
+    so a genuinely in-flight run started by another process (an operator using
+    the CLI while the API restarts) is never mistaken for an orphan.
+    """
+    settings = settings or get_settings()
+    now = now or utcnow()
+    cutoff = now - timedelta(minutes=settings.stale_run_minutes)
+    rows = (
+        db.execute(
+            select(FetchRun).where(
+                FetchRun.status.in_(("running", "queued")),
+                FetchRun.started_at < cutoff,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        row.status = "failed"
+        row.finished_at = now
+        row.error_message = (
+            "Interrupted: the process running this fetch stopped before it finished. "
+            "Ingested notices were committed as they arrived; re-run to pick up the rest."
+        )
+    if rows:
+        db.commit()
+        log_ctx(logger, logging.WARNING, "reaped interrupted runs", runs=len(rows))
+    return len(rows)
 
 
 def last_batch(db: Session) -> list[FetchRun]:

@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
+    # A run is executed in-process, so it cannot survive a restart. Any run
+    # still marked running/queued after this long is orphaned, not alive.
+    # Comfortably above the ~13 minutes a full live sweep takes.
+    stale_run_minutes: int = 60
 
     # --- notifications (Slack incoming webhook) ---
     enable_slack_notifications: bool = True

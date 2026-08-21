@@ -77,9 +77,9 @@ export function Drawer({ open, onClose, label, className, children, onKeyDown }:
       aria-label={label}
       aria-hidden={!open}
       tabIndex={-1}
-      // Fully removed from the tab order while closed: a translated-off panel is
-      // still focusable, which strands keyboard users in an invisible form.
-      style={open ? undefined : { visibility: 'hidden' }}
+      // Visibility is handled in CSS (see .drawer / .drawer.is-on): hidden while
+      // closed so a translated-off panel cannot be tabbed into, but delayed on
+      // close so the slide-out animation still plays.
     >
       {children}
     </aside>

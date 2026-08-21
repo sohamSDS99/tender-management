@@ -17,6 +17,8 @@ Contract
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -213,21 +215,23 @@ def settle(
     response_code: int | None = None,
     error: str | None = None,
     now: datetime | None = None,
+    batch_id: str | None = None,
 ) -> None:
-    """Record the outcome of the POST against every claimed row."""
+    """Record the outcome of the POST against the rows this run claimed.
+
+    Scoped by ``run_batch_id`` when given: a run must never overwrite the
+    outcome of a claim belonging to a concurrent run.
+    """
     now = now or utcnow()
     if not tenders:
         return
-    rows = (
-        db.execute(
-            select(SlackNotification).where(
-                SlackNotification.tender_id.in_([t.id for t in tenders]),
-                SlackNotification.channel_label == channel,
-            )
-        )
-        .scalars()
-        .all()
-    )
+    conditions = [
+        SlackNotification.tender_id.in_([t.id for t in tenders]),
+        SlackNotification.channel_label == channel,
+    ]
+    if batch_id is not None:
+        conditions.append(SlackNotification.run_batch_id == batch_id)
+    rows = db.execute(select(SlackNotification).where(*conditions)).scalars().all()
     for row in rows:
         row.status = status
         row.response_code = response_code
@@ -292,6 +296,25 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def safe_url(url: str | None) -> str | None:
+    """Return ``url`` only if it is safe to place inside Slack's <url|text> syntax.
+
+    Notice URLs arrive from eight external feeds. Slack's link syntax is
+    delimited by ``<``, ``|`` and ``>``, so a URL containing any of them can
+    close the link early and inject arbitrary mrkdwn - including a link whose
+    visible text says one thing and whose target is another. A non-http(s)
+    scheme is refused outright.
+    """
+    if not url:
+        return None
+    candidate = url.strip()
+    if not candidate.lower().startswith(("http://", "https://")):
+        return None
+    if any(ch in candidate for ch in "<>|") or any(ch in candidate for ch in "\n\r\t"):
+        return None
+    return candidate
+
+
 def _clip(text: str, limit: int) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
@@ -327,7 +350,10 @@ def tender_blocks(tender: Tender, settings: Settings, now: datetime | None = Non
             "type": "section",
             "fields": [
                 {"type": "mrkdwn", "text": f"*Buyer*\n{_escape(_clip(tender.buyer_name or '—', 60))}"},
-                {"type": "mrkdwn", "text": f"*Country*\n{tender.buyer_country or '—'}"},
+                {
+                    "type": "mrkdwn",
+                    "text": f"*Country*\n{_escape(_clip(tender.buyer_country or '—', 40))}",
+                },
                 {"type": "mrkdwn", "text": f"*Deadline*\n{marker} {deadline_text}"},
                 {
                     "type": "mrkdwn",
@@ -340,9 +366,10 @@ def tender_blocks(tender: Tender, settings: Settings, now: datetime | None = Non
     reasons = tender.relevance_reasons or []
     if reasons:
         elements.append({"type": "mrkdwn", "text": f":white_check_mark: {_escape(_clip(reasons[0], 200))}"})
-    tail = f"`{tender.source}`"
-    if tender.source_url:
-        tail += f" · <{tender.source_url}|Original notice>"
+    tail = f"`{_escape(tender.source)}`"
+    notice_url = safe_url(tender.source_url)
+    if notice_url:
+        tail += f" · <{notice_url}|Original notice>"
     elements.append({"type": "mrkdwn", "text": tail})
     blocks.append({"type": "context", "elements": elements})
     return blocks
@@ -424,23 +451,67 @@ def build_heartbeat(
 # --- delivery --------------------------------------------------------------
 
 
+RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+
+
+def _retry_after(response: httpx.Response, fallback: float) -> float:
+    """Honour Slack's Retry-After, as the connectors do for the tender APIs."""
+    raw = response.headers.get("Retry-After")
+    if raw:
+        try:
+            return max(0.0, min(60.0, float(raw)))
+        except ValueError:
+            pass
+    return fallback
+
+
 def post_webhook(
     payload: dict[str, Any],
     settings: Settings | None = None,
     client: httpx.Client | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[int | None, str | None]:
-    """POST to the incoming webhook. Returns (status_code, error). Never raises."""
+    """POST to the incoming webhook. Returns (status_code, error). Never raises.
+
+    Retries a rate-limit or a 5xx a bounded number of times with backoff, so a
+    momentary Slack blip does not cost a digest that then waits twelve hours for
+    the next run. A 4xx other than 429 is not retried: an invalid payload will
+    not become valid.
+    """
     settings = settings or get_settings()
     owns = client is None
     client = client or httpx.Client(timeout=settings.slack_timeout_seconds)
+    attempts = max(1, settings.max_retries)
+    last: tuple[int | None, str | None] = (None, "no attempt was made")
     try:
-        response = client.post(settings.slack_webhook_url, json=payload)
-        if response.status_code >= 400:
+        for attempt in range(1, attempts + 1):
+            try:
+                response = client.post(settings.slack_webhook_url, json=payload)
+            except Exception as exc:
+                last = (None, redact(f"{type(exc).__name__}: {exc}", settings))
+                if attempt == attempts:
+                    break
+                sleep(settings.retry_backoff_seconds * attempt)
+                continue
+
+            if response.status_code < 400:
+                return response.status_code, None
+
             # Slack replies with a bare reason string, e.g. "invalid_payload".
-            return response.status_code, redact(response.text[:500], settings)
-        return response.status_code, None
-    except Exception as exc:
-        return None, redact(f"{type(exc).__name__}: {exc}", settings)
+            last = (response.status_code, redact(response.text[:500], settings))
+            if response.status_code not in RETRYABLE_STATUS or attempt == attempts:
+                break
+            delay = _retry_after(response, settings.retry_backoff_seconds * attempt)
+            log_ctx(
+                logger,
+                logging.WARNING,
+                "slack post retrying",
+                status=response.status_code,
+                attempt=attempt,
+                delay=delay,
+            )
+            sleep(delay)
+        return last
     finally:
         if owns:
             client.close()
@@ -457,6 +528,7 @@ def notify_new_tenders(
     now: datetime | None = None,
     client: httpx.Client | None = None,
     dry_run: bool = False,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> DigestOutcome:
     """Announce this run's new qualifying tenders. Exactly once, or not at all.
 
@@ -494,7 +566,7 @@ def notify_new_tenders(
 
     if not claimed:
         payload = build_heartbeat(settings, run_summary=run_summary, trigger=trigger, now=now)
-        code, error = post_webhook(payload, settings, client)
+        code, error = post_webhook(payload, settings, client, sleep)
         outcome = DigestOutcome(
             status="heartbeat" if error is None else "failed",
             candidates=len(candidates),
@@ -513,9 +585,9 @@ def notify_new_tenders(
         return outcome
 
     payload = build_digest(claimed, settings, total_candidates=len(claimed), trigger=trigger, now=now)
-    code, error = post_webhook(payload, settings, client)
+    code, error = post_webhook(payload, settings, client, sleep)
     if error is None:
-        settle(db, claimed, channel, SENT, code, None, now)
+        settle(db, claimed, channel, SENT, code, None, now, batch_id=batch_id)
         log_ctx(
             logger,
             logging.INFO,
@@ -535,7 +607,7 @@ def notify_new_tenders(
 
     # Release the claims as 'failed' so the next run retries instead of going
     # quiet forever. Ingested data is untouched.
-    settle(db, claimed, channel, FAILED, code, error, now)
+    settle(db, claimed, channel, FAILED, code, error, now, batch_id=batch_id)
     log_ctx(logger, logging.ERROR, "slack digest failed", attempted=len(claimed), code=code, error=error)
     return DigestOutcome(
         status="failed",
