@@ -1,48 +1,87 @@
-"""Scheduled fetching (APScheduler, in-process, no broker)."""
+"""In-process scheduled fetching (APScheduler, no broker).
+
+Two cron triggers a day at the local hours in ``SCHEDULER_HOURS_LOCAL``, in the
+``SCHEDULER_TIMEZONE`` - not an interval, and not a hand-computed UTC offset.
+APScheduler is given the zone itself, so "midnight in Dhaka" stays correct
+without any arithmetic here.
+
+Off unless ``ENABLE_SCHEDULER=true``. Exactly one trigger owner may be enabled at
+a time or the same window is fetched twice; see docs/DECISIONS.md (D2). The job
+body is the *same* ``run_once`` the CLI entrypoint and the GitHub Actions
+workflow call, so there is one run implementation, not three.
+"""
 
 from __future__ import annotations
 
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
+from app.jobs.schedule import next_run_local
+from app.jobs.scheduled_fetch import run_once
 from app.logging_config import log_ctx
-from app.services.ingest import run_fetch
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-JOB_ID = "fetch-all-sources"
+JOB_PREFIX = "scheduled-fetch"
+TRIGGER_NAME = "cron"
 _scheduler: AsyncIOScheduler | None = None
 
 
+def job_id(hour_local: int) -> str:
+    return f"{JOB_PREFIX}-{hour_local:02d}"
+
+
 async def _job() -> None:
-    run_ids = await run_fetch(trigger="scheduled")
-    log_ctx(logger, logging.INFO, "scheduled fetch dispatched", runs=len(run_ids))
+    """One complete run. Records trigger='cron' on every FetchRun row it creates."""
+    report = await run_once(trigger=TRIGGER_NAME)
+    log_ctx(
+        logger,
+        logging.INFO if report.exit_code == 0 else logging.ERROR,
+        "scheduled fetch finished",
+        batch=report.batch_id,
+        created=report.created,
+        slack=report.notification.get("status"),
+        exit=report.exit_code,
+    )
 
 
 def start_scheduler(settings: Settings) -> AsyncIOScheduler | None:
-    """Idempotent: a uvicorn --reload restart replaces the job instead of adding one."""
+    """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding."""
     global _scheduler
     if not settings.enable_scheduler:
-        log_ctx(logger, logging.INFO, "scheduler disabled")
+        log_ctx(logger, logging.INFO, "scheduler disabled", reason="ENABLE_SCHEDULER=false")
         return None
     if _scheduler is not None:
         return _scheduler
-    scheduler = AsyncIOScheduler(timezone="UTC")
-    scheduler.add_job(
-        _job,
-        trigger="interval",
-        hours=max(1, settings.fetch_interval_hours),
-        id=JOB_ID,
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=3600,
-    )
+
+    hours = settings.scheduler_hour_list or [0, 12]
+    scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+    for hour in hours:
+        scheduler.add_job(
+            _job,
+            trigger=CronTrigger(hour=hour, minute=0, timezone=settings.scheduler_timezone),
+            id=job_id(hour),
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            # A run delayed by a sleeping host still counts: the window is
+            # overlapping and every upsert is idempotent, so catching up late is
+            # strictly better than skipping.
+            misfire_grace_time=3600,
+        )
     scheduler.start()
     _scheduler = scheduler
-    log_ctx(logger, logging.INFO, "scheduler started", interval_hours=settings.fetch_interval_hours)
+    log_ctx(
+        logger,
+        logging.INFO,
+        "scheduler started",
+        timezone=settings.scheduler_timezone,
+        hours_local=",".join(str(h) for h in hours),
+        next_run=next_run_local(None, tuple(hours), settings.scheduler_timezone).isoformat(),
+    )
     return scheduler
 
 

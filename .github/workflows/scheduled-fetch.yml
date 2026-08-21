@@ -1,0 +1,243 @@
+# Twice-daily tender sweep.
+#
+# The business rule is "00:00 and 12:00 Asia/Dhaka". Actions cron is UTC-only and
+# has no timezone field, so the converted hours live here and
+# tests/test_jobs_schedule.py asserts this file still agrees with
+# app/jobs/schedule.py. Do not edit a cron line without running that test.
+#
+#   00:00 Asia/Dhaka (UTC+6, no DST) -> 18:00 UTC the previous day -> 0 18 * * *
+#   12:00 Asia/Dhaka                 -> 06:00 UTC the same day     -> 0 6  * * *
+#
+# Two database modes, chosen by whether the DATABASE_URL secret exists:
+#
+#   persistent  DATABASE_URL is set -> writes to that database and posts to Slack.
+#   ephemeral   no secret           -> runs the identical pipeline against a
+#               throwaway Postgres service container and *renders* the Slack
+#               payload without posting. Idempotency is guaranteed by the
+#               slack_notifications ledger, which a throwaway database cannot
+#               keep - so posting from one would duplicate on every run.
+name: Scheduled fetch
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'live = call the real connectors; replay = re-load the committed seed fixtures (deterministic demo)'
+        type: choice
+        options: [live, replay]
+        default: live
+      days_back:
+        description: 'Lookback window in days (blank = FETCH_LOOKBACK_DAYS; a 72h minimum is always enforced)'
+        type: string
+        default: ''
+      sources:
+        description: 'Space-separated source names (blank = every enabled source)'
+        type: string
+        default: ''
+
+# One sweep at a time. A delayed cron run must queue behind the previous one
+# rather than fetch the same window concurrently.
+concurrency:
+  group: scheduled-fetch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    name: Fetch, score and notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # Always started (a service block cannot be conditional); only used in
+    # ephemeral mode. Costs a few seconds and keeps one code path.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tender
+          POSTGRES_PASSWORD: tender
+          POSTGRES_DB: tenders
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tender -d tenders"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Secrets are referenced, never echoed. `||` falls back when a secret is unset.
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql+psycopg://tender:tender@localhost:5432/tenders' }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL || 'http://localhost:8080' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      SAM_GOV_API_KEY: ${{ secrets.SAM_GOV_API_KEY }}
+      # 'true' / 'false' string - the secret value itself never reaches the shell.
+      HAS_PERSISTENT_DB: ${{ secrets.DATABASE_URL != '' }}
+      HAS_SLACK: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+      ENABLE_SCHEDULER: 'false'
+      RUN_MIGRATIONS_ON_STARTUP: 'false'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Decide the run mode
+        id: mode
+        env:
+          # Dispatch inputs are attacker-controlled text. They reach the shell
+          # only as environment variables, never spliced into the script body.
+          IN_MODE: ${{ inputs.mode }}
+          IN_DAYS_BACK: ${{ inputs.days_back }}
+          IN_SOURCES: ${{ inputs.sources }}
+        run: |
+          set -euo pipefail
+
+          if [ "$HAS_PERSISTENT_DB" = "true" ]; then
+            db=persistent
+            if [ "$HAS_SLACK" = "true" ]; then
+              notify_flag=""; slack=post
+            else
+              notify_flag="--dry-run-notify"; slack=no-webhook
+            fi
+          else
+            # A throwaway database cannot keep the slack_notifications ledger,
+            # so posting from one would re-announce everything on every run.
+            db=ephemeral
+            notify_flag="--dry-run-notify"
+            slack=dry-run
+          fi
+
+          if [ "${IN_MODE:-live}" = "replay" ]; then
+            source_flag="--seed --seed-reset"
+          else
+            source_flag=""
+          fi
+
+          # Validate before use: a lookback must be digits, a source name must
+          # look like a connector name. Anything else stops the run.
+          days="${IN_DAYS_BACK:-}"
+          if [ -n "$days" ]; then
+            case "$days" in
+              ''|*[!0-9]*)
+                echo "::error title=Invalid input::days_back must be a whole number, got '$days'"
+                exit 1 ;;
+            esac
+          fi
+
+          sources="${IN_SOURCES:-}"
+          if [ -n "$sources" ] && ! printf '%s' "$sources" | grep -Eq '^[a-z_][a-z0-9_]*( [a-z_][a-z0-9_]*)*$'; then
+            echo "::error title=Invalid input::sources must be space-separated connector names"
+            exit 1
+          fi
+
+          {
+            echo "db=$db"
+            echo "slack=$slack"
+            echo "notify_flag=$notify_flag"
+            echo "source_flag=$source_flag"
+            echo "days_back=$days"
+            echo "sources=$sources"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "database=$db slack=$slack mode=${IN_MODE:-live}"
+
+      - name: Wait for the ephemeral database
+        if: steps.mode.outputs.db == 'ephemeral'
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U tender -d tenders >/dev/null 2>&1; then
+              echo "postgres ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error title=Database unreachable::the ephemeral Postgres service never became ready"
+          exit 1
+
+      - name: Apply migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run the sweep
+        id: run
+        working-directory: backend
+        env:
+          DAYS_BACK: ${{ steps.mode.outputs.days_back }}
+          SOURCES: ${{ steps.mode.outputs.sources }}
+          SOURCE_FLAG: ${{ steps.mode.outputs.source_flag }}
+          NOTIFY_FLAG: ${{ steps.mode.outputs.notify_flag }}
+        run: |
+          set -uo pipefail
+          set -- --trigger cron
+          # Both flags are produced by this workflow, not by user input, so
+          # splitting them on whitespace is safe and intended.
+          for flag in $SOURCE_FLAG $NOTIFY_FLAG; do set -- "$@" "$flag"; done
+          if [ -n "$DAYS_BACK" ]; then set -- "$@" --days-back "$DAYS_BACK"; fi
+          if [ -n "$SOURCES" ]; then
+            set -- "$@" --sources
+            for name in $SOURCES; do set -- "$@" "$name"; done
+          fi
+          echo "running: python -m app.jobs.scheduled_fetch $* --json"
+          python -m app.jobs.scheduled_fetch "$@" --json > report.json
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Summarise the run
+        if: always()
+        env:
+          MODE_DB: ${{ steps.mode.outputs.db }}
+          MODE_SLACK: ${{ steps.mode.outputs.slack }}
+          RUN_EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+          RUN_MODE: ${{ inputs.mode || 'live' }}
+        run: python scripts/ci_summary.py backend/report.json
+
+      - name: Upload the run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend/report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Failure must be loud. A silently-green sweep that ingested nothing is the
+      # one outcome that would let a broken pipeline go unnoticed for weeks.
+      - name: Fail loudly on a bad run
+        if: always()
+        run: |
+          set -euo pipefail
+          code="${{ steps.run.outputs.exit_code }}"
+          case "$code" in
+            0)
+              echo "sweep completed" ;;
+            1)
+              echo "::error title=Ingest failed::Every source failed, or no source ran. See the run report artifact."
+              exit 1 ;;
+            2)
+              echo "::error title=Slack notification failed::Tenders were ingested and are safe, but the digest was not delivered. The ledger marked them retryable; the next run will re-announce them."
+              exit 1 ;;
+            *)
+              echo "::error title=Sweep crashed::the entrypoint exited with code '$code'"
+              exit 1 ;;
+          esac

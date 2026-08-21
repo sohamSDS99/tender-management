@@ -14,6 +14,7 @@ from app.connectors.registry import SOURCE_NAMES, source_catalog
 from app.db import get_db
 from app.models import FetchRun, Tender, utcnow
 from app.schemas import (
+    AutomationStatus,
     FetchRequest,
     FetchResponse,
     FetchRunSchema,
@@ -24,7 +25,8 @@ from app.schemas import (
     TenderDetail,
     TenderPage,
 )
-from app.services import ingest
+from app.security import require_cron_secret
+from app.services import automation, ingest
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -39,8 +41,25 @@ def settings_dep() -> Settings:
 
 @router.get("/health", tags=["system"])
 def health(db: Session = Depends(get_db)) -> dict[str, object]:
-    db.execute(select(func.count(Tender.id))).scalar_one()
-    return {"status": "ok", "time": utcnow().isoformat() + "Z"}
+    """Liveness plus a real database round-trip, naming the engine it reached."""
+    tenders = db.execute(select(func.count(Tender.id))).scalar_one()
+    return {
+        "status": "ok",
+        "time": utcnow().isoformat() + "Z",
+        "database": {"dialect": db.get_bind().dialect.name, "ok": True, "tenders": tenders},
+    }
+
+
+@router.get("/api/automation", response_model=AutomationStatus, tags=["system"])
+def automation_status(
+    db: Session = Depends(get_db), settings: Settings = Depends(settings_dep)
+) -> dict[str, object]:
+    """Next scheduled run, last run's outcome and Slack health.
+
+    This is what replaced the manual-fetch buttons: the dashboard can report the
+    automation without being able to start it.
+    """
+    return automation.automation_status(db, settings)
 
 
 @router.get("/api/sources", response_model=list[SourceStatus], tags=["sources"])
@@ -212,7 +231,14 @@ def get_tender(tender_id: int, db: Session = Depends(get_db)) -> Tender:
     return row
 
 
-@router.post("/api/fetch", response_model=FetchResponse, status_code=202, tags=["fetch"])
+@router.post(
+    "/api/fetch",
+    response_model=FetchResponse,
+    status_code=202,
+    tags=["fetch"],
+    dependencies=[Depends(require_cron_secret)],
+    summary="Operator/CI only - requires the X-Cron-Secret header",
+)
 async def trigger_fetch(
     payload: FetchRequest | None = None, settings: Settings = Depends(settings_dep)
 ) -> dict[str, object]:
@@ -239,7 +265,13 @@ def list_fetch_runs(
     return db.execute(stmt).scalars().all()
 
 
-@router.post("/api/tenders/rescore", response_model=RescoreResponse, tags=["tenders"])
+@router.post(
+    "/api/tenders/rescore",
+    response_model=RescoreResponse,
+    tags=["tenders"],
+    dependencies=[Depends(require_cron_secret)],
+    summary="Operator/CI only - requires the X-Cron-Secret header",
+)
 def rescore(db: Session = Depends(get_db)) -> RescoreResponse:
     get_engine.cache_clear()  # pick up edits to relevance_profiles.yaml
     return RescoreResponse(rescored=ingest.rescore_all(db))

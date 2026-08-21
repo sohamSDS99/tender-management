@@ -159,3 +159,46 @@ class StatsResponse(UtcModel):
 
 class RescoreResponse(BaseModel):
     rescored: int
+
+
+class SlackState(BaseModel):
+    status: str
+    detail: str | None = None
+    sent_total: int = 0
+    sent_in_last_batch: int = 0
+    channel_label: str | None = None
+    min_score: int | None = None
+
+
+class LastRunError(BaseModel):
+    source: str
+    message: str
+
+
+class LastRun(UtcModel):
+    batch_id: str | None
+    trigger: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    started_at_local_label: str
+    sources_total: int
+    sources_failed: int
+    records_received: int
+    records_created: int
+    records_updated: int
+    errors: list[LastRunError] = Field(default_factory=list)
+
+
+class AutomationStatus(UtcModel):
+    """Read-only replacement for the removed manual-fetch controls."""
+
+    timezone: str
+    run_hours_local: list[int]
+    cron_utc: list[str]
+    observes_dst: bool
+    next_run_at: datetime
+    next_run_local_label: str
+    scheduler_in_process: bool
+    last_run: LastRun | None
+    slack: SlackState

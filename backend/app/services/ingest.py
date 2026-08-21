@@ -186,7 +186,11 @@ def rescore_all(db: Session, engine: RelevanceEngine | None = None) -> int:
 
 
 def _create_runs(
-    sources: Sequence[str], date_from: datetime, date_to: datetime, trigger: str
+    sources: Sequence[str],
+    date_from: datetime,
+    date_to: datetime,
+    trigger: str,
+    batch_id: str | None = None,
 ) -> dict[str, int]:
     """Create one queued FetchRun row per source and return {source: run_id}."""
     db = SessionLocal()
@@ -199,6 +203,7 @@ def _create_runs(
                 window_from=date_from,
                 window_to=date_to,
                 trigger=trigger,
+                batch_id=batch_id,
             )
             for source in sources
         ]
@@ -304,13 +309,14 @@ async def run_fetch(
     days_back: int | None = None,
     trigger: str = "manual",
     settings: Settings | None = None,
+    batch_id: str | None = None,
 ) -> list[int]:
     """Fetch the given sources concurrently and wait for completion."""
     settings = settings or get_settings()
     selected, _busy, date_from, date_to = _plan(sources, days_back, settings)
     if not selected:
         return []
-    run_ids = _create_runs(selected, date_from, date_to, trigger)
+    run_ids = _create_runs(selected, date_from, date_to, trigger, batch_id)
     return await _run_sources(run_ids, date_from, date_to, settings)
 
 
@@ -319,11 +325,12 @@ async def start_fetch(
     days_back: int | None = None,
     trigger: str = "manual",
     settings: Settings | None = None,
+    batch_id: str | None = None,
 ) -> dict[str, object]:
     """Create the FetchRun rows, then keep fetching in the background."""
     settings = settings or get_settings()
     selected, busy, date_from, date_to = _plan(sources, days_back, settings)
-    run_ids = _create_runs(selected, date_from, date_to, trigger) if selected else {}
+    run_ids = _create_runs(selected, date_from, date_to, trigger, batch_id) if selected else {}
     if run_ids:
         asyncio.create_task(_run_sources(run_ids, date_from, date_to, settings))
     return {

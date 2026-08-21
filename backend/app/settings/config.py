@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -40,7 +41,13 @@ class Settings(BaseSettings):
     # AusTender RSS, PNCP) are prefiltered on topical terms before storage.
     apply_keyword_prefilter: bool = True
     page_size: int = 100
-    enable_scheduler: bool = True
+    # Off by default so no process ever fetches unexpectedly. Exactly one
+    # trigger owner may enable it; see docs/DECISIONS.md (D2).
+    enable_scheduler: bool = False
+    # Two runs a day, expressed in Dhaka local time. Asia/Dhaka is UTC+6 with
+    # no DST; the offset is never computed by hand - see app/jobs/schedule.py.
+    scheduler_timezone: str = "Asia/Dhaka"
+    scheduler_hours_local: str = "0,12"
     # Both CanadaBuys and AusTender sit behind WAFs that reject non-browser-shaped
     # UA strings; this form identifies the tool and is accepted by every source.
     user_agent: str = "Mozilla/5.0 (compatible; tender-monitor/0.1)"
@@ -66,6 +73,29 @@ class Settings(BaseSettings):
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
+
+    # --- notifications (Slack incoming webhook) ---
+    enable_slack_notifications: bool = True
+    # Secret. Never logged; redacted by app.settings.redact().
+    slack_webhook_url: str = ""
+    slack_min_score: int = 70
+    slack_channel_label: str = "#tenders"
+    slack_max_items: int = 8
+    slack_timeout_seconds: int = 15
+    # A 'pending' claim older than this is treated as abandoned (process died
+    # mid-post) and may be retried. Only a 'sent' claim suppresses forever.
+    slack_claim_stale_minutes: int = 30
+
+    # --- public surfaces ---
+    # Base URL of the dashboard. Slack entries deep-link to
+    # {public_app_url}/?tender={id}, which Dashboard.tsx already reads.
+    public_app_url: str = "http://localhost:8080"
+    # Secret. Shared secret for POST /api/fetch and POST /api/tenders/rescore.
+    # Empty means the write endpoints are refused outright (fail closed).
+    cron_secret: str = ""
+    # /docs and /openapi.json. Fine on a local host; turn off before the API
+    # is ever reachable from the internet (README section 12).
+    enable_api_docs: bool = True
 
     @model_validator(mode="after")
     def _resolve_relative_paths(self) -> Settings:
@@ -100,6 +130,47 @@ class Settings(BaseSettings):
 
     def source_enabled(self, source_name: str) -> bool:
         return bool(getattr(self, f"enable_{source_name}", False))
+
+    @property
+    def scheduler_hour_list(self) -> list[int]:
+        """Local-time hours for the scheduled fetch, in the scheduler timezone."""
+        out: list[int] = []
+        for chunk in self.scheduler_hours_local.split(","):
+            chunk = chunk.strip()
+            if chunk.isdigit() and 0 <= int(chunk) <= 23:
+                out.append(int(chunk))
+        return sorted(set(out))
+
+    @property
+    def app_base_url(self) -> str:
+        return self.public_app_url.rstrip("/")
+
+    @property
+    def slack_configured(self) -> bool:
+        return bool(self.enable_slack_notifications and self.slack_webhook_url)
+
+
+SECRET_FIELDS = ("slack_webhook_url", "cron_secret", "sam_gov_api_key", "database_url")
+
+
+def redact(text: str, settings: Settings | None = None) -> str:
+    """Strip secret values out of any string before it is logged or persisted.
+
+    The connectors already write `api_key=***`; this keeps that convention for
+    the settings that arrived with deployment (webhook URL, cron secret, DSN
+    password) so a stack trace or FetchRun.error_message can never leak one.
+    """
+    settings = settings or get_settings()
+    out = text
+    for field in SECRET_FIELDS:
+        value = getattr(settings, field, "") or ""
+        if field == "database_url":
+            # Only the password inside a DSN is secret, not the whole URL.
+            out = re.sub(r"(?<=://)([^:/@\s]+):([^@/\s]+)(?=@)", r"\1:***", out)
+            continue
+        if len(value) >= 8:
+            out = out.replace(value, "***")
+    return re.sub(r"(api_key|apikey|token)=[^&\s]+", r"\1=***", out, flags=re.IGNORECASE)
 
 
 @lru_cache

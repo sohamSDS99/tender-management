@@ -43,7 +43,11 @@ class Tender(Base):
     title: Mapped[str] = mapped_column(String(1024), default="")
     description: Mapped[str | None] = mapped_column(Text)
     buyer_name: Mapped[str | None] = mapped_column(String(512))
-    buyer_country: Mapped[str | None] = mapped_column(String(8), index=True)
+    # Wide enough for a full country name, not just an ISO code: the World Bank
+    # feed emits "Indonesia" and the OCDS feeds emit whatever the buyer filed.
+    # SQLite ignores VARCHAR limits, so an 8-char cap silently dropped those
+    # rows only on PostgreSQL.
+    buyer_country: Mapped[str | None] = mapped_column(String(64), index=True)
     delivery_location: Mapped[str | None] = mapped_column(String(512))
 
     # --- dates (always UTC) ---
@@ -101,3 +105,6 @@ class FetchRun(Base):
     window_from: Mapped[datetime | None] = mapped_column(DateTime)
     window_to: Mapped[datetime | None] = mapped_column(DateTime)
     trigger: Mapped[str] = mapped_column(String(32), default="manual")
+    # Groups the per-source runs of one scheduled sweep, so a run can be
+    # correlated with the slack_notifications rows it produced.
+    batch_id: Mapped[str | None] = mapped_column(String(64), index=True)
