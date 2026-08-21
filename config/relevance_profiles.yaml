@@ -1,0 +1,866 @@
+# ---------------------------------------------------------------------------
+# Relevance configuration for the tender monitor.
+#
+# Company profile: cloud-hosted SaaS platform for Safety Data Sheet (SDS)
+# management / authoring / distribution, chemical & GHS compliance and EHS
+# management (incidents, inspections, audits, CAPA, risk, contractor safety).
+# A tender that mandates on-premises / offline / air-gapped delivery is not a
+# suitable opportunity.
+#
+# MATCHING CONTRACT (important when editing this file)
+#   * Every phrase and every regex below is matched against *normalized* text:
+#     lower-cased, accents folded (ficha -> ficha, données -> donnees),
+#     punctuation replaced by single spaces, whitespace collapsed.
+#     So write "cloud based platform", never "cloud-based platform";
+#     write "buyers data centre", never "buyer's data center".
+#   * Phrases are matched on whole-word boundaries (the normalizer guarantees
+#     single spaces, so a padded substring search is boundary-safe).
+#   * `patterns:` entries are Python regular expressions over the same text.
+# ---------------------------------------------------------------------------
+version: 3
+
+weights:
+  # Final score = topic*0.55 + product/deployment fit*0.30 + procurement intent*0.15
+  topic: 0.55
+  product_fit: 0.30
+  procurement_intent: 0.15
+  # Per-phrase points inside a profile.
+  phrase_points: {strong: 26, medium: 12, weak: 5}
+  # A hit in the title counts this much more than a hit in the description.
+  title_multiplier: 1.9
+  buyer_context_points: 6      # buyer name looks like a chemical/EHS/IT authority
+  # Distinct-concept bonus: more separate relevant concepts => higher confidence.
+  distinct_concept_points: 5
+  distinct_concept_max: 20
+  # A second profile scoring above `module_threshold` adds cross-module credit.
+  secondary_profile_ratio: 0.28
+  module_threshold: 25
+  module_bonus: 7
+  module_bonus_max: 21
+  classification_code_points: 12
+  classification_code_max: 24
+  # Multiplier applied to the *final* score when the deadline has passed or the
+  # notice is cancelled/awarded. The topic subscore is kept intact.
+  expired_multiplier: 0.65
+  cancelled_multiplier: 0.7
+
+bands:                  # display bands / fit_status thresholds
+  excellent_fit: 85     # -> high_fit
+  good_fit: 70          # -> good_fit
+  possible_fit: 50      # -> possible_fit
+  weak_fit: 25          # 25-49 is "weak fit" and reported as not_fit
+  manual_review_min: 50 # review triggers below this stay in their band
+
+# Hard ceilings on the final score. The lowest applicable cap wins.
+caps:
+  mandatory_on_premises: 20
+  offline_or_air_gapped: 20
+  chemical_purchase_sds_doc: 15
+  ehs_service_no_software: 35
+  physical_equipment_or_ppe: 10
+  unrelated_sds_acronym: 15
+
+# ---------------------------------------------------------------------------
+# Capability profiles
+# ---------------------------------------------------------------------------
+profiles:
+  sds_management:
+    label: SDS management
+    strong:
+      - safety data sheet management
+      - safety data sheet management system
+      - sds management
+      - sds management system
+      - sds management software
+      - sds management platform
+      - sds software
+      - sds platform
+      - sds system
+      - sds solution
+      - safety data sheet software
+      - safety data sheet system
+      - safety data sheet platform
+      - sds library
+      - sds database
+      - safety data sheet database
+      - safety data sheet register
+      - safety data sheet repository
+      - centralised sds
+      - centralized sds
+      - chemical inventory management
+      - chemical inventory software
+      - chemical inventory system
+      - gestion des fiches de donnees de securite
+      - sicherheitsdatenblatt management
+      - sicherheitsdatenblatter verwaltung
+      - gefahrstoffmanagement
+      - gestion de fichas de datos de seguridad
+      - gestao de fichas de dados de seguranca
+    medium:
+      - sds
+      - safety data sheet
+      - safety data sheets
+      - material safety data sheet
+      - msds
+      - esds
+      - extended safety data sheet
+      - chemical inventory
+      - chemical register
+      - hazardous substance register
+      - chemical management
+      - chemical management system
+      - substance management
+      - product stewardship
+      - fiche de donnees de securite
+      - fiches de donnees de securite
+      - gestion des produits chimiques
+      - sicherheitsdatenblatt
+      - sicherheitsdatenblatter
+      - ficha de datos de seguridad
+      - gestion de sustancias quimicas
+      - ficha de dados de seguranca
+      - gestao de produtos quimicos
+    weak:
+      - chemical
+      - chemicals
+      - hazardous substance
+      - hazardous substances
+      - substance
+      - mixture
+      - dangerous goods
+
+  sds_authoring:
+    label: SDS authoring
+    strong:
+      - sds authoring
+      - sds authoring software
+      - sds authoring system
+      - sds authoring platform
+      - safety data sheet authoring
+      - safety data sheet authoring software
+      - authoring of safety data sheets
+      - authoring safety data sheets
+      - sds generation
+      - safety data sheet generation
+      - generation of safety data sheets
+      - creation of safety data sheets
+      - regulatory authoring
+      - erstellung von sicherheitsdatenblattern
+      - redaction des fiches de donnees de securite
+      - elaboracion de fichas de datos de seguridad
+    medium:
+      - hazard classification
+      - hazard classifications
+      - classification and labelling
+      - classification and labeling
+      - chemical labelling
+      - chemical labeling
+      - ghs label
+      - ghs labels
+      - label authoring
+      - exposure scenario
+      - exposure scenarios
+      - regulatory content
+      - safety data sheet template
+      - safety data sheet templates
+      - substance mixture calculation
+      - phrase library
+    weak:
+      - authoring
+      - translation of safety data sheets
+      - multilingual safety data sheets
+
+  sds_distribution:
+    label: SDS distribution
+    strong:
+      - sds distribution
+      - safety data sheet distribution
+      - distribution of safety data sheets
+      - sds portal
+      - safety data sheet portal
+      - employee access to safety data sheets
+      - customer access to safety data sheets
+      - access to safety data sheets
+      - sds access
+      - safety data sheet access
+      - sds binder
+      - workplace access to safety data sheets
+    medium:
+      - hazard communication
+      - hazcom
+      - right to know
+      - chemical labelling and distribution
+      - qr code access
+      - mobile access to safety data sheets
+      - safety data sheet lookup
+      - sds request
+    weak:
+      - distribution
+      - dissemination
+
+  chemical_compliance:
+    label: Chemical and GHS compliance
+    strong:
+      - chemical compliance
+      - chemical regulatory compliance
+      - chemical compliance platform
+      - chemical compliance software
+      - reach compliance
+      - clp compliance
+      - ghs compliance
+      - poison centre notification
+      - poison center notification
+      - regulatory compliance for chemicals
+      - chemical regulatory content
+      - substance volume tracking
+    medium:
+      - ghs
+      - globally harmonized system
+      - globally harmonised system
+      - reach
+      - clp regulation
+      - clp
+      - whmis
+      - coshh
+      - pcn
+      - ufi
+      - reach regulation
+      - regulation 1907 2006
+      - regulation 1272 2008
+      - osha hazard communication standard
+      - chemical regulatory
+      - dangerous substances directive
+      - seveso
+    weak:
+      - regulatory
+      - compliance
+      - hazard
+      - hazards
+
+  ehs_platform:
+    label: EHS platform
+    strong:
+      - ehs software
+      - ehs platform
+      - ehs management system
+      - ehs management software
+      - ehsq software
+      - hse software
+      - hse platform
+      - hse management system
+      - qhse software
+      - qhse platform
+      - hsse management system
+      - health and safety management system
+      - occupational health and safety management system
+      - environment health and safety software
+      - environmental health and safety software
+      - environmental health and safety platform
+      - environmental health and safety management system
+      - safety management software
+      - safety management platform
+      - safety management system software
+      - logiciel hse
+      - logiciel qhse
+      - arbeitsschutzmanagement
+      - arbeitsschutzmanagement software
+      - hse managementsystem
+      - sistema de gestion de seguridad y salud en el trabajo
+      - software de seguridad y salud en el trabajo
+      - saude seguranca e meio ambiente
+      - sistema de gestao de saude e seguranca
+    medium:
+      - ehs
+      - hse
+      - hsse
+      - qhse
+      - environment health and safety
+      - environmental health and safety
+      - occupational health and safety
+      - occupational safety
+      - occupational safety and health
+      - workplace safety
+      - environmental management system
+      - iso 14001
+      - iso 45001
+      - ohsas 18001
+      - compliance management
+      - compliance management system
+      - permit to work
+      - contractor safety
+      - contractor management
+      - industrial hygiene
+      - emissions management
+      - waste management system
+      - environmental compliance
+      - sustainability reporting
+      - esg reporting
+      - management of change
+      - seguridad y salud en el trabajo
+      - securite et sante au travail
+      - gestion de la securite
+    weak:
+      - safety
+      - environmental
+      - health and safety
+      - dashboards
+      - workflow automation
+
+  incident_management:
+    label: Incident management
+    strong:
+      - incident management system
+      - incident management software
+      - incident management platform
+      - incident reporting system
+      - incident reporting software
+      - incident and accident management
+      - accident management system
+      - near miss reporting
+      - near miss management
+      - incident investigation software
+      - safety incident management
+      - incident reporting and investigation
+      - gestion des incidents
+      - vorfallmanagement
+      - gestion de incidentes
+      - gestao de incidentes
+    medium:
+      - incident management
+      - incident reporting
+      - accident reporting
+      - accident management
+      - near miss
+      - near misses
+      - root cause analysis
+      - corrective action
+      - corrective actions
+      - corrective and preventive action
+      - capa
+      - injury reporting
+      - lost time injury
+      - safety observation
+      - safety observations
+      - hazard reporting
+    weak:
+      - incident
+      - incidents
+      - accident
+      - accidents
+
+  inspection_management:
+    label: Inspection management
+    strong:
+      - inspection management system
+      - inspection management software
+      - inspection management platform
+      - digital inspection platform
+      - inspection and checklist software
+      - mobile inspection app
+      - safety inspection software
+      - inspection scheduling software
+      - gestion des inspections
+      - inspektionsmanagement
+      - gestion de inspecciones
+      - gestao de inspecoes
+    medium:
+      - inspection management
+      - safety inspection
+      - safety inspections
+      - inspection checklist
+      - inspection checklists
+      - site inspection reporting
+      - workplace inspection
+      - equipment inspection records
+      - checklist management
+      - mobile data collection
+    weak:
+      - inspection
+      - inspections
+      - checklist
+
+  audit_management:
+    label: Audit management
+    strong:
+      - audit management system
+      - audit management software
+      - audit management platform
+      - audit and compliance software
+      - internal audit software
+      - audit tracking system
+      - compliance audit software
+      - audit findings management
+      - gestion des audits
+      - auditmanagement
+      - gestion de auditorias
+      - gestao de auditorias
+    medium:
+      - audit management
+      - audit trail
+      - audit findings
+      - audit programme
+      - audit program
+      - compliance audit
+      - management review
+      - nonconformance management
+      - non conformance management
+      - risk assessment
+      - risk register
+      - risk assessment software
+    weak:
+      - audit
+      - audits
+      - assessment
+
+# ---------------------------------------------------------------------------
+# Product / deployment fit (30% of the final score)
+# ---------------------------------------------------------------------------
+product_fit:
+  points: {strong: 14, medium: 9, weak: 4}
+  max: 70
+  strong:
+    - cloud based platform
+    - cloud based solution
+    - cloud based system
+    - cloud based software
+    - cloud hosted solution
+    - cloud hosted platform
+    - cloud solution
+    - saas
+    - software as a service
+    - saas platform
+    - saas solution
+    - vendor hosted
+    - vendor hosted platform
+    - supplier hosted
+    - hosted solution
+    - hosted service
+    - managed cloud service
+    - subscription software
+    - subscription based software
+    - annual subscription
+    - web based platform
+    - web based solution
+    - web based system
+    - browser based system
+    - browser based application
+    - multi tenant
+    - software licensing
+    - software licence
+    - software license
+  medium:
+    - cloud
+    - web based
+    - browser based
+    - api integration
+    - rest api
+    - single sign on
+    - sso
+    - saml
+    - mobile and web access
+    - mobile application
+    - mobile app
+    - multi site access
+    - multi language
+    - centralised platform
+    - centralized platform
+    - software implementation
+    - implementation and configuration
+    - data migration
+    - system configuration
+    - system integration
+    - user licences
+    - user licenses
+    - named users
+    - support and maintenance
+    - technical support and maintenance
+    - hosting and maintenance
+    - training and support
+    - service level agreement
+    - uptime
+    - reporting and dashboards
+    - dashboards and reporting
+    - workflow automation
+    - role based access
+  weak:
+    - software
+    - platform
+    - system
+    - solution
+    - digital
+    - licence
+    - license
+    - subscription
+    - integration
+    - migration
+    - configuration
+    - implementation
+    - maintenance
+    - support
+
+# Deployment classification. Checked in this order: hybrid, offline,
+# mandatory on-premises, cloud required, cloud preferred, cloud allowed.
+deployment:
+  hybrid:
+    label: Cloud and on-premises both permitted
+    patterns:
+      - "(cloud|saas|hosted)[^.]{0,60}(or|and or|and/or|as well as)[^.]{0,40}(on premise|on premises|locally (installed|hosted)|self hosted)"
+      - "(on premise|on premises|self hosted|locally (installed|hosted))[^.]{0,60}(or|and or|and/or|as well as)[^.]{0,40}(cloud|saas|hosted)"
+      - "optional(ly)?[^.]{0,40}(on premise|on premises|locally hosted|self hosted)"
+      - "(on premise|on premises|local)[^.]{0,30}deployment (is )?(optional|also possible|an option)"
+      - "either cloud or on premise"
+      - "both cloud and on premise"
+      - "hybrid (cloud|deployment|hosting)"
+  offline_or_air_gapped:
+    label: Offline / air-gapped operation required
+    patterns:
+      - "air gapped"
+      - "air gap(ped)? (environment|network|deployment)"
+      - "offline only (system|solution|operation)"
+      - "(must|shall) (operate|function) (fully |entirely )?offline"
+      - "no internet (connectivity|connection|access) (is )?(permitted|allowed)"
+      - "internet connectivity is prohibited"
+      - "without any internet connection"
+  mandatory_on_premises:
+    label: Mandatory on-premises deployment
+    patterns:
+      - "on premises only"
+      - "on premise only"
+      - "mandatory on premises( deployment)?"
+      - "on premises deployment is mandatory"
+      - "(must|shall) be installed on (the )?(customer|client|buyer|authority)s? (own )?servers"
+      - "(must|shall) be installed (locally|on local servers|on our servers)"
+      - "local server installation (is )?required"
+      - "(must|shall) (operate|run|reside) entirely within the (buyer|authority|customer|client)s? (own )?data cent"
+      - "self hosted only"
+      - "no external cloud services"
+      - "cloud (hosting|services) (is|are) (not permitted|prohibited|not allowed|excluded)"
+      - "cloud solutions? (are|is) (not permitted|prohibited|not allowed|excluded)"
+      - "deployment within government owned infrastructure only"
+      - "all application components (must|shall) reside on the (buyer|authority|customer)s? network"
+      - "source code (must|shall) be deployed and operated by the (buyer|authority|customer)"
+      - "perpetual locally installed software only"
+      - "(installed|hosted) exclusively (in|on|within) the (buyer|authority|customer|client)s? (own )?(data cent|network|infrastructure|servers)"
+      - "exclusively (in|on|within) the (buyer|authority|customer|client)s? (own )?data cent"
+  cloud_required:
+    label: Cloud / SaaS explicitly required
+    patterns:
+      - "(cloud|saas) (deployment|hosting|delivery|solution|platform|service|model) (is |will be )?(required|mandatory|expected)"
+      - "(must|shall|will) be (hosted|operated|delivered|provided|run) (by the )?(vendor|supplier|contractor|provider)"
+      - "(hosted|provided|operated) by the (vendor|supplier|contractor) as (a )?(managed )?(cloud|saas|service)"
+      - "(must|shall|will) be (hosted )?in the cloud"
+      - "(plataforma|solucao|software|sistema|servico) em nuvem"
+      - "software como servico"
+      - "(plataforma|solucion|sistema|software) en la nube"
+      - "en mode saas"
+      - "(loesung|losung|plattform|software|system) in der cloud"
+      - "(must|shall) be (a )?(cloud|saas|software as a service)"
+      - "(cloud|saas) (based )?(solution|platform|system|software|service) (is )?(required|mandatory)"
+      - "(must|shall) be (cloud based|cloud hosted|vendor hosted|supplier hosted|fully hosted)"
+      - "(must|shall) be (delivered|provided) as (a )?(software as a service|saas|cloud service)"
+      - "(only|exclusively) (cloud|saas) (based )?(solutions|offers|proposals)"
+      - "software as a service (saas )?(model|basis|solution) (is )?(required|mandatory)"
+  cloud_preferred:
+    label: Cloud / SaaS preferred
+    patterns:
+      - "(cloud|saas)[^.]{0,30}(is|are) (preferred|preferable|desirable|favoured|favored)"
+      - "prefer(ably|red)?[^.]{0,30}(cloud|saas|hosted) (solution|platform|service|based)"
+      - "(cloud|saas) first"
+  cloud_allowed:
+    label: Cloud / SaaS permitted
+    patterns:
+      - "(will|would|can|may) consider[^.]{0,50}(cloud|saas|software as a service|hosted)"
+      - "(cloud|saas|software as a service)[^.]{0,30}(subscription|licence|license) (is |would be )?(acceptable|considered|welcome)"
+      - "(cloud|saas|hosted)[^.]{0,30}(is|are) (permitted|allowed|acceptable|accepted|possible)"
+      - "may be (cloud|saas|vendor) hosted"
+      - "(cloud|saas) (deployment|hosting) (is )?(permitted|allowed|acceptable|an option)"
+
+# Deployment nuances that need a human, not an automatic rejection.
+deployment_review:
+  patterns:
+    - "private cloud"
+    - "community cloud"
+    - "government cloud"
+    - "sovereign cloud"
+    - "g cloud"
+    - "data (must|shall) (be |remain )?(stored |hosted )?(only |exclusively )?(with)?in (the )?(eu|eea|uk|country|national territory)"
+    - "hosting (provider|environment) (selected|chosen|provided) by the (buyer|authority|customer|client)"
+    - "(buyer|authority|customer)s? own (tenant|subscription|azure|aws|cloud) (environment|account|tenancy)"
+    - "iso 27001 certification (is )?(required|mandatory)"
+  reason: "Hosting model needs review (private/government cloud or buyer-provided hosting)"
+
+# ---------------------------------------------------------------------------
+# Procurement intent (15% of the final score)
+# ---------------------------------------------------------------------------
+procurement_intent:
+  # Every record we ingest *is* a public procurement notice, so intent starts
+  # from a baseline instead of zero; phrases below add on top of it.
+  baseline: 20
+  points: {strong: 22, medium: 12, weak: 5}
+  max: 100
+  strong:
+    - supply and implementation of software
+    - provision of a software solution
+    - procurement of software
+    - purchase of software
+    - software procurement
+    - supply of a software system
+    - acquisition of a software
+    - software licences and support
+    - software licenses and support
+    - implementation of a management system software
+    - framework agreement for software
+    - subscription licences
+    - subscription licenses
+    - subscription licensing
+    - annual software subscription
+    - saas subscription
+    - digital solution procurement
+    - it system procurement
+  medium:
+    - tender for the supply
+    - request for proposal
+    - invitation to tender
+    - framework agreement
+    - call for tenders
+    - contract notice
+    - supply and installation
+    - licences
+    - licenses
+    - implementation services
+    - configuration and training
+    - migration of existing data
+    - integration with existing systems
+    - maintenance and support services
+    - hosting services
+    - licensing
+    - acquisition of
+    - provision of a platform
+    - provision of a system
+    - seeks to procure
+    - wishes to procure
+    - requires a software
+    - requires a platform
+    - requires a system
+    - acquerir un logiciel
+    - adquisicion de software
+    - aquisicao de software
+    - software development services
+    - it services
+  weak:
+    - procurement
+    - purchase
+    - supply
+    - services
+    - contract
+
+# ---------------------------------------------------------------------------
+# Classification codes are score signals only, never mandatory filters.
+# Config codes are matched as prefixes after trailing zeros are stripped.
+# ---------------------------------------------------------------------------
+classification_codes:
+  cpv:
+    "48000000": Software package and information systems
+    "72000000": IT services
+    "72200000": Software programming and consultancy
+    "72300000": Data services
+    "71317200": Health and safety services
+    "71317210": Health and safety consultancy services
+    "90710000": Environmental management
+    "90713000": Environmental issues consultancy services
+    "90714000": Environmental auditing
+  unspsc:
+    "43231500": Business function specific software
+    "81111500": Software or hardware engineering
+    "81162000": Information technology consulting
+    "77101500": Environmental management
+    "77101800": Environmental auditing
+    "77111500": Environmental protection services
+  naics:
+    "513210": Software publishers
+    "541511": Custom computer programming services
+    "541512": Computer systems design services
+    "541519": Other computer related services
+    "541620": Environmental consulting services
+
+# Buyer-context hints: buyers whose remit makes EHS/SDS software plausible.
+buyer_context:
+  patterns:
+    - "(chemical|chemie|quimic|chimic)"
+    - "(environment|environmental|umwelt|milieu|ambiental)"
+    - "(health and safety|occupational|arbeitsschutz|inspectorate)"
+    - "(pharma|laborator|refinery|petrochemical|mining|manufactur)"
+    - "(agency|authority|ministry|council|university|hospital)"
+
+# ---------------------------------------------------------------------------
+# Ambiguous acronym handling. "SDS" only counts when chemical/regulatory
+# context appears within `window` characters.
+# ---------------------------------------------------------------------------
+ambiguous_acronyms:
+  sds:
+    window: 200
+    cap_key: unrelated_sds_acronym
+    flag_when_missing_context: true
+    context_terms:
+      - chemical
+      - chemicals
+      - hazard
+      - hazardous
+      - ghs
+      - msds
+      - safety data sheet
+      - safety data sheets
+      - authoring
+      - distribution
+      - regulatory
+      - reach
+      - clp
+      - whmis
+      - chemical inventory
+      - substance
+      - substances
+      - mixture
+      - label
+      - labelling
+      - labeling
+      - exposure scenario
+      - poison
+      - hazcom
+      - coshh
+      - sicherheitsdatenblatt
+      - fiche de donnees de securite
+      - ficha de datos de seguridad
+      - ficha de dados de seguranca
+    unrelated_patterns:
+      - "software defined storage"
+      - "software defined (networking|data cent)"
+      - "structured data service"
+      - "sales data service"
+      - "sds page"
+      - "students for a democratic society"
+    missing_context_flag: "The abbreviation 'SDS' appears without chemical, hazard or regulatory context - confirm the meaning"
+    unrelated_reason: "'SDS' is used in an unrelated sense (e.g. software-defined storage)"
+  reach:
+    # "reach" is an ordinary English verb; only count it as the EU REACH
+    # regulation when chemical/regulatory context is nearby. No review flag:
+    # the plain-English use is far too common to be worth surfacing.
+    window: 150
+    flag_when_missing_context: false
+    context_terms:
+      - chemical
+      - chemicals
+      - substance
+      - substances
+      - mixture
+      - mixtures
+      - clp
+      - ghs
+      - echa
+      - svhc
+      - annex
+      - regulation
+      - registration
+      - authorisation
+      - authorization
+      - restriction
+      - safety data sheet
+      - safety data sheets
+      - msds
+      - sds
+      - exposure scenario
+      - candidate list
+      - 1907
+      - 2006
+      - compliance
+    unrelated_patterns: []
+
+# ---------------------------------------------------------------------------
+# False positives. Each group caps the final score unless the tender also
+# shows genuine software-platform intent (see `software_override`).
+# ---------------------------------------------------------------------------
+false_positives:
+  chemical_purchase_sds_doc:
+    reason: "Buying chemicals/materials where an SDS is only a required delivery document, not an SDS platform"
+    cap_key: chemical_purchase_sds_doc
+    software_override: true
+    patterns:
+      - "(supply|delivery|purchase|provision|procurement) of [^.]{0,60}(chemical|chemicals|reagent|reagents|solvent|solvents|paint|paints|fuel|diesel|petrol|lubricant|cleaning (product|agent|material)|detergent|disinfectant|gas cylinder|laboratory (consumable|supplies|product))"
+      - "(safety data sheet|safety data sheets|sds|msds)[^.]{0,60}(must|shall|should|to) be (provided|supplied|submitted|attached|included|delivered|made available) (with|for|to)"
+      - "(supplier|contractor|tenderer|bidder|vendor)s? (must|shall|should|is required to) (provide|supply|submit|attach|upload|include)[^.]{0,60}(safety data sheet|safety data sheets|sds|msds)"
+      - "(accompanied|together) (by|with)[^.]{0,40}(safety data sheet|safety data sheets|msds)"
+      - "upload[^.]{0,40}(safety data sheet|sds|msds) as[^.]{0,30}attachment"
+      - "(safety data sheet|sds|msds)[^.]{0,40}(for (each|every|all) (chemical|product|item|substance) (delivered|supplied|offered))"
+      - "(copies of|copy of) (the )?(safety data sheets|safety data sheet|msds)[^.]{0,40}(shall|must|to) be"
+      - "product safety documentation (must|shall) be (provided|submitted)"
+  ehs_service_no_software:
+    reason: "EHS consultancy, training or staffing rather than an EHS software platform"
+    cap_key: ehs_service_no_software
+    software_override: true
+    patterns:
+      - "(safety|ehs|hse) (training|awareness training|induction training) (courses?|services?|programme|program)"
+      - "provision of (safety|ehs|hse|health and safety) (training|consultancy|consulting|advisory) services"
+      - "(appointment|provision|supply) of (a )?(safety officer|safety officers|safety advisor|safety adviser|hse officer|health and safety consultant)"
+      - "(construction|site) safety (supervision|supervisor|inspector)"
+      - "environmental impact (study|studies|assessment|assessments)"
+      - "environmental (sampling|monitoring services|laboratory testing|analysis services)"
+      - "(occupational health|medical) (staffing|personnel|physician|nurse) services"
+      - "(audit|inspection) services (to be )?(performed|carried out|undertaken) by (a )?(consultant|consultants|third party)"
+      - "temporary (safety|hse) personnel"
+      - "asbestos (survey|surveys|removal|abatement|consultancy|consulting|management|analytical) (service|services|framework|contract|works)?"
+      - "(recruitment|hiring|appointment|engagement) of (a |an )?(consulting firm|consultancy firm|consultant|consultants|specialist|adviser|advisor|expert)"
+      - "(consulting|consultancy) services (for|to) (the )?(implementation|design|development|preparation|study)"
+      - "legionella risk assessment"
+      - "fire risk assessment services"
+  physical_equipment_or_ppe:
+    reason: "Physical safety equipment / PPE purchase, not software"
+    cap_key: physical_equipment_or_ppe
+    software_override: false
+    patterns:
+      - "personal protective equipment"
+      - "\\bppe\\b"
+      - "(supply|purchase|delivery|procurement) of [^.]{0,50}(safety (boots|shoes|helmets|harness|gloves|glasses|goggles|vests)|protective (clothing|footwear|gloves|equipment)|respirator|respirators|hard hats)"
+      - "fire (extinguisher|extinguishers|hose|hydrant|suppression system|alarm system|detection system)"
+      - "(supply|installation|maintenance) of fire (protection|fighting) (equipment|systems)"
+      - "emergency response (equipment|vehicles)"
+      - "first aid (kits|supplies|equipment)"
+      - "eyewash (station|stations)"
+      - "fume (cupboard|hood|cupboards|hoods)"
+      - "gas detection (equipment|instruments|devices)"
+      - "safety signage"
+      - "spill (kits|containment equipment)"
+
+# Phrases that prove a genuine software platform purchase and therefore
+# neutralise the "software_override: true" false-positive caps above.
+software_override_phrases:
+  - safety data sheet management
+  - sds management
+  - sds authoring
+  - safety data sheet authoring
+  - sds distribution
+  - safety data sheet distribution
+  - chemical inventory management
+  - chemical compliance platform
+  - chemical management software
+  - ehs software
+  - ehs platform
+  - hse software
+  - ehs management system
+  - incident management software
+  - incident management system
+  - inspection management software
+  - audit management software
+  - management information system
+  - saas
+  - software as a service
+  - software licences
+  - software licenses
+  - software platform
+  - software solution
+  - cloud based platform
+  - cloud hosted platform
+  - web based platform
+  - implementation of the software
+  - software implementation
+
+# Statuses treated as non-actionable regardless of score.
+inactive_statuses: [cancelled, canceled, awarded, closed, complete, completed, withdrawn, expired]

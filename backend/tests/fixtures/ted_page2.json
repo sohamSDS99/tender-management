@@ -1,0 +1,172 @@
+{
+ "notices": [
+  {
+   "place-of-performance": [
+    "RO315",
+    "ROU",
+    "RO315",
+    "ROU"
+   ],
+   "description-lot": {
+    "ron": [
+     "Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita Valoarea estimată a contractului, 2.372.200,00 lei fara TVA, conform studiului de oportunitate şi bugetului aprobat, cuprinde umătoarele categorii de cheltuieli: 1. Dotare/echipamente IT: 476.076.00 00 lei fara TVA 2. Servicii achizitionare/dezvoltare soft –uri: 1.896.124,00 lei fara TVA"
+    ]
+   },
+   "notice-type": "can-standard",
+   "procedure-type": "open",
+   "publication-number": "503396-2025",
+   "classification-cpv": [
+    "72000000",
+    "72000000",
+    "30213100",
+    "30213200",
+    "30232000",
+    "30233140",
+    "31154000",
+    "32413100",
+    "32420000",
+    "35126000",
+    "39717000",
+    "48000000",
+    "48200000",
+    "48219500",
+    "48311000",
+    "48611000",
+    "48624000",
+    "48761000",
+    "48820000",
+    "51611100",
+    "72200000",
+    "72212517",
+    "72240000",
+    "72250000",
+    "72267000"
+   ],
+   "buyer-name": {
+    "ron": [
+     "Direcția de Sănătate Publică Ialomița"
+    ]
+   },
+   "publication-date": "2025-08-01+02:00",
+   "links": {
+    "xml": {
+     "MUL": "https://ted.europa.eu/en/notice/503396-2025/xml"
+    },
+    "pdf": {
+     "BUL": "https://ted.europa.eu/bg/notice/503396-2025/pdf",
+     "SPA": "https://ted.europa.eu/es/notice/503396-2025/pdf",
+     "CES": "https://ted.europa.eu/cs/notice/503396-2025/pdf",
+     "DAN": "https://ted.europa.eu/da/notice/503396-2025/pdf",
+     "DEU": "https://ted.europa.eu/de/notice/503396-2025/pdf",
+     "EST": "https://ted.europa.eu/et/notice/503396-2025/pdf",
+     "ELL": "https://ted.europa.eu/el/notice/503396-2025/pdf",
+     "ENG": "https://ted.europa.eu/en/notice/503396-2025/pdf",
+     "FRA": "https://ted.europa.eu/fr/notice/503396-2025/pdf",
+     "GLE": "https://ted.europa.eu/ga/notice/503396-2025/pdf",
+     "HRV": "https://ted.europa.eu/hr/notice/503396-2025/pdf",
+     "ITA": "https://ted.europa.eu/it/notice/503396-2025/pdf",
+     "LAV": "https://ted.europa.eu/lv/notice/503396-2025/pdf",
+     "LIT": "https://ted.europa.eu/lt/notice/503396-2025/pdf",
+     "HUN": "https://ted.europa.eu/hu/notice/503396-2025/pdf",
+     "MLT": "https://ted.europa.eu/mt/notice/503396-2025/pdf",
+     "NLD": "https://ted.europa.eu/nl/notice/503396-2025/pdf",
+     "POL": "https://ted.europa.eu/pl/notice/503396-2025/pdf",
+     "POR": "https://ted.europa.eu/pt/notice/503396-2025/pdf",
+     "RON": "https://ted.europa.eu/ro/notice/503396-2025/pdf",
+     "SLK": "https://ted.europa.eu/sk/notice/503396-2025/pdf",
+     "SLV": "https://ted.europa.eu/sl/notice/503396-2025/pdf",
+     "FIN": "https://ted.europa.eu/fi/notice/503396-2025/pdf",
+     "SWE": "https://ted.europa.eu/sv/notice/503396-2025/pdf"
+    },
+    "pdfs": {
+     "RON": "https://ted.europa.eu/ro/notice/503396-2025/pdfs"
+    },
+    "html": {
+     "BUL": "https://ted.europa.eu/bg/notice/-/detail/503396-2025",
+     "SPA": "https://ted.europa.eu/es/notice/-/detail/503396-2025",
+     "CES": "https://ted.europa.eu/cs/notice/-/detail/503396-2025",
+     "DAN": "https://ted.europa.eu/da/notice/-/detail/503396-2025",
+     "DEU": "https://ted.europa.eu/de/notice/-/detail/503396-2025",
+     "EST": "https://ted.europa.eu/et/notice/-/detail/503396-2025",
+     "ELL": "https://ted.europa.eu/el/notice/-/detail/503396-2025",
+     "ENG": "https://ted.europa.eu/en/notice/-/detail/503396-2025",
+     "FRA": "https://ted.europa.eu/fr/notice/-/detail/503396-2025",
+     "GLE": "https://ted.europa.eu/ga/notice/-/detail/503396-2025",
+     "HRV": "https://ted.europa.eu/hr/notice/-/detail/503396-2025",
+     "ITA": "https://ted.europa.eu/it/notice/-/detail/503396-2025",
+     "LAV": "https://ted.europa.eu/lv/notice/-/detail/503396-2025",
+     "LIT": "https://ted.europa.eu/lt/notice/-/detail/503396-2025",
+     "HUN": "https://ted.europa.eu/hu/notice/-/detail/503396-2025",
+     "MLT": "https://ted.europa.eu/mt/notice/-/detail/503396-2025",
+     "NLD": "https://ted.europa.eu/nl/notice/-/detail/503396-2025",
+     "POL": "https://ted.europa.eu/pl/notice/-/detail/503396-2025",
+     "POR": "https://ted.europa.eu/pt/notice/-/detail/503396-2025",
+     "RON": "https://ted.europa.eu/ro/notice/-/detail/503396-2025",
+     "SLK": "https://ted.europa.eu/sk/notice/-/detail/503396-2025",
+     "SLV": "https://ted.europa.eu/sl/notice/-/detail/503396-2025",
+     "FIN": "https://ted.europa.eu/fi/notice/-/detail/503396-2025",
+     "SWE": "https://ted.europa.eu/sv/notice/-/detail/503396-2025"
+    },
+    "htmlDirect": {
+     "BUL": "https://ted.europa.eu/bg/notice/503396-2025/html",
+     "SPA": "https://ted.europa.eu/es/notice/503396-2025/html",
+     "CES": "https://ted.europa.eu/cs/notice/503396-2025/html",
+     "DAN": "https://ted.europa.eu/da/notice/503396-2025/html",
+     "DEU": "https://ted.europa.eu/de/notice/503396-2025/html",
+     "EST": "https://ted.europa.eu/et/notice/503396-2025/html",
+     "ELL": "https://ted.europa.eu/el/notice/503396-2025/html",
+     "ENG": "https://ted.europa.eu/en/notice/503396-2025/html",
+     "FRA": "https://ted.europa.eu/fr/notice/503396-2025/html",
+     "GLE": "https://ted.europa.eu/ga/notice/503396-2025/html",
+     "HRV": "https://ted.europa.eu/hr/notice/503396-2025/html",
+     "ITA": "https://ted.europa.eu/it/notice/503396-2025/html",
+     "LAV": "https://ted.europa.eu/lv/notice/503396-2025/html",
+     "LIT": "https://ted.europa.eu/lt/notice/503396-2025/html",
+     "HUN": "https://ted.europa.eu/hu/notice/503396-2025/html",
+     "MLT": "https://ted.europa.eu/mt/notice/503396-2025/html",
+     "NLD": "https://ted.europa.eu/nl/notice/503396-2025/html",
+     "POL": "https://ted.europa.eu/pl/notice/503396-2025/html",
+     "POR": "https://ted.europa.eu/pt/notice/503396-2025/html",
+     "RON": "https://ted.europa.eu/ro/notice/503396-2025/html",
+     "SLK": "https://ted.europa.eu/sk/notice/503396-2025/html",
+     "SLV": "https://ted.europa.eu/sl/notice/503396-2025/html",
+     "FIN": "https://ted.europa.eu/fi/notice/503396-2025/html",
+     "SWE": "https://ted.europa.eu/sv/notice/503396-2025/html"
+    }
+   },
+   "buyer-country": [
+    "ROU"
+   ],
+   "total-value": 2362145.22,
+   "notice-title": {
+    "hun": "Románia – IT-szolgáltatások: tanácsadás, szoftverfejlesztés, internet és támogatás – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "lav": "Rumānija – IT pakalpojumi konsultēšana, programmatūras izstrāde, internets un atbalsts – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "swe": "Rumänien – IT-tjänster: konsultverksamhet, programvaruutveckling, Internet och stöd – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "gle": "An Rómáin – IT services: consulting, software development, Internet and support – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "ell": "Ρουμανία – Υπηρεσίες τεχνολογίας των πληροφοριών: παροχή συμβουλών, ανάπτυξη λογισμικού, Διαδίκτυο και υποστήριξη – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "spa": "Rumanía – Servicios TI: consultoría, desarrollo de software, Internet y apoyo – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "est": "Rumeenia – IT-teenused: nõuande-, tarkvaraarendus-, Interneti- ja tugiteenused – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "nld": "Roemenië – IT-diensten: adviezen, softwareontwikkeling, internet en ondersteuning – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "fin": "Romania – Tietotekniset palvelut: neuvonta, ohjelmistojen kehittäminen, Internet ja tuki – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "pol": "Rumunia – Usługi informatyczne: konsultacyjne, opracowywania oprogramowania, internetowe i wsparcia – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "hrv": "Rumunjska – Usluge informacijske tehnologije: savjetovanje, razvoj programske podrške, internet i podrška – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "ces": "Rumunsko – Informační technologie: poradenství, vývoj programového vybavení, internet a podpora – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "dan": "Rumænien – It-tjenester: rådgivning, programmeludvikling, internet og support – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "ron": "România – Servicii IT: consultanţă, dezvoltare de software, internet şi asistenţă – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "por": "Roménia – Serviços de TI: consultoria, desenvolvimento de software, Internet e apoio – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "slk": "Rumunsko – Služby informačných technológií: konzultácie, vývoj softvéru, internet a podpora – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "fra": "Roumanie – Services de technologies de l'information, conseil, développement de logiciels, internet et appui – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "mlt": "Ir-Rumanija – Servizzi ta' IT: konsulenza, żvilupp ta' softwer, Internet u appoġġ – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "deu": "Rumänien – IT-Dienste: Beratung, Software-Entwicklung, Internet und Hilfestellung – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "lit": "Rumunija – IT paslaugos: konsultavimas, programinės įrangos kūrimas, internetas ir aptarnavimo paslaugos – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "ita": "Romania – Servizi informatici: consulenza, sviluppo di software, Internet e supporto – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "bul": "Pyмъния – ИТ услуги: консултации, разработване на софтуер, Интернет и поддръжка – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "slv": "Romunija – Storitve informacijske tehnologije: svetovanje, razvoj programske opreme, internet in podpora – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita",
+    "eng": "Romania – IT services: consulting, software development, Internet and support – Servicii de dezvoltare și implementare a Sistemului Informatic Integrat si echipamentelor în cadrul proiectului “Digitalizarea infrastructurii institutiilor cu atributii in Domeniul Sanitar” Directia de Sanatate Publica a Judetului Ialomita"
+   }
+  }
+ ],
+ "totalNoticeCount": 2,
+ "iterationNextToken": null,
+ "timedOut": false
+}

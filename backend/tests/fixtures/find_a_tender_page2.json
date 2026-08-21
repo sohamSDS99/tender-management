@@ -1,0 +1,255 @@
+{
+ "uri": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2025-08-10T00:00:00&updatedTo=2025-08-12T00:00:00&limit=2",
+ "version": "1.1",
+ "extensions": [
+  "https://standard.open-contracting.org/profiles/eu/latest/en/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_amendment_rationale_classifications_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_budget_breakdown_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_contract_completion_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_documentation_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_pagination_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_suitability_extension/master/extension.json",
+  "https://raw.githubusercontent.com/portaledcahn/ocds_Links_extension/main/extension.json",
+  "https://raw.githubusercontent.com/cabinetoffice/ocds_uk_extension/main/extension.json"
+ ],
+ "publishedDate": "2025-08-11T22:16:02+01:00",
+ "publisher": {
+  "name": "Cabinet Office",
+  "scheme": "GB-GOR",
+  "uid": "D2",
+  "uri": "https://www.gov.uk/government/organisations/cabinet-office"
+ },
+ "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+ "publicationPolicy": "https://www.gov.uk/government/publications/open-contracting",
+ "releases": [
+  {
+   "id": "047807-2025",
+   "tag": [
+    "planningUpdate"
+   ],
+   "date": "2025-08-11T22:08:45+01:00",
+   "initiationType": "tender",
+   "planning": {
+    "documents": [
+     {
+      "id": "047807-2025",
+      "documentType": "plannedProcurementNotice",
+      "noticeType": "UK1",
+      "description": "Pipeline notice on Find a Tender",
+      "url": "https://www.find-tender.service.gov.uk/Notice/047807-2025",
+      "datePublished": "2025-08-11T22:08:45+01:00",
+      "format": "text/html"
+     }
+    ]
+   },
+   "ocid": "ocds-h6vhtk-0509c4",
+   "parties": [
+    {
+     "name": "Portsmouth City Council",
+     "id": "GB-PPON-PCNL-5714-PRZV",
+     "identifier": {
+      "scheme": "GB-PPON",
+      "id": "PCNL-5714-PRZV"
+     },
+     "address": {
+      "streetAddress": "Civic Offices, Guildhall Square",
+      "locality": "Portsmouth",
+      "postalCode": "PO1 2AL",
+      "country": "GB",
+      "countryName": "United Kingdom",
+      "region": "UKJ31"
+     },
+     "contactPoint": {
+      "email": "procurement@portsmouthcc.gov.uk"
+     },
+     "roles": [
+      "buyer"
+     ],
+     "details": {
+      "classifications": [
+       {
+        "scheme": "UK_CA_TYPE",
+        "id": "publicAuthoritySubCentralGovernment",
+        "description": "Public authority - sub-central government"
+       }
+      ]
+     }
+    }
+   ],
+   "buyer": {
+    "id": "GB-PPON-PCNL-5714-PRZV",
+    "name": "Portsmouth City Council"
+   },
+   "tender": {
+    "id": "ocds-h6vhtk-0509c4",
+    "legalBasis": {
+     "id": "2023/54",
+     "scheme": "UKPGA",
+     "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+    },
+    "title": "Portsmouth City Council - Term Service Contract for the Fire Safety Compliance Services for Council Managed Assets",
+    "description": "Portsmouth City Council (the Council) is seeking to appoint a contractor to deliver Fire Compliance Services across its housing stock, with an estimated annual value of between £500K and £1M. The contract will be let for an initial 5-year term, with the option to extend by up to a further 5 years in intervals to be agreed.\nThe scope of services will include statutory fire risk assessments, installation and maintenance of fire detection and prevention systems, inspection and servicing of fire doors and alarms, and ensuring ongoing compliance with all relevant fire safety legislation and guidance.\nBased on anticipated inflationary uplifts, regulatory requirements, and potential growth in housing stock, the total individual contract spends over the potential 10-year term (5-year base with options to extend) is expected to range between £6M to £11M. \nThe impacts of Local Government Review have not been considered in this current value and the likely increases in the total value of the opportunity, brought about through the reform, will be addressed when the formal tender notice is issued.\nHousing Stock Information\nThe Council has a housing stock of approximately 17,500 properties of which approximately 15,500 are socially rented and then there are approximately 2000 leasehold properties.  Within the stock there is a mix of housing types including houses and bungalows; however the majority of the dwellings are within purpose-built blocks of flats constructed in the 1950s and 1960s.\nTraditionally the estate has been spread across the two geographical areas of Portsea Island (on-island, PO1 to PO5) and Paulsgrove and Havant (off-island, PO6 to PO9).\nA recent acquisition of approximately 800 properties has however subsequently increased the 'off-island' area to sites in Gosport, Fareham and Winchester.\nChanging Context and Objectives\nOver the next 5-10 years the Council is expecting to experience a number of challenges with regards to the maintenance of its housing and general fund properties with any incumbent provider to work in partnership with the Council to ease pressures where they can.\nSignificant changes in legislation such as the Building Safety Act and Fire Safety Act will require greater scrutiny from suppliers to ensure they are working in a compliant way and may require them to adopt new skills such as undertaking works as a result of Building Safety Cases for buildings of 6+ storeys.\nThere will be more focus on the accuracy and timely manner of up-load of compliance information and ensuring repairs, particularly around damp and mould are well managed and resolved and will be monitored by the Social Housing Regulator.\nLocal Government Review\nAs part of the wider Local Government Review (LGR), the Council is required to actively engage in discussions with neighbouring authorities to explore potential opportunities for collaboration, shared service delivery, and governance alignment. While this engagement is ongoing, no formal decisions or agreements have been reached at this stage.\nUnder current LGR proposals, it is likely to require Portsmouth City Council to form a new Authority by merging with other neighbouring Authorities. For Portsmouth, this will result in a new Council being created to provide the same services to everyone in the city, whilst covering a larger area and have a different name. \nEffectively all the current council services in the area of the new council boundary would be merged to create a new Council.\nIn light of the ongoing LGR, any future procurement will be designed to ensure maximum flexibility in terms of scope, value, and geographical area. This flexibility is crucial to accommodate the evolving needs and structures of local authorities.\nAny tender opportunities and contracts will be structured to allow adjustments in the scope of services and the value of contracts to the Council to respond to changes in demand and budgetary constraints, whilst ensuring that services remain efficient and continue to provide value for money. Additionally, provisions will be included to adapt to changes in geographical boundaries resulting from any reorganisation. This will ensure that services can be extended or retracted to align with new administrative areas.\nIn the event of reorganisation, contracts will include clauses that allow for the assignment of the contract to successor authorities. Any assignment clause is likely to state any contract may be assigned to any new authority that succeeds the original contracting authority.\nFor further details in respect of LGR see the following link -\nhttps://www.portsmouth.gov.uk/services/council-and-democracy/devolution-and-plans-for-local-government-reorganisation/\nAnticipated Demand & Contracting Strategy\nThe Fire Compliance contract is a new addition to the previous Repairs & Maintenance (R&M) and Gas Servicing & Repairs contracts, which has been created in response to changing legislative requirements and the need for greater reporting around compliance activities.\nThe existing compliance activity is split between the Councils current R&M on and off island contractors and the commercial M&E contractor.  The intention is to consolidate these fire activities under a single contract.\nThe works will be spread across the 1155 block of residential flats, 550 Corporate Assets and 80 non-HRA buildings and will be run under and NEC 4 Option A Priced Activity contract with a base term of 5 year and the option to extend for a further 5 years in agreed increments. The Council are estimating a contract value in the region of £500k-£1m per annum.\nCore Scope of Works\nThe core scope of works will include but not limited to:\n•\tFire Alarm Testing and Repair\n•\tLightening Conductor Testing and Repair\n•\tVisual Fire Door Checks\n•\tSprinkler Testing and Repair\n•\tFire Damper Testing and Repair\n•\tFire Extinguishers\n•\tFire Stopping\n•\tDry and Wet Riser Testing and Repair\n•\tSmoke Vents\n•\tEvacuation Alert\n•\tOut of Hours\nAncillary Scope of Works\nThe contract may also require the following to covered or taken forward and will include but not limited to:\n•\tIntruder Alarm Testing and Repair\n•\tPAT Testing\n•\tPowered Doors\nPartnership Working\nIn addition to working in close partnership with the council, the supplier will also be required to work in partnership with the council's other existing term service contractor partners.\nSocial Value\nThe Council are committed to continuously reviewing and improving the approach to social value delivery, and suppliers can find further information using the following link -\nhttps://www.portsmouth.gov.uk/services/council-and-democracy/social-value/",
+    "items": [
+     {
+      "id": "1",
+      "additionalClassifications": [
+       {
+        "scheme": "CPV",
+        "id": "45311000",
+        "description": "Electrical wiring and fitting work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312100",
+        "description": "Fire-alarm system installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312310",
+        "description": "Lightning-protection works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312311",
+        "description": "Lightning-conductor installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315100",
+        "description": "Electrical engineering installation works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315400",
+        "description": "High voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315500",
+        "description": "Medium-voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315600",
+        "description": "Low-voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45321000",
+        "description": "Thermal insulation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45324000",
+        "description": "Plasterboard works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343100",
+        "description": "Fireproofing work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343200",
+        "description": "Firefighting equipment installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343210",
+        "description": "CO2 fire-extinguishing equipment installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343220",
+        "description": "Fire-extinguishers installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343230",
+        "description": "Sprinkler systems installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45351000",
+        "description": "Mechanical engineering installation works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45410000",
+        "description": "Plastering work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45420000",
+        "description": "Joinery and carpentry installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45430000",
+        "description": "Floor and wall covering work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45440000",
+        "description": "Painting and glazing work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "50710000",
+        "description": "Repair and maintenance services of electrical and mechanical building installations"
+       }
+      ],
+      "deliveryAddresses": [
+       {
+        "region": "UKJ31",
+        "country": "GB",
+        "countryName": "United Kingdom"
+       },
+       {
+        "region": "UKJ35",
+        "country": "GB",
+        "countryName": "United Kingdom"
+       }
+      ],
+      "relatedLot": "1"
+     }
+    ],
+    "value": {
+     "amountGross": 13200000,
+     "amount": 11000000,
+     "currency": "GBP"
+    },
+    "procurementMethodDetails": "Competitive flexible procedure",
+    "mainProcurementCategory": "services",
+    "aboveThreshold": true,
+    "lots": [
+     {
+      "id": "1",
+      "suitability": {
+       "sme": true
+      },
+      "contractPeriod": {
+       "startDate": "2026-08-03T00:00:00+01:00",
+       "endDate": "2031-08-02T23:59:59+01:00",
+       "maxExtentDate": "2036-08-02T23:59:59+01:00"
+      },
+      "hasRenewal": true,
+      "status": "planned"
+     }
+    ],
+    "communication": {
+     "futureNoticeDate": "2025-10-27T23:59:59Z"
+    },
+    "amendments": [
+     {
+      "description": "The date of issue and the expected programme have changed - \nFTS & Tender Notice issued - Monday 27th October 2025\nTender issued - CFP Stage 1 - Monday 27th October 2025\nDeadline for requests for clarification (Stage 1) - Friday 22nd November 2025 by 16:00\nCFP Stage 1 submission deadline - Friday 29th November 2025 by 12:00\nNotification of shortlisting decision - Monday 22nd December 2025\nFinal procurement documents published - CFP Stage 2 - Friday 9th January 2026\nDeadline for requests for clarification (Stage 2) - Friday 6th February 2026 by 16:00\nTender return deadline - Friday 21st February 2026 by 12:00\nContract Award Notice Published - Friday 10th April 2026\nStandstill and section 20 notification start - Monday 13th April 2026\nCorrected: Standstill finish - Wednesday 22nd April 2026\nSection 20 Notice Finish\t- Friday 15th May 2026\nContract award - Monday 18th May 2026\nContract commencement - Monday 3rd August 2026",
+      "id": "047807-2025"
+     }
+    ],
+    "status": "planned"
+   },
+   "language": "en"
+  }
+ ],
+ "links": {}
+}

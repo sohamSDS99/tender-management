@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      # Optional: `docker compose up --build` works with no .env at all.
+      - path: .env
+        required: false
+    environment:
+      # Container-local paths always win over whatever is in .env.
+      DATABASE_URL: sqlite:////app/data/tenders.db
+      RELEVANCE_CONFIG_PATH: /app/config/relevance_profiles.yaml
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "8080:80"
+    restart: unless-stopped

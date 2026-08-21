@@ -1,0 +1,330 @@
+{
+ "uri": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2025-08-10T00:00:00&updatedTo=2025-08-12T00:00:00&limit=2",
+ "version": "1.1",
+ "extensions": [
+  "https://standard.open-contracting.org/profiles/eu/latest/en/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_amendment_rationale_classifications_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_budget_breakdown_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_contract_completion_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_documentation_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_pagination_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_suitability_extension/master/extension.json",
+  "https://raw.githubusercontent.com/portaledcahn/ocds_Links_extension/main/extension.json",
+  "https://raw.githubusercontent.com/cabinetoffice/ocds_uk_extension/main/extension.json"
+ ],
+ "publishedDate": "2025-08-11T22:16:02+01:00",
+ "publisher": {
+  "name": "Cabinet Office",
+  "scheme": "GB-GOR",
+  "uid": "D2",
+  "uri": "https://www.gov.uk/government/organisations/cabinet-office"
+ },
+ "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+ "publicationPolicy": "https://www.gov.uk/government/publications/open-contracting",
+ "releases": [
+  {
+   "id": "047808-2025",
+   "tag": [
+    "planningUpdate"
+   ],
+   "date": "2025-08-11T22:16:02+01:00",
+   "initiationType": "tender",
+   "planning": {
+    "documents": [
+     {
+      "id": "047808-2025",
+      "documentType": "plannedProcurementNotice",
+      "noticeType": "UK3",
+      "description": "Planned procurement notice on Find a Tender",
+      "url": "https://www.find-tender.service.gov.uk/Notice/047808-2025",
+      "datePublished": "2025-08-11T22:16:02+01:00",
+      "format": "text/html"
+     }
+    ]
+   },
+   "ocid": "ocds-h6vhtk-0509c4",
+   "parties": [
+    {
+     "name": "Portsmouth City Council",
+     "id": "GB-PPON-PCNL-5714-PRZV",
+     "identifier": {
+      "scheme": "GB-PPON",
+      "id": "PCNL-5714-PRZV"
+     },
+     "address": {
+      "streetAddress": "Civic Offices, Guildhall Square",
+      "locality": "Portsmouth",
+      "postalCode": "PO1 2AL",
+      "country": "GB",
+      "countryName": "United Kingdom",
+      "region": "UKJ31"
+     },
+     "contactPoint": {
+      "email": "procurement@portsmouthcc.gov.uk"
+     },
+     "roles": [
+      "buyer"
+     ],
+     "details": {
+      "classifications": [
+       {
+        "scheme": "UK_CA_TYPE",
+        "id": "publicAuthoritySubCentralGovernment",
+        "description": "Public authority - sub-central government"
+       }
+      ]
+     }
+    }
+   ],
+   "buyer": {
+    "id": "GB-PPON-PCNL-5714-PRZV",
+    "name": "Portsmouth City Council"
+   },
+   "tender": {
+    "id": "ocds-h6vhtk-0509c4",
+    "legalBasis": {
+     "id": "2023/54",
+     "scheme": "UKPGA",
+     "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+    },
+    "title": "Portsmouth City Council - Term Service Contract for the Fire Safety Compliance Services for Council Managed Assets",
+    "description": "Overview of Procurement Objectives\nPortsmouth City Council (the Council) is seeking to appoint a contractor to deliver Fire Compliance Services across its housing stock, with an estimated annual value of between £500K and £1M. The contract will be let for an initial 5-year term, with the option to extend by up to a further 5 years in intervals to be agreed.\nThe scope of services will include statutory fire risk assessments, installation and maintenance of fire detection and prevention systems, inspection and servicing of fire doors and alarms, and ensuring ongoing compliance with all relevant fire safety legislation and guidance.\nBased on anticipated inflationary uplifts, regulatory requirements, and potential growth in housing stock, the total individual contract spends over the potential 10-year term (5-year base with options to extend) is expected to range between £6M to £11M. The impacts of Local Government Review have not been considered in this current value and the likely increases in the total value of the opportunity, brought about through the reform, will be addressed when the formal tender notice is issued.\nHousing Stock Information\nThe Council has a housing stock of approximately 17,500 properties of which approximately 15,500 are socially rented and then there are approximately 2000 leasehold properties.  Within the stock there is a mix of housing types including houses and bungalows; however the majority of the dwellings are within purpose-built blocks of flats constructed in the 1950s and 1960s.\nTraditionally the estate has been spread across the two geographical areas of Portsea Island (on-island, PO1 to PO5) and Paulsgrove and Havant (off-island, PO6 to PO9).\nA recent acquisition of approximately 800 properties has however subsequently increased the 'off-island' area to sites in Gosport, Fareham and Winchester.\nChanging Context and Objectives\nOver the next 5-10 years the Council is expecting to experience a number of challenges with regards to the maintenance of its housing and general fund properties with any incumbent provider to work in partnership with the Council to ease pressures where they can.\nSignificant changes in legislation such as the Building Safety Act and Fire Safety Act will require greater scrutiny from suppliers to ensure they are working in a compliant way and may require them to adopt new skills such as undertaking works as a result of Building Safety Cases for buildings of 6+ storeys.\nThere will be more focus on the accuracy and timely manner of up-load of compliance information and ensuring repairs, particularly around damp and mould are well managed and resolved and will be monitored by the Social Housing Regulator.\nLocal Government Review\nAs part of the wider Local Government Review (LGR), the Council is required to actively engage in discussions with neighbouring authorities to explore potential opportunities for collaboration, shared service delivery, and governance alignment. While this engagement is ongoing, no formal decisions or agreements have been reached at this stage.\nUnder current LGR proposals, it is likely to require Portsmouth City Council to form a new Authority by merging with other neighbouring Authorities. For Portsmouth, this will result in a new Council being created to provide the same services to everyone in the city, whilst covering a larger area and have a different name. Effectively all the current council services in the area of the new council boundary would be merged to create a new Council.\nIn light of the ongoing LGR, any future procurement will be designed to ensure maximum flexibility in terms of scope, value, and geographical area. This flexibility is crucial to accommodate the evolving needs and structures of local authorities.\nAny tender opportunities and contracts will be structured to allow adjustments in the scope of services and the value of contracts to the Council to respond to changes in demand and budgetary constraints, whilst ensuring that services remain efficient and continue to provide value for money. Additionally, provisions will be included to adapt to changes in geographical boundaries resulting from any reorganisation. This will ensure that services can be extended or retracted to align with new administrative areas.\nIn the event of reorganisation, contracts will include clauses that allow for the assignment of the contract to successor authorities. Any assignment clause is likely to state any contract may be assigned to any new authority that succeeds the original contracting authority.\nFor further details in respect of LGR see the following link -\nhttps://www.portsmouth.gov.uk/services/council-and-democracy/devolution-and-plans-for-local-government-reorganisation/\nAnticipated Demand & Contracting Strategy\nThe Fire Compliance contract is a new addition to the previous Repairs & Maintenance (R&M) and Gas Servicing & Repairs contracts, which has been created in response to changing legislative requirements and the need for greater reporting around compliance activities.\nThe existing compliance activity is split between the Councils current R&M on and off island contractors and the commercial M&E contractor.  The intention is to consolidate these fire activities under a single contract.\nThe works will be spread across the 1155 block of residential flats, 550 Corporate Assets and 80 non-HRA buildings and will be run under and NEC 4 Option A Priced Activity contract with a base term of 5 year and the option to extend for a further 5 years in agreed increments. The Council are estimating a contract value in the region of £500k-£1m per annum.\nCore Scope of Works\nThe core scope of works will include but not limited to:\n•\tFire Alarm Testing and Repair\n•\tLightening Conductor Testing and Repair\n•\tVisual Fire Door Checks\n•\tSprinkler Testing and Repair\n•\tFire Damper Testing and Repair\n•\tFire Extinguishers\n•\tFire Stopping\n•\tDry and Wet Riser Testing and Repair\n•\tSmoke Vents\n•\tEvacuation Alert\n•\tOut of Hours\nAncillary Scope of Works\nThe contract may also require the following to covered or taken forward and will include but not limited to:\n•\tIntruder Alarm Testing and Repair\n•\tPAT Testing\n•\tPowered Doors\nPartnership Working\nIn addition to working in close partnership with the council, the supplier will also be required to work in partnership with the council's other existing term service contractor partners.\nSocial Value\nThe Council are committed to continuously reviewing and improving the approach to social value delivery, and suppliers can find further information using the following link -\nhttps://www.portsmouth.gov.uk/services/council-and-democracy/social-value/",
+    "status": "planned",
+    "items": [
+     {
+      "id": "1",
+      "additionalClassifications": [
+       {
+        "scheme": "CPV",
+        "id": "45311000",
+        "description": "Electrical wiring and fitting work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312100",
+        "description": "Fire-alarm system installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312310",
+        "description": "Lightning-protection works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45312311",
+        "description": "Lightning-conductor installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315100",
+        "description": "Electrical engineering installation works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315300",
+        "description": "Electricity supply installations"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315400",
+        "description": "High voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315500",
+        "description": "Medium-voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45315600",
+        "description": "Low-voltage installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45324000",
+        "description": "Plasterboard works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343100",
+        "description": "Fireproofing work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343200",
+        "description": "Firefighting equipment installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343210",
+        "description": "CO2 fire-extinguishing equipment installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343220",
+        "description": "Fire-extinguishers installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45343230",
+        "description": "Sprinkler systems installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45351000",
+        "description": "Mechanical engineering installation works"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45410000",
+        "description": "Plastering work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45420000",
+        "description": "Joinery and carpentry installation work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45430000",
+        "description": "Floor and wall covering work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "45440000",
+        "description": "Painting and glazing work"
+       },
+       {
+        "scheme": "CPV",
+        "id": "50710000",
+        "description": "Repair and maintenance services of electrical and mechanical building installations"
+       }
+      ],
+      "deliveryAddresses": [
+       {
+        "region": "UKJ31",
+        "country": "GB",
+        "countryName": "United Kingdom"
+       },
+       {
+        "region": "UKJ35",
+        "country": "GB",
+        "countryName": "United Kingdom"
+       }
+      ],
+      "relatedLot": "1"
+     }
+    ],
+    "value": {
+     "amountGross": 13200000,
+     "amount": 11000000,
+     "currency": "GBP"
+    },
+    "procurementMethod": "selective",
+    "procurementMethodDetails": "Competitive flexible procedure",
+    "procedure": {
+     "features": "Market Testing\nPortsmouth City Council (the 'Council') undertook two Soft Market Testing (SMT) exercises as part of a strategic review of delivery options for the provision of Repairs & Maintenance (R&M) across residential and commercial properties, Gas Servicing & Repairs (GSR) for residential properties and Fire Safety Compliance Services (FSCS) across its managed building assets.\nTwo separate Prior Information Notices were issued, being -\n•\tSMT 1 - Housing, Neighbourhood and Building Services - Repairs & Maintenance and Gas Servicing & Repair Delivery Options Appraisal, Portsmouth- Wednesday 9th October 2024 - Reference - 2024/S 000-032496\n•\tSMT 2 - Housing, Neighbourhood and Building Services - Repairs & Maintenance, Gas Servicing & Repair and Fire Safety Compliance Services Delivery Lotting Options Appraisal 2025 - Friday 23rd February 2025- Reference 2025/S 000-006741\nThe Council's main aim in undertaking SMT 1 was to understand the market's interest, capacity, capability, and ideas for delivering these services and inform an options appraisal which considered in-sourced, out-sourced and other alternative delivery options appraisal.\nThe subsequent options appraisal report submitted on 19th February 2025 to the Cabinet Member for Housing & Tackling Homelessness recommended continuation of outsourcing delivery and requested the following -\n•\tDelegated authority to the Director of Housing, Neighbourhood and Building Services (HNB) to determine\no\tthe lotting strategy\no\tcontractual arrangements\no\tindividual contract durations be for a minimum of five years, with the option to extend for up to 5 years subject to contractor performance\no\tcommencement of a procurement exercise to re-tender the R&M and GSR contracts\no\tability to proceed with the contract award and enter into contract with the preferred bidders\n•\tReview the R&M contract Scope of Service with Cabinet member for approval\n•\tDuty to consult and engage Portsmouth Homes (council housing service) tenants, leaseholders and shared owners\n•\tUpdate the Cabinet member, housing opposition portfolio members and the Residents Consortium, at the key procurement milestones.\nAll recommendations and requested delegations were approved. For full details of the Council's formal report and associated appendices can be found using the following link -\nhttps://democracy.portsmouth.gov.uk/ieIssueDetails.aspx?IId=31340&PlanId=0&Opt=3#AI25498\nA subsequent round of SMT was undertaken (SMT2) primarily to inform and refine the proposed lotting strategy, scope and contracting models. The following lotting structure, which included for combined bid options, were investigated with the market -\n•\tLot 1 - R&M On-Island (Lot1A) and R&M Off-Island (Lot 1B) (this is one lot with two separate contract awards to different suppliers) - estimated annual value from £14M to £18M per supplier, total value both suppliers of around £36M\n•\tLot 2 - R&M Corporate Assets - estimated annual value from £400k to £600k\n•\tLot 3 - GSR - estimated annual value from £4M to £5M\n•\tLot 4 - FSCS - estimated annual value from £500k to £1M\nFollowing analysis of supplier feedback and a review of the risks and benefits, the Council now intends to proceed with separate staggered procurement processes on individual programmes for the following service areas:\n•\tGas Servicing & Repairs\n•\tFire Safety Compliance Services\n•\tRepairs & Maintenance*\n*The proposed Corporate Assets R&M is likely to be combined into the R&M opportunity.\nBy tendering these services separately, the Council aims to:\n•\tMaximise market engagement, particularly among SMEs and specialist contractors\n•\tAllow suppliers to bid for the areas most aligned with their expertise and capacity\n•\tSupport higher service quality and compliance through focused delivery\n•\tMaximise financial benefits through direct contracting with specialist suppliers for high volume/value requirements\n•\tAlign with the Council's strategic priorities around value for money, local economic support, and effective service delivery\nFeedback from suppliers indicates increased interest in tendering for these contracts separately rather than on a combined basis. There appears to be a larger market of suppliers who are capable of tendering for these contracts on an individual basis, compared to relatively few suppliers who are interested in delivering against multiple contracts who have direct delivery capacity and required level of experience.\nFollowing completion of the SMT processes, the Council has produced summary reports that can be found as appendix 1 & 2, which can be found under the documents section of this notice.\nThe Council now intends to undertake procurement process for the three main service areas inline with the following summary programmes -\n•\tGas Servicing & Repairs\no\tIssue Tender Notice - May/June 2025\no\tContract Award - November 2025\no\tContract Start - April 2026\n•\tFire Safety Compliance Services\no\tIssue Tender Notice -October 2025\no\tContract Award - April 2026\no\tContract Start - August 2026\n•\tRepairs & Maintenance\no\tTender - May/June 2026\no\tContract Award - November 2026\no\tContract Start - April 2027\nFor further details of the outline programmes see the relevant Planned Procurement Notices-\nGSR - PPN - 2025-000023\nFSCS - PPN - 2025-000026\nR&M - PPN - 2025-000027\nThe Council will publish the GSR and R&M contacts using a Competitive Flexible Procedure (CFP), which will encompass the utilisation of conditions of participation stage to create a shortlist of suppliers. The FSCS contract is also likely to be procured under a CFP, though the Council will review the option of using the Open Procedure before publishing the tender notice.\nFSCS - CFP Design\nThe Council will run this procurement using the Competitive Flexible Procedures, which will be akin to the Restrictive Procedure under the Public Contracts Regulations (2015), with two separate stages -\nStage 1 - Initial Selection\nThis stage focuses on shortlisting suppliers that meet the necessary technical, financial, and operational capabilities required for the contract. It aims to reduce the number of bidders to a manageable level through consideration of current experience, capacity, systems, accreditations, financial standing, legal standing, etc.\nThe Council envisages the shortlisting process will have 4 to 6 suppliers.\nStage 2 - Invitation to Tender (ITT)\nThe second stage, shortlisted suppliers are invited to submit detailed proposals, including price, delivery methodology, and any specific solutions they propose.\nThe council may also consider the use of interviews and site visits, on a verification and due diligence basis. The procurement process will also consider the viewpoint of residents at every stage including for development of requirements and assessment of resident engagement proposals.\nThe Council are intending to follow the subsequent Procurement Programme -\nFTS & Tender Notice issued - Monday 27th October 2025\nTender issued - CFP Stage 1 - Monday 27th October 2025\nDeadline for requests for clarification (Stage 1) - Friday 22nd November 2025 by 16:00\nCFP Stage 1 submission deadline - Friday 29th November 2025 by 12:00\nNotification of shortlisting decision - Monday 22nd December 2025\nFinal procurement documents published - CFP Stage 2 - Friday 9th January 2026\nDeadline for requests for clarification (Stage 2) - Friday 6th February 2026 by 16:00\nTender return deadline - Friday 21st February 2026 by 12:00\nContract Award Notice Published - Friday 10th April 2026\nStandstill and section 20 notification start - Monday 13th April 2026\nCorrected: Standstill finish - Wednesday 22nd April 2026\nSection 20 Notice Finish\t- Friday 15th May 2026\nContract award - Monday 18th May 2026\nContract commencement - Monday 3rd August 2026"
+    },
+    "mainProcurementCategory": "services",
+    "aboveThreshold": true,
+    "coveredBy": [
+     "GPA"
+    ],
+    "submissionMethodDetails": "https://in-tendhost.co.uk/portsmouthcc/aspx/home",
+    "submissionTerms": {
+     "electronicSubmissionPolicy": "allowed",
+     "languages": [
+      "en"
+     ]
+    },
+    "expressionOfInterestDeadline": "2025-11-29T12:00:00Z",
+    "enquiryPeriod": {
+     "endDate": "2025-11-22T16:00:00Z"
+    },
+    "awardPeriod": {
+     "endDate": "2026-04-10T23:59:59+01:00"
+    },
+    "lots": [
+     {
+      "id": "1",
+      "status": "planned",
+      "value": {
+       "amountGross": 13200000,
+       "amount": 11000000,
+       "currency": "GBP"
+      },
+      "secondStage": {
+       "minimumCandidates": 4,
+       "maximumCandidates": 6
+      },
+      "selectionCriteria": {
+       "criteria": [
+        {
+         "type": "economic",
+         "description": "To be confirmed within the tender notice."
+        },
+        {
+         "type": "technical",
+         "description": "To be confirmed within the tender notice."
+        },
+        {
+         "description": "To be confirmed within the tender notice.",
+         "forReduction": true
+        }
+       ]
+      },
+      "suitability": {
+       "sme": true
+      },
+      "contractPeriod": {
+       "startDate": "2026-08-03T00:00:00+01:00",
+       "endDate": "2031-08-02T23:59:59+01:00",
+       "maxExtentDate": "2036-08-02T23:59:59+01:00"
+      },
+      "hasRenewal": true,
+      "renewal": {
+       "description": "The contract will be let for an initial 5-year term, with the option to extend by up to a further 5 years in intervals to be agreed."
+      }
+     }
+    ],
+    "documents": [
+     {
+      "id": "A-867",
+      "documentType": "biddingDocuments",
+      "description": "SMT Survey Responses in relation to the following Prior Information Notices -\n•\tSMT 1 - Housing, Neighbourhood and Building Services - Repairs & Maintenance and Gas Servicing & Repair Delivery Options Appraisal, Portsmouth- Wednesday 9th October 2024 - Reference - 2024/S 000-032496\n•\tSMT 2 - Housing, Neighbourhood and Building Services - Repairs & Maintenance, Gas Servicing & Repair and Fire Safety Compliance Services Delivery Lotting Options Appraisal 2025 - Friday 23rd February 2025- Reference 2025/S 000-006741",
+      "url": "https://www.find-tender.service.gov.uk/Notice/Attachment/A-867",
+      "format": "application/x-zip-compressed"
+     },
+     {
+      "id": "A-894",
+      "documentType": "biddingDocuments",
+      "description": "Supporting information for SMT 2 - including the background information regarding the proposed lotting structure, example questionnaire and attached appendices.",
+      "url": "https://www.find-tender.service.gov.uk/Notice/Attachment/A-894",
+      "format": "application/x-zip-compressed"
+     }
+    ],
+    "communication": {
+     "futureNoticeDate": "2025-10-27T23:59:59Z"
+    },
+    "hasRecurrence": true,
+    "recurrence": {
+     "dates": [
+      {
+       "startDate": "2030-10-28T23:59:59Z"
+      }
+     ]
+    },
+    "amendments": [
+     {
+      "description": "The programme has been amended as follows - \nFTS & Tender Notice issued - Monday 27th October 2025\nTender issued - CFP Stage 1 - Monday 27th October 2025\nDeadline for requests for clarification (Stage 1) - Friday 22nd November 2025 by 16:00\nCFP Stage 1 submission deadline - Friday 29th November 2025 by 12:00\nNotification of shortlisting decision - Monday 22nd December 2025\nFinal procurement documents published - CFP Stage 2 - Friday 9th January 2026\nDeadline for requests for clarification (Stage 2) - Friday 6th February 2026 by 16:00\nTender return deadline - Friday 21st February 2026 by 12:00\nContract Award Notice Published - Friday 10th April 2026\nStandstill and section 20 notification start - Monday 13th April 2026\nCorrected: Standstill finish - Wednesday 22nd April 2026\nSection 20 Notice Finish\t- Friday 15th May 2026\nContract award - Monday 18th May 2026\nContract commencement - Monday 3rd August 2026",
+      "id": "047808-2025"
+     }
+    ]
+   },
+   "language": "en"
+  }
+ ],
+ "links": {
+  "next": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?cursor=PAGE2"
+ }
+}

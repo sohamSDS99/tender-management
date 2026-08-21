@@ -1,0 +1,31 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <atom:link href="https://www.tenders.gov.au#rss.xml" rel="self" type="application/rss+xml" />
+    <title>AusTender Current ATM List</title>
+    <language>en-AU</language>
+    <link>https://www.tenders.gov.au/Atm/List</link>
+    <lastBuildDate>Thu, 20 Aug 2026 17:35:06 GMT</lastBuildDate>
+    <description>AusTender Current ATM List</description>
+    <item>
+      <title>S-EST10709: Dubbo MUD &amp; Vietnam Veterans Precinct, NSW</title>
+      <link>https://www.tenders.gov.au/Atm/Show/5ecf17ec-005d-4fc1-b04f-be2e0d3d77ad</link>
+      <description>&lt;p&gt;Dubbo MUD &amp;amp; Vietnam Veterans Precinct&lt;/p&gt;</description>
+      <guid>https://www.tenders.gov.au/Atm/Show/5ecf17ec-005d-4fc1-b04f-be2e0d3d77ad</guid>
+      <pubDate>Wed, 08 Jul 2026 00:00:00 GMT</pubDate>
+    </item>
+<item>
+      <title>S-EST09918: Campbell Barracks Infrastructure Works, WA</title>
+      <link>https://www.tenders.gov.au/Atm/Show/9524ca3c-4902-464d-b61f-65fc33b98f92</link>
+      <description>&lt;p&gt;Campbell Barracks infrastructure works&lt;/p&gt;</description>
+      <guid>https://www.tenders.gov.au/Atm/Show/9524ca3c-4902-464d-b61f-65fc33b98f92</guid>
+      <pubDate>Tue, 07 Jul 2026 00:00:00 GMT</pubDate>
+    </item>
+<item>
+      <title>RFT 1001032028: For the provision of medical assessments for determining medical eligibility for Disability Support Pension</title>
+      <link>https://www.tenders.gov.au/Atm/Show/a4605598-4c20-4f50-b8f6-d04ca3eb3f96</link>
+      <description>&lt;p&gt;For the provision of medical assessments for determining medical eligibility for Disability Support Pension.&lt;/p&gt;</description>
+      <guid>https://www.tenders.gov.au/Atm/Show/a4605598-4c20-4f50-b8f6-d04ca3eb3f96</guid>
+      <pubDate>Mon, 20 Jul 2026 00:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

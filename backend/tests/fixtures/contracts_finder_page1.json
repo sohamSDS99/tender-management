@@ -1,0 +1,257 @@
+{
+ "uri": "https://www.contractsfinder.service.gov.uk/Published/Notices/OCDS/Search?publishedFrom=2026-08-01T00:00:00&publishedTo=2026-08-20T00:00:00&stages=tender&limit=10",
+ "version": "1.1",
+ "extensions": [
+  "https://standard.open-contracting.org/profiles/eu/master/en/extension.json",
+  "https://raw.githubusercontent.com/portaledcahn/ocds_tenderDatePublished_extension/master/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_budget_breakdown_extension/master/extension.json",
+  "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_awards_datePublished_extension/main/extension.json",
+  "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_partyDetails_vcse_extension/main/extension.json",
+  "https://raw.githubusercontent.com/Crown-Commercial-Service/ocds_tender_suitability_extension/main/extension.json",
+  "https://raw.githubusercontent.com/open-contracting-extensions/ocds_pagination_extension/master/extension.json"
+ ],
+ "publishedDate": "2026-08-19T18:01:44+01:00",
+ "publisher": {
+  "name": "Cabinet Office",
+  "scheme": "GB-GOR",
+  "uid": "D2",
+  "uri": "https://www.gov.uk/government/organisations/cabinet-office"
+ },
+ "license": "http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+ "publicationPolicy": "https://www.gov.uk/government/publications/open-contracting",
+ "releases": [
+  {
+   "ocid": "ocds-b5fd17-8c17e72c-203a-4ac1-8634-91aabf18653a",
+   "id": "90690895-4d85-4b21-b644-a8c4379a7a02-911396",
+   "language": "en",
+   "date": "2026-08-19T18:01:43+01:00",
+   "tag": [
+    "tender"
+   ],
+   "initiationType": "tender",
+   "tender": {
+    "id": "20260819180138-72814",
+    "title": "MAST-U Diagnostic IR Cameras",
+    "description": "Total system cost, which includes camera, lenses, software & SDK, power supply and required equipment to allow communication with the camera via PC. Two camera systems of this specification are required for this tender, that function independently from one another.",
+    "datePublished": "2026-08-19T18:01:43+01:00",
+    "status": "active",
+    "classification": {
+     "scheme": "CPV",
+     "id": "38651000",
+     "description": "Cameras"
+    },
+    "additionalClassifications": [
+     {
+      "scheme": "CPV",
+      "id": "38651100",
+      "description": "Camera lenses"
+     },
+     {
+      "scheme": "CPV",
+      "id": "38651600",
+      "description": "Digital cameras"
+     },
+     {
+      "scheme": "CPV",
+      "id": "38650000",
+      "description": "Photographic equipment"
+     }
+    ],
+    "items": [
+     {
+      "id": "1",
+      "deliveryAddresses": [
+       {
+        "countryName": "British Oversea Territories"
+       },
+       {
+        "countryName": "Channel Islands"
+       },
+       {
+        "countryName": "Europe"
+       },
+       {
+        "countryName": "Isle of Man"
+       },
+       {
+        "countryName": "Rest of the World"
+       },
+       {
+        "countryName": "United Kingdom"
+       }
+      ]
+     }
+    ],
+    "procurementMethod": "open",
+    "procurementMethodDetails": "Open procedure",
+    "tenderPeriod": {
+     "endDate": "2026-09-07T12:00:00+01:00"
+    },
+    "contractPeriod": {
+     "startDate": "2026-09-21T00:00:00+01:00",
+     "endDate": "2027-03-31T23:59:59+01:00"
+    },
+    "suitability": {
+     "sme": true,
+     "vcse": true
+    },
+    "mainProcurementCategory": "goods",
+    "documents": [
+     {
+      "id": "1",
+      "documentType": "tenderNotice",
+      "description": "Opportunity notice on Contracts Finder",
+      "url": "https://www.contractsfinder.service.gov.uk/Notice/90690895-4d85-4b21-b644-a8c4379a7a02",
+      "datePublished": "2026-08-19T18:01:43+01:00",
+      "format": "text/html",
+      "language": "en"
+     },
+     {
+      "id": "2",
+      "description": "Additional data",
+      "url": "https://uk.eu-supply.com/app/rfq/rwlentrance_s.asp?PID=108394&B=UKAEA"
+     },
+     {
+      "id": "3",
+      "description": "User / Company",
+      "url": "https://uk.eu-supply.com/ctm/Company/CompanyInformation/Index/72814"
+     }
+    ]
+   },
+   "parties": [
+    {
+     "id": "GB-CFS-313330",
+     "name": "UK Atomic Energy Authority",
+     "identifier": {
+      "legalName": "UK Atomic Energy Authority"
+     },
+     "address": {
+      "streetAddress": "Culham Science Centre",
+      "locality": "Oxfordshire",
+      "postalCode": "OX14 3DB",
+      "countryName": "ENG"
+     },
+     "contactPoint": {
+      "name": "Colette Broadwith",
+      "email": "colette.broadwith@ukaea.uk"
+     },
+     "details": {
+      "url": "https://www.gov.uk/government/organisations/uk-atomic-energy-authority"
+     },
+     "roles": [
+      "buyer"
+     ]
+    }
+   ],
+   "buyer": {
+    "id": "GB-CFS-313330",
+    "name": "UK Atomic Energy Authority"
+   }
+  },
+  {
+   "ocid": "ocds-b5fd17-8ecbcf19-887b-47d6-8c4d-35ab69d40c6a",
+   "id": "11d6d04f-e48f-44fc-aeed-415c6b8c95df-911389",
+   "language": "en",
+   "date": "2026-08-19T17:32:29+01:00",
+   "tag": [
+    "tender"
+   ],
+   "initiationType": "tender",
+   "tender": {
+    "id": "RA359950",
+    "title": "RA359950 - EV Charger Supply and Install",
+    "description": "Please provide a quotation for the supply and installation of 8 EV charger units/Pedestals across two of our sites: \r\n-\tHawley Road Transport Yard car park - (3 dual pedestals + 1 single pedestal)\r\n-\tThe EcoPark Energy Centre, reception car park - (4 dual pedestals)\r\nIncluding removal of existing equipment\r\n\r\nIf you have any further questions please email lewis.atkinson@londonenergyltd.com\r\n\r\n* To see full spec and to respond to this opportunity, please click here: https://www.delta-esourcing.com/respond/83NX2G7ZX9\r\nIf you experience any technical difficulties from accessing the above url, then please contact the Delta eSourcing Helpdesk on call 0800 923 9236 or email helpdesk@delta-esourcing.com.\r\n - To access this competition: login to https://suppliers.multiquote.com and view the opportunity RA359950. Not registered on MultiQuote - visit https://suppliers.multiquote.com then register and quote RA359950 as the reason for registration. Any queries please contact MultiQuote on 0151 482 9230.",
+    "datePublished": "2026-08-19T17:32:29+01:00",
+    "status": "active",
+    "classification": {
+     "scheme": "CPV",
+     "id": "34000000",
+     "description": "Transport equipment and auxiliary products to transportation"
+    },
+    "items": [
+     {
+      "id": "1",
+      "deliveryAddresses": [
+       {
+        "postalCode": "N18 3AG"
+       },
+       {
+        "countryName": "British Oversea Territories"
+       },
+       {
+        "countryName": "Channel Islands"
+       },
+       {
+        "countryName": "Europe"
+       },
+       {
+        "countryName": "Isle of Man"
+       },
+       {
+        "countryName": "Rest of the World"
+       },
+       {
+        "countryName": "United Kingdom"
+       }
+      ]
+     }
+    ],
+    "procurementMethod": "open",
+    "procurementMethodDetails": "Open procedure",
+    "tenderPeriod": {
+     "endDate": "2026-09-03T17:30:00+01:00"
+    },
+    "contractPeriod": {
+     "startDate": "2026-09-07T00:00:00+01:00",
+     "endDate": "2026-12-31T23:59:59Z"
+    },
+    "suitability": {
+     "sme": true,
+     "vcse": false
+    },
+    "mainProcurementCategory": "goods",
+    "documents": [
+     {
+      "id": "1",
+      "documentType": "tenderNotice",
+      "description": "Opportunity notice on Contracts Finder",
+      "url": "https://www.contractsfinder.service.gov.uk/Notice/11d6d04f-e48f-44fc-aeed-415c6b8c95df",
+      "datePublished": "2026-08-19T17:32:29+01:00",
+      "format": "text/html",
+      "language": "en"
+     }
+    ]
+   },
+   "parties": [
+    {
+     "id": "GB-CFS-294569",
+     "name": "LondonEnergy Ltd",
+     "identifier": {
+      "legalName": "LondonEnergy Ltd"
+     },
+     "address": {
+      "streetAddress": "EcoPark, Advent Way",
+      "locality": "London",
+      "postalCode": "N18 3AG",
+      "countryName": "England"
+     },
+     "contactPoint": {
+      "name": "Lewis Atkinson",
+      "email": "support@multiquote.com",
+      "telephone": "0151 482 9230"
+     },
+     "details": {
+      "url": "https://suppliers.multiquote.com"
+     },
+     "roles": [
+      "buyer"
+     ]
+    }
+   ],
+   "buyer": {
+    "id": "GB-CFS-294569",
+    "name": "LondonEnergy Ltd"
+   }
+  }
+ ]
+}
