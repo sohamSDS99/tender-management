@@ -69,10 +69,13 @@ CURRENCY_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "CAD": "CA$", "AUD": 
 class DigestOutcome:
     """What a notification attempt did. ``ok`` is False only on real failure."""
 
-    status: str = "skipped"  # sent | heartbeat | skipped | disabled | failed
+    status: str = "skipped"  # sent | heartbeat | skipped | disabled | failed | unconfirmed
     candidates: int = 0
     posted: int = 0
+    # Lost a claim race with a concurrent run.
     suppressed: int = 0
+    # Qualified but did not fit the item cap; a later run announces these.
+    deferred: int = 0
     response_code: int | None = None
     error: str | None = None
     tender_ids: list[int] = field(default_factory=list)
@@ -89,6 +92,7 @@ class DigestOutcome:
             "candidates": self.candidates,
             "posted": self.posted,
             "suppressed": self.suppressed,
+            "deferred": self.deferred,
             "response_code": self.response_code,
             "error": self.error,
             "tender_ids": list(self.tender_ids),
@@ -116,6 +120,46 @@ def qualifying_tenders(
             Tender.first_seen_at >= since,
             Tender.relevance_score >= settings.slack_min_score,
             Tender.is_actionable.is_(True),
+        )
+        .order_by(Tender.relevance_score.desc(), Tender.id.asc())
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def announceable_tenders(
+    db: Session, settings: Settings | None = None, now: datetime | None = None
+) -> list[Tender]:
+    """Tenders that should be announced now, newest-qualifying first.
+
+    A tender is announceable when it still clears the bar, was first seen inside
+    ``SLACK_ANNOUNCE_LOOKBACK_HOURS``, and has no delivered announcement on this
+    channel. The **ledger** is what prevents a second announcement - not the time
+    window - which is what makes three things work that a strict
+    "created by this run" window cannot:
+
+    * a digest that Slack rejected is retried by the next run;
+    * a claim abandoned by a crashed process is picked up again;
+    * tenders past the item cap are announced by a later run instead of being
+      marked sent while appearing in no message.
+
+    ``first_seen_at`` is immutable, so a merely re-observed notice is never a
+    candidate: it was either announced already (ledger) or is older than the
+    window.
+    """
+    settings = settings or get_settings()
+    now = now or utcnow()
+    floor = now - timedelta(hours=max(1, settings.slack_announce_lookback_hours))
+    delivered = select(SlackNotification.tender_id).where(
+        SlackNotification.channel_label == settings.slack_channel_label,
+        SlackNotification.status.in_((SENT, UNCONFIRMED)),
+    )
+    stmt = (
+        select(Tender)
+        .where(
+            Tender.first_seen_at >= floor,
+            Tender.relevance_score >= settings.slack_min_score,
+            Tender.is_actionable.is_(True),
+            Tender.id.not_in(delivered),
         )
         .order_by(Tender.relevance_score.desc(), Tender.id.asc())
     )
@@ -549,7 +593,9 @@ def notify_new_tenders(
     if not settings.slack_webhook_url and not dry_run:
         return DigestOutcome(status="disabled", error="SLACK_WEBHOOK_URL is not set")
 
-    candidates = qualifying_tenders(db, since, settings, now)
+    # Selection is ledger-driven, not window-driven: see announceable_tenders.
+    candidates = announceable_tenders(db, settings, now)
+    limit = max(1, min(settings.slack_max_items, MAX_ITEMS_HARD_CAP))
 
     if dry_run:
         payload = (
@@ -566,7 +612,11 @@ def notify_new_tenders(
             payload=payload,
         )
 
-    claimed, suppressed = claim(db, candidates, batch_id, trigger, settings, now)
+    # Only the tenders this message will actually name are claimed. The tail
+    # keeps no ledger row, so a later run announces it rather than it being
+    # marked sent while appearing nowhere.
+    claimed, suppressed = claim(db, candidates[:limit], batch_id, trigger, settings, now)
+    deferred = max(0, len(candidates) - len(claimed) - suppressed)
 
     if not claimed:
         payload = build_heartbeat(settings, run_summary=run_summary, trigger=trigger, now=now)
@@ -588,7 +638,11 @@ def notify_new_tenders(
         )
         return outcome
 
-    payload = build_digest(claimed, settings, total_candidates=len(claimed), trigger=trigger, now=now)
+    # total_candidates drives the "+N more" footer, so it must be the real
+    # backlog - including what this message defers to a later run.
+    payload = build_digest(
+        claimed, settings, total_candidates=len(claimed) + deferred, trigger=trigger, now=now
+    )
     code, error = post_webhook(payload, settings, client, sleep)
     if error is None:
         settle(db, claimed, channel, SENT, code, None, now, batch_id=batch_id)
@@ -597,6 +651,7 @@ def notify_new_tenders(
             logging.INFO,
             "slack digest posted",
             posted=len(claimed),
+            deferred=deferred,
             suppressed=suppressed,
             code=code,
         )
@@ -605,6 +660,7 @@ def notify_new_tenders(
             candidates=len(candidates),
             posted=len(claimed),
             suppressed=suppressed,
+            deferred=deferred,
             response_code=code,
             tender_ids=[t.id for t in claimed],
         )

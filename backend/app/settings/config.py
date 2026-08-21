@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     # A 'pending' claim older than this is treated as abandoned (process died
     # mid-post) and may be retried. Only a 'sent' claim suppresses forever.
     slack_claim_stale_minutes: int = 30
+    # A tender stays eligible to be announced for this long after it was first
+    # seen, so a Slack outage, a crash mid-post, or a digest that overflowed
+    # the item cap is picked up by a later run instead of being lost. The
+    # ledger - not this window - is what prevents a second announcement.
+    # Matches the fetch window's 72h floor.
+    slack_announce_lookback_hours: int = 72
 
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to

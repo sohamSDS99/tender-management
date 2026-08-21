@@ -249,7 +249,7 @@ def test_a_double_fired_run_posts_no_duplicate_entry(db_session, slack_settings)
     assert first.status == "sent" and first.posted == 1
     assert second.status == "heartbeat", "the second run must fall through to a heartbeat"
     assert second.posted == 0
-    assert second.suppressed == 1
+    assert second.candidates == 0, "an announced tender is no longer a candidate"
     assert db_session.query(SlackNotification).count() == 1, "no second ledger row"
 
     # Two messages went out, but only the first contains the tender.
@@ -654,46 +654,131 @@ def test_a_transport_error_is_never_retried_within_a_run(slack_settings) -> None
 # --- the item cap ---------------------------------------------------------
 
 
-def test_the_item_cap_covers_the_remainder_with_a_link_not_silence(db_session, slack_settings) -> None:
-    """Documented behaviour, pinned so it stays deliberate.
+def test_the_item_cap_defers_the_remainder_instead_of_silently_marking_it_sent(
+    db_session, slack_settings
+) -> None:
+    """The cap is a rate limit, not a silent drop.
 
-    The brief specifies capping the message and linking the rest. Every
-    qualifying tender is claimed and marked sent, so none is re-announced later;
-    the ones past the cap are reachable through the "+N more" link, which sorts
-    by discovery so they sit at the top. With SLACK_MIN_SCORE at 70 a real run
-    yields a handful, so the cap is rarely reached - but when it is, the count in
-    the footer must be honest.
+    Only the tenders a message actually names are claimed, so the overflow keeps
+    no ledger row and the next run announces it. The earlier implementation
+    claimed every candidate and marked them all sent, which meant anything past
+    the cap appeared in no message that was ever posted and was never announced
+    again.
     """
     capped = slack_settings.model_copy(update={"slack_max_items": 3})
     for i in range(10):
-        make_tender(db_session, notice=f"CAP-{i}", score=90)
+        make_tender(db_session, notice=f"CAP-{i:02d}", score=90 - i)
 
-    recorder = Recorder()
-    outcome = notifier.notify_new_tenders(
-        db_session,
-        since=RUN_START,
-        batch_id="b1",
-        settings=capped,
-        now=NOW,
-        client=recorder.client(),
+    first = Recorder()
+    run1 = notifier.notify_new_tenders(
+        db_session, since=RUN_START, batch_id="b1", settings=capped, now=NOW, client=first.client()
     )
-    assert outcome.posted == 10, "all qualifying tenders are accounted for"
+    assert run1.posted == 3, "only the cap is announced"
+    assert run1.deferred == 7, "the rest is deferred, not dropped"
+    assert db_session.query(SlackNotification).count() == 3, "no ledger row for a deferred tender"
 
-    payload = recorder.payloads[0]
+    payload = first.payloads[0]
     named = [b for b in payload["blocks"] if b["type"] == "section" and "text" in b]
-    assert len(named) == 3, "only the cap is named individually"
+    assert len(named) == 3
     footer = payload["blocks"][-1]["elements"][0]["text"]
-    assert "+7 more" in footer
-    assert "see all 10" in footer
-    assert "sort=first_seen_desc" in footer, "the link must surface the newest first"
+    assert "+7 more" in footer and "see all 10" in footer
 
-    # None of them is announced a second time by a later run.
-    second = notifier.notify_new_tenders(
+    # The next run picks up the next three, and never repeats the first three.
+    second = Recorder()
+    run2 = notifier.notify_new_tenders(
         db_session,
         since=RUN_START,
         batch_id="b2",
         settings=capped,
-        now=NOW + timedelta(minutes=5),
+        now=NOW + timedelta(hours=12),
+        client=second.client(),
+    )
+    assert run2.posted == 3 and run2.deferred == 4
+    announced_first = set(run1.tender_ids)
+    announced_second = set(run2.tender_ids)
+    assert not (announced_first & announced_second), "a tender was announced twice"
+
+    # Drain it: every qualifying tender is named in exactly one message.
+    seen = announced_first | announced_second
+    now = NOW + timedelta(hours=24)
+    for _ in range(5):
+        rec = Recorder()
+        out = notifier.notify_new_tenders(
+            db_session, since=RUN_START, batch_id="drain", settings=capped, now=now, client=rec.client()
+        )
+        assert not (seen & set(out.tender_ids)), "a tender was announced twice"
+        seen |= set(out.tender_ids)
+        now += timedelta(hours=12)
+        if out.posted == 0:
+            break
+    assert len(seen) == 10, f"every qualifying tender should be named exactly once, got {len(seen)}"
+
+
+def test_a_rejected_digest_is_retried_by_the_next_run(db_session, slack_settings) -> None:
+    """The guarantee the docs promised but the old window made unreachable.
+
+    Selection used to be `first_seen_at >= this run's start`, so a tender created
+    by an earlier run could never be a candidate again - a Slack outage meant it
+    was announced by no run, ever.
+    """
+    make_tender(db_session, notice="OUTAGE-1", first_seen=NOW)
+
+    failed = notifier.notify_new_tenders(
+        db_session,
+        since=NOW,
+        batch_id="b1",
+        settings=slack_settings,
+        now=NOW,
+        client=Recorder(status=500, body="server_error").client(),
+        sleep=lambda _d: None,
+    )
+    assert failed.status == "failed"
+    assert db_session.query(SlackNotification).one().status == FAILED
+
+    # Twelve hours later, exactly as the scheduler would: a fresh `since`.
+    later = NOW + timedelta(hours=12)
+    recovered = Recorder()
+    run2 = notifier.notify_new_tenders(
+        db_session,
+        since=later,
+        batch_id="b2",
+        settings=slack_settings,
+        now=later,
+        client=recovered.client(),
+    )
+    assert run2.status == "sent", "the failed digest must be retried by a later run"
+    assert run2.posted == 1
+    assert "OUTAGE-1" in json.dumps(recovered.payloads[0])
+    assert db_session.query(SlackNotification).one().status == SENT
+
+
+def test_a_tender_older_than_the_lookback_is_no_longer_announced(db_session, slack_settings) -> None:
+    """The window still bounds the backlog, so a long outage cannot flood later."""
+    hours = slack_settings.slack_announce_lookback_hours
+    make_tender(db_session, notice="ANCIENT-1", first_seen=NOW - timedelta(hours=hours + 1))
+    make_tender(db_session, notice="RECENT-1", first_seen=NOW - timedelta(hours=hours - 1))
+    announceable = notifier.announceable_tenders(db_session, slack_settings, NOW)
+    assert [t.source_notice_id for t in announceable] == ["RECENT-1"]
+
+
+def test_a_re_observed_notice_is_never_re_announced(db_session, slack_settings) -> None:
+    """first_seen_at is immutable, so an update cannot re-enter the candidate set."""
+    tender = make_tender(db_session, notice="AMENDED-1", first_seen=NOW)
+    recorder = Recorder()
+    notifier.notify_new_tenders(
+        db_session, since=NOW, batch_id="b1", settings=slack_settings, now=NOW, client=recorder.client()
+    )
+    # The source amends the notice: last_seen_at and content move, first_seen_at does not.
+    tender.last_seen_at = NOW + timedelta(hours=6)
+    tender.title = "Amended title"
+    db_session.commit()
+    again = notifier.notify_new_tenders(
+        db_session,
+        since=NOW + timedelta(hours=12),
+        batch_id="b2",
+        settings=slack_settings,
+        now=NOW + timedelta(hours=12),
         client=Recorder().client(),
     )
-    assert second.posted == 0
+    assert again.posted == 0
+    assert again.candidates == 0

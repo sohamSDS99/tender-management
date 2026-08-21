@@ -32,6 +32,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Narrowing is lossy by definition: the pre-widening column physically cannot
+    # hold the full country names this fixes ("Indonesia" is 9 characters), and on
+    # PostgreSQL the ALTER fails outright rather than truncating. Values are
+    # shortened first so the downgrade completes, which re-introduces the defect
+    # this revision fixed - prefer restoring a dump. See docs/RUNBOOK.md section 7.
+    op.execute(
+        "UPDATE tenders SET buyer_country = substr(buyer_country, 1, 8) "
+        "WHERE buyer_country IS NOT NULL"
+    )
     with op.batch_alter_table('tenders', schema=None) as batch_op:
         batch_op.alter_column('buyer_country',
                existing_type=sa.String(length=64),

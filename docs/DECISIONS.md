@@ -196,6 +196,10 @@ presence of the headers on the read endpoints.
 
 ---
 
+> **Amended by D16.** D6 describes the ledger mechanics, which are unchanged.
+> The *selection* it assumed - a per-run `first_seen_at` window - was replaced
+> because it made the retry described here unreachable. Read D16 with it.
+
 ## D6 — At-most-once Slack delivery, keyed on (tender, channel) — not on the run
 
 **Decision.** `slack_notifications` holds one row per announcement, with
@@ -507,25 +511,47 @@ channel of executives. Tests: `test_a_lost_response_is_delivered_at_most_once`,
 `test_a_rejected_post_is_still_retried_because_nothing_was_delivered`,
 `test_a_transport_error_is_never_retried_within_a_run`.
 
-## D16 — The digest item cap names some tenders and links the rest
+## D16 — Selection is driven by the ledger, not by a per-run time window
 
-**Decision.** A digest names at most `SLACK_MAX_ITEMS` tenders (default 8, hard
-capped at 11 so the payload cannot exceed Slack's 50-block limit). Every
-qualifying tender is claimed and marked sent, including those past the cap; the
-remainder are covered by a "+N more" link to the dashboard pre-filtered to the
-same threshold and sorted by discovery, so they sit at the top.
+**Decision.** `announceable_tenders()` selects any tender that still clears the
+bar, was first seen within `SLACK_ANNOUNCE_LOOKBACK_HOURS` (default 72, matching
+the fetch window's floor), and has **no delivered announcement** on this channel.
+Only the tenders a message will actually name are claimed; the remainder are
+deferred and announced by a later run. The item cap is therefore a rate limit,
+not a drop.
 
-**Why.** This is what the brief specifies: cap the message, link the rest. The
-alternative — claiming only what is shown and deferring the rest — cannot work
-with the "newly created in this run" rule, because a deferred tender is no longer
-new on the next run and would never be announced at all.
+**Why.** The first implementation selected `first_seen_at >= <this run's start>`,
+taking "newly created in this run" literally. Measured consequence: a tender
+created by the 12:00 run whose digest Slack rejected was **never a candidate
+again** — the 00:00 run's window began after it was created — so it was announced
+by no run, ever. The retry this document promised was unreachable in production,
+and the test that claimed to cover it passed only because it reused the first
+run's `since` value, which the real caller never does. The same dead end applied
+to a claim abandoned by a crashed process, and to every tender past the item cap,
+which was marked `sent` while appearing in no message that was ever posted.
 
-**Consequences / accepted risk.** A tender past the cap is announced collectively
-rather than named, and is never named later. With `SLACK_MIN_SCORE` at 70 this is
-close to theoretical: a real 306-notice sweep produced zero tenders at or above
-70, and the entire 14-fixture seed set produces six. Pinned by
-`test_the_item_cap_covers_the_remainder_with_a_link_not_silence` so the behaviour
-stays deliberate and the footer count stays honest.
+Making the ledger the only suppressor fixes all three at once, and it is what the
+unique constraint was for. `first_seen_at` is immutable, so a merely re-observed
+notice still cannot re-enter the candidate set: it has either been announced
+(ledger) or aged out of the window.
+
+**Alternatives rejected.** Keeping the strict per-run window and accepting the
+loss — it silently drops qualifying tenders, which is the product's whole job.
+Deferring the cap overflow without widening the window — the overflow would never
+become eligible again, so it would not have worked.
+
+**Consequences / accepted risk.** A tender can be announced up to 72 hours after
+it was first seen if Slack was unavailable or a backlog was draining, rather than
+in the run that discovered it. A run can announce something an earlier run
+created, so the digest is "new since we last told you" rather than strictly "new
+in this run" — a deliberate deviation from the brief's literal wording, taken
+because the literal reading loses data. The backlog is bounded by the window, so
+a long outage cannot produce an unbounded flood afterwards. Pinned by
+`test_a_rejected_digest_is_retried_by_the_next_run`,
+`test_the_item_cap_defers_the_remainder_instead_of_silently_marking_it_sent`
+(which drains ten tenders past a cap of three and asserts each is named exactly
+once), `test_a_tender_older_than_the_lookback_is_no_longer_announced` and
+`test_a_re_observed_notice_is_never_re_announced`.
 
 ## D13 — Two dev-only frontend dependencies were added: `vitest` and `jsdom`
 
@@ -579,6 +605,24 @@ mistaken for an orphan.
 up to an hour before it is reclassified. Ingested notices are unaffected: they
 are committed per notice as they arrive, so a partial sweep keeps everything it
 already stored.
+
+## D17 — One migration is deliberately lossy in reverse, and says so
+
+**Decision.** `935d4b1fc0ff (widen buyer country)` shortens `buyer_country`
+values to eight characters in its `downgrade()` before narrowing the column.
+
+**Why.** The revision exists because `varchar(8)` could not hold the full country
+names the World Bank feed emits. Going back to that column is lossy by
+definition, and on PostgreSQL the bare `ALTER` fails outright — verified: with a
+single `"Indonesia"` row present, `alembic downgrade -1` raised
+`StringDataRightTruncation` and left the schema mid-migration. A downgrade the
+runbook promises must at least complete.
+
+**Consequences / accepted risk.** Rolling back past this revision re-introduces
+the defect it fixed: on PostgreSQL those notices are silently dropped again, one
+row at a time. `docs/RUNBOOK.md` §7 therefore names restoring a dump as the
+lossless path and states which single revision is the exception. Verified end to
+end: `head -> base -> head` runs clean on PostgreSQL with data present.
 
 ## Not done, deliberately
 

@@ -72,12 +72,24 @@ any string before it is logged or stored), and `.env` is gitignored.
 
    ```bash
    python scripts/fake_slack.py --port 9099          # terminal 1
-   SLACK_WEBHOOK_URL=http://localhost:9099/hook \
-     docker compose exec -T backend python -m app.jobs.scheduled_fetch \
+
+   docker compose exec \
+     -e SLACK_WEBHOOK_URL=http://host.docker.internal:9099/hook \
+     -T backend python -m app.jobs.scheduled_fetch \
        --seed --seed-reset --trigger cron            # terminal 2
    ```
 
    Terminal 1 prints the exact Block Kit payload and answers `200 ok`.
+
+   Two details that matter, because getting either wrong posts a real digest to
+   the live channel instead:
+
+   * the override must be passed with `docker compose exec -e`. A shell prefix
+     (`SLACK_WEBHOOK_URL=... docker compose exec ...`) sets the variable on the
+     *host*, not inside the container, so the container keeps using the real
+     webhook from `.env`;
+   * the host is `host.docker.internal`, not `localhost` — inside the container
+     `localhost` is the container itself.
 3. Put the real URL in `.env`, then `docker compose up -d backend`.
 4. Revoke the old webhook in Slack.
 
@@ -109,9 +121,29 @@ An **empty** `CRON_SECRET` does not open the endpoint — it refuses with 503.
 
 ### Database password
 
-Set `POSTGRES_PASSWORD` in `.env` and recreate both containers together
-(`docker compose up -d db backend`); the backend builds its DSN from the same
-variable, so they cannot drift apart.
+Changing `POSTGRES_PASSWORD` in `.env` alone will **break the stack**. The
+Postgres image only applies that variable when it initialises an empty data
+directory, so an existing `pgdata` volume keeps the old password while the
+backend starts using the new one, and every connection is refused.
+
+Change it inside the database first, then in the environment:
+
+```bash
+# 1. change it in the running database
+docker compose exec -T db psql -U tender -d tenders -c \
+  "ALTER USER tender WITH PASSWORD 'the-new-password';"
+
+# 2. put the same value in .env
+#    POSTGRES_PASSWORD=the-new-password
+
+# 3. recreate the backend so it picks up the new DSN
+docker compose up -d backend
+curl -s http://localhost:8081/health
+```
+
+Both services read the same `POSTGRES_PASSWORD`, so once step 1 is done they
+cannot drift apart. If you have already changed `.env` and the backend is
+refusing to connect, put the old value back, run step 1, then re-apply.
 
 ---
 
@@ -341,17 +373,35 @@ docker compose up -d --build          # migrations run on startup
 curl -s http://localhost:8081/health
 ```
 
-Migrations are additive and reversible. To step back one:
+**Take a dump before any rollback.** It is the only path that is guaranteed
+lossless:
+
+```bash
+docker compose exec -T db pg_dump -U tender tenders > backup-$(date +%F).sql
+```
+
+To step back one revision:
 
 ```bash
 docker compose exec -T backend alembic downgrade -1
 docker compose exec -T backend alembic current
 ```
 
-Before trusting a rollback, take a dump:
+Three of the four revisions are cleanly reversible. The exception is
+`935d4b1fc0ff (widen buyer country)`: it widened `buyer_country` from
+`varchar(8)` to `varchar(64)` because the World Bank feed emits full country
+names, so going back to a column that cannot hold `"Indonesia"` is lossy by
+definition. Its `downgrade` shortens the values so the migration completes rather
+than failing halfway, which re-introduces the defect the revision fixed — on
+PostgreSQL those notices start being dropped again, silently, one row at a time.
+
+If you need to roll back past that revision, restore the dump instead:
 
 ```bash
-docker compose exec -T db pg_dump -U tender tenders > backup-$(date +%F).sql
+docker compose down
+docker volume rm tender-monitor_pgdata
+docker compose up -d db
+cat backup-YYYY-MM-DD.sql | docker compose exec -T db psql -U tender -d tenders
 ```
 
 ## 8. Re-score after editing the relevance config
