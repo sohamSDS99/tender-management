@@ -20,6 +20,10 @@ incident / inspection / audit management), and explains every score it gives.
 
 ## 1. Quick start with Docker (one command)
 
+> Operating this deployment: `docs/RUNBOOK.md`. Running the demo: `docs/DEMO.md`.
+> Why it is built this way: `docs/DECISIONS.md`.
+
+
 ```bash
 cp .env.example .env          # optional: add SAM_GOV_API_KEY
 docker compose up --build
@@ -241,10 +245,11 @@ Interactive documentation: <http://localhost:8000/docs>.
 | GET | `/api/sources` | every connector: enabled, key required, prefiltered, tender count, last run/status/error |
 | GET | `/api/tenders` | paginated, filtered, sorted list |
 | GET | `/api/tenders/{id}` | full record incl. raw source payload |
-| POST | `/api/fetch` | start a fetch (returns immediately with run ids) |
+| POST | `/api/fetch` | start a fetch (returns immediately with run ids) — **requires `X-Cron-Secret`** |
 | GET | `/api/fetch-runs` | run history with per-source counters and errors |
-| POST | `/api/tenders/rescore` | reload `relevance_profiles.yaml` and re-score everything |
+| POST | `/api/tenders/rescore` | reload `relevance_profiles.yaml` and re-score everything — **requires `X-Cron-Secret`** |
 | GET | `/api/stats` | dashboard counters, distributions, filter option values |
+| GET | `/api/automation` | next run in Dhaka time, last run's outcome, Slack health, the scheduler's actual registered jobs |
 
 `GET /api/tenders` query parameters: `query`, `sources`, `countries`, `categories`, `statuses`,
 `fit_statuses`, `deployment_fits`, `minimum_score`, `maximum_score`, `published_from`,
@@ -257,14 +262,24 @@ Interactive documentation: <http://localhost:8000/docs>.
 curl "http://localhost:8000/api/tenders?minimum_score=70&active_only=true\
 &deployment_fits=cloud_required&deployment_fits=cloud_preferred&sort=deadline_asc"
 
-# start a fetch, then watch the runs
-curl -X POST http://localhost:8000/api/fetch -H 'Content-Type: application/json' -d '{"days_back": 3}'
+# what the automation is doing
+curl http://localhost:8000/api/automation
+
+# start a fetch (operator/CI only), then watch the runs
+curl -X POST http://localhost:8000/api/fetch \
+  -H 'Content-Type: application/json' -H "X-Cron-Secret: $CRON_SECRET" \
+  -d '{"days_back": 3}'
 curl "http://localhost:8000/api/fetch-runs?limit=8"
 ```
 
 `POST /api/fetch` returns `202` immediately with one queued run per source, never waits for the
 connectors, and refuses to start a source that is already running (returned in
 `skipped_sources`). Progress and results are read from `/api/fetch-runs`.
+
+Both write endpoints require the `X-Cron-Secret` header — `401` without it, `503` if the server
+has no `CRON_SECRET` configured at all (it fails closed rather than staying open). Prefer the CLI
+(`python -m app.jobs.scheduled_fetch`) over the endpoint: it does the whole run, including the
+Slack digest, and exits with a meaningful code.
 
 ## 7. Data model
 
@@ -281,37 +296,99 @@ connectors, and refuses to start a source that is already running (returned in
 (`queued`/`running`/`success`/`partial`/`skipped`/`failed`), `records_received`,
 `records_created`, `records_updated`, `records_skipped`, `error_message` and the window used.
 
-## 8. Scheduling and reliability
+## 8. Automation, scheduling and reliability
 
-* APScheduler fetches every enabled source every `FETCH_INTERVAL_HOURS` (default 6) with a
-  single job id and `max_instances=1`, so `uvicorn --reload` cannot duplicate it. Disable with
-  `ENABLE_SCHEDULER=false`.
-* The window is always at least `FETCH_MIN_LOOKBACK_HOURS` (default 72) so amendments and late
-  updates are re-observed even with `FETCH_LOOKBACK_DAYS=1`.
-* One failing source never fails the run: each source has its own `FetchRun` row and its own
-  error message; a malformed individual record is skipped without dropping the page (counted in
-  `records_skipped`, run status becomes `partial`).
-* Only temporary failures are retried (408/425/429/5xx and transport errors) with exponential
-  backoff; HTTP 429 honours `Retry-After` (seconds or HTTP date). 4xx fails fast.
-* Content types are validated, response size is capped (`MAX_RESPONSE_BYTES`), pages per source
-  are capped (`MAX_PAGES_PER_SOURCE`).
-* Structured `key=value` logs. API keys are never logged: URLs are redacted
-  (`api_key=***`) in errors and log lines.
+Fetching is fully automated and there is **no way to start one from the UI**.
+
+**Schedule.** Two runs a day at **00:00 and 12:00 Asia/Dhaka**. Dhaka is UTC+6 with no DST, so
+that is `0 18 * * *` and `0 6 * * *` in UTC. The conversion is computed from `ZoneInfo` in
+`backend/app/jobs/schedule.py` and asserted in `tests/test_jobs_schedule.py`, which also checks
+that `.github/workflows/scheduled-fetch.yml` still agrees with the code. The offset is never
+hardcoded.
+
+**Two possible trigger owners — enable exactly one:**
+
+| Owner | How | When it fits |
+|---|---|---|
+| In-process APScheduler | `ENABLE_SCHEDULER=true` (docker-compose sets it) | the app runs continuously on one host — the local default |
+| GitHub Actions workflow | add a `DATABASE_URL` secret | the database is reachable from the internet |
+
+`Settings.enable_scheduler` defaults to **false** so no process ever fetches unexpectedly. Running
+both against the same database fetches every window twice; see `docs/DECISIONS.md` D2.
+
+**One run, one code path.** The APScheduler job, the CLI and the workflow all call
+`run_once()` in `backend/app/jobs/scheduled_fetch.py`: window → fetch → score → notify.
+
+```bash
+# one complete run, by hand (safe to repeat at any time)
+python -m app.jobs.scheduled_fetch --trigger cron
+
+# re-run a missed window
+python -m app.jobs.scheduled_fetch --trigger cron --days-back 7
+
+# deterministic replay from the committed fixtures, for a demo
+python -m app.jobs.scheduled_fetch --seed --seed-reset --trigger cron
+```
+
+Exit codes: `0` ingest and notification settled, `1` total ingest failure, `2` ingested safely but
+the Slack digest failed. Logs go to stderr so `--json` keeps stdout machine-readable.
+
+**Slack digests.** Each run posts one message for the tenders it *created* that score at or above
+`SLACK_MIN_SCORE` (70) and are `is_actionable`. Every entry links to
+`{PUBLIC_APP_URL}/?tender=<id>` — this system, not the source — with the original notice as a
+secondary link. A run that finds nothing posts a one-line heartbeat, so silence is never
+ambiguous. Delivery is **at most once per tender per channel, for all time**, enforced by a unique
+constraint on `slack_notifications(tender_id, channel_label)` rather than by convention: a
+retried, delayed or double-fired run cannot re-announce anything. A Slack failure never rolls back
+ingested data — it is recorded, surfaced in the dashboard as a degraded state, and retried by the
+next run.
+
+**Reliability properties, unchanged from the baseline and relied on here:**
+
+* one `FetchRun` row per source per run, so one failing source cannot fail the run
+* an overlapping window (`FETCH_MIN_LOOKBACK_HOURS=72`) so a late or missed run catches up
+* upsert on `(source, source_notice_id)`; `first_seen_at` is immutable, which is what makes
+  "new in this run" computable without touching the ingest path
+* retry with backoff, `Retry-After` support, response-size and page caps per source
+
+**What the dashboard reports instead of a fetch button:** `GET /api/automation` returns the next
+run in Dhaka time, the last run's outcome per source, Slack health, and the scheduler's *actual*
+registered jobs — so an enabled-but-not-running scheduler is visible rather than silently
+promising a run that will never fire.
 
 ## 9. Frontend features
 
-* Fetch button with live polling, last successful fetch time, re-score button
-* Summary cards: tenders stored, highly relevant (70+), closing within 14 days, failed connectors
-* Source health cards (status, counts, last run, error, notes, key requirement)
-* Filters: search, minimum score, fit status, deployment fit, capability, source, country,
-  status, deadline, "open opportunities only", sort, page size
-* Colour bands — green = cloud-compatible good/excellent fit, amber = possible/manual review,
-  red = disqualified (mandatory on-premises, offline, false positive)
-* Detail panel: full description, all reasons/disqualifiers/flags, subscores, classification
-  codes, value, dates, documents, original notice link, collapsible raw source metadata
-* Loading, empty and error states; responsive down to ~360 px; open tender is shareable
-  via `?tender=<id>`
-* Default view: **active tenders scoring 50 or more** — clear the filters to audit rejected ones
+The dashboard is the approved mockup, wired to the real API. React 18 + TypeScript + Vite, plain
+CSS, and still only `react` + `react-dom` as dependencies.
+
+* **No manual fetching anywhere.** The header reports the automation instead: next run in Dhaka
+  time, the last run's outcome with a status dot, and a per-connector health strip. A degraded
+  state — a failed source, an undelivered digest, a scheduler that is enabled but not running —
+  appears as a banner rather than being buried.
+* **Stat tiles are filters**: tenders stored, highly relevant (70+, the Slack bar), closing within
+  14 days, needs review, connector problems. Each has a status dot and a one-line explanation of
+  what its number means.
+* **Toolbar**: search, sort, and one "Filters & settings" button carrying a live count. Every
+  active filter appears below it as an individually removable chip, so the result count is always
+  explained.
+* **Settings drawer** holds every filter, grouped — presets, relevance (min *and* max), fit &
+  deployment, capability, sources, country & status, dates — with counts from `/api/stats`, plus
+  the display preferences: results per page, card density, and theme (light / dark / system).
+* **Result cards** show the estimated value and a deadline colour-coded at 14 days and 72 hours,
+  clamp titles to two lines, mark anything first seen in the last run as **New**, and prefix the
+  top relevance reason with an icon.
+* **Detail panel explains the score**: three weighted subscore meters, the arithmetic written out
+  (`0.55 × … + 0.30 × … + 0.15 × … = … → …`, and what capped it if anything did), reasons /
+  disqualifiers / review flags kept apart, previous-next navigation (`j` / `k`), and a copy button
+  on the raw payload.
+* **Real states**: skeleton cards while loading, an empty state whose buttons actually clear the
+  filters, and an error state that names the command to fix it.
+* **The whole filter set lives in the URL**, so any view is shareable and survives a refresh —
+  which is also how the Slack digest links to a pre-filtered dashboard, not just `?tender=<id>`.
+* Keyboard navigable (drawers trap focus, Escape closes, focus returns to the opener), responsive
+  to ~360 px, and correct in both themes.
+* Default view: **open tenders scoring 50 or more** — the score floor and "open only" show as
+  chips so the narrowing is never invisible. Clear them to audit what was rejected.
 
 ## 10. Troubleshooting
 
@@ -332,22 +409,53 @@ connectors, and refuses to start a source that is already running (returned in
 
 ```
 tender-monitor/
+├── .github/workflows/
+│   ├── scheduled-fetch.yml         00:00 / 12:00 Asia/Dhaka + manual replay
+│   └── ci.yml                      tests, lint, both engines' migrations, actionlint
 ├── backend/
 │   ├── app/
 │   │   ├── api/routes.py           REST endpoints
 │   │   ├── connectors/             base + 8 sources + registry + shared OCDS/keywords
-│   │   ├── models/tender.py        Tender, FetchRun
-│   │   ├── services/               relevance.py, ingest.py, scheduler.py
-│   │   ├── settings/config.py      pydantic-settings
+│   │   ├── jobs/
+│   │   │   ├── schedule.py         Dhaka -> UTC cron maths, derived not hardcoded
+│   │   │   └── scheduled_fetch.py  the CLI entrypoint: window -> fetch -> score -> notify
+│   │   ├── models/
+│   │   │   ├── tender.py           Tender, FetchRun
+│   │   │   └── notification.py     SlackNotification (the at-most-once ledger)
+│   │   ├── services/
+│   │   │   ├── relevance.py        scoring engine (frozen)
+│   │   │   ├── ingest.py           upsert + run orchestration (frozen)
+│   │   │   ├── notifier.py         Block Kit digests, claim -> post -> settle
+│   │   │   ├── automation.py       read-only projection for /api/automation
+│   │   │   ├── scheduler.py        two Asia/Dhaka CronTriggers, off by default
+│   │   │   └── dhaka.py            UTC -> Dhaka rendering (presentation only)
+│   │   ├── security.py             CRON_SECRET gate + hardening headers
+│   │   ├── settings/config.py      pydantic-settings + secret redaction
 │   │   ├── db.py  main.py  schemas.py  seed.py  logging_config.py
-│   ├── alembic/                    migrations
-│   ├── tests/                      97 tests + saved API fixtures
-│   ├── requirements.txt  requirements-dev.txt  pyproject.toml  Dockerfile
+│   ├── alembic/versions/           4 revisions; clean from empty on SQLite and Postgres
+│   ├── tests/                      198 tests + saved API fixtures
+│   └── requirements.txt  requirements-dev.txt  pyproject.toml  Dockerfile
 ├── frontend/
-│   ├── src/{api,components,pages,types}/   client, dashboard, panel, filters
-│   ├── package.json  vite.config.ts  nginx.conf  Dockerfile
-├── config/relevance_profiles.yaml  all keywords, weights, patterns, caps
-├── docker-compose.yml  .env.example  README.md
+│   ├── src/
+│   │   ├── components/             TopBar, StatTiles, SourceStrip, Toolbar, TenderList,
+│   │   │                           SettingsDrawer, DetailDrawer, Drawer, Pager, RunsTable,
+│   │   │                           AutomationNote, Icon
+│   │   ├── state/                  urlFilters.ts (URL <-> filters), preferences.ts (theme)
+│   │   ├── pages/Dashboard.tsx     orchestration
+│   │   ├── api/client.ts           read-only client
+│   │   └── labels.ts  styles.css  types/index.ts
+│   └── package.json  vite.config.ts  nginx.conf  Dockerfile
+├── config/relevance_profiles.yaml  all keywords, weights, patterns, caps (frozen)
+├── docs/
+│   ├── DECISIONS.md                every architectural choice and accepted risk
+│   ├── RUNBOOK.md                  deploy, rotate a secret, re-run a window, diagnose
+│   └── DEMO.md                     repeatable demo with a fallback for every step
+├── scripts/
+│   ├── ci_summary.py               run report -> GitHub step summary
+│   ├── fake_slack.py               offline webhook receiver, for testing without Slack
+│   └── verify_workflow_locally.sh  replays the workflow's steps on this machine
+├── docker-compose.yml              Postgres + API + nginx-served SPA
+└── .env.example  README.md
 ```
 
 ## 12. Known gaps / next steps
@@ -359,4 +467,12 @@ tender-monitor/
 * SAM.gov estimated values and TED lot-level values are only partially published; the model
   stores what the API returns.
 * Attachments are linked, not downloaded or parsed. Document text is therefore not scored.
-* No authentication (by design) — do not expose the API publicly as-is.
+* Read endpoints are unauthenticated **by design** — the content is public procurement data
+  already published by governments. Every endpoint that writes, or spends an outbound request
+  (`POST /api/fetch`, `POST /api/tenders/rescore`), requires the `X-Cron-Secret` header and
+  **fails closed** with 503 when `CRON_SECRET` is unset. Hardening headers are applied to every
+  response. There is no rate limiting and no per-user auth: set `ENABLE_API_DOCS=false` and read
+  `docs/DECISIONS.md` D5 before making the API reachable beyond the machine it runs on.
+* GitHub Actions cannot start a runner on this account while its billing is unresolved; the
+  workflow files are valid and registered, and `scripts/verify_workflow_locally.sh` replays their
+  steps on the host. See `docs/RUNBOOK.md` §6.

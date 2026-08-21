@@ -22,7 +22,13 @@ class KeyValueFormatter(logging.Formatter):
 
 
 def configure_logging(level: str = "INFO") -> None:
-    handler = logging.StreamHandler(sys.stdout)
+    """Send logs to stderr, never stdout.
+
+    stdout is reserved for machine-readable output: the scheduled-fetch
+    entrypoint's `--json` report is redirected straight into a file by the
+    workflow, and a single log line on stdout makes that file unparseable.
+    """
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(KeyValueFormatter())
     root = logging.getLogger()
     root.handlers = [handler]

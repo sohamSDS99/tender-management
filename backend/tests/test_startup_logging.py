@@ -24,9 +24,9 @@ from app.logging_config import configure_logging
 def test_app_logging_survives_init_db(tmp_path, monkeypatch, capsys) -> None:
     """A log emitted after init_db() must still reach a handler.
 
-    Asserted through stdout rather than caplog: configure_logging deliberately
-    replaces the root handlers, which removes pytest's capture handler too, so
-    caplog would report nothing even when logging works perfectly.
+    Asserted through captured stderr rather than caplog: configure_logging
+    deliberately replaces the root handlers, which removes pytest's capture
+    handler too, so caplog would report nothing even when logging works.
     """
     from app import db as db_module
 
@@ -50,7 +50,8 @@ def test_app_logging_survives_init_db(tmp_path, monkeypatch, capsys) -> None:
     assert root.handlers, "root logger has no handlers after the migration"
 
     logger.info("post-migration probe")
-    assert "post-migration probe" in capsys.readouterr().out
+    # stderr, not stdout: stdout belongs to machine-readable output.
+    assert "post-migration probe" in capsys.readouterr().err
 
 
 @pytest.fixture(autouse=True)
