@@ -9,3 +9,5 @@ data/
 *.db
 .env
 .DS_Store
+# run artefact from python -m app.jobs.scheduled_fetch --json
+backend/report.json
