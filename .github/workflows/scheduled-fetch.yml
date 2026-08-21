@@ -51,9 +51,12 @@ jobs:
   fetch:
     name: Fetch, score and notify
     runs-on: ubuntu-latest
-    # A live 8-source sweep measured ~13 min; 30 gives headroom without
-    # letting a hung connector burn the monthly free allowance.
-    timeout-minutes: 30
+    # A live sweep measured ~13 min locally but 20m42s on a GitHub runner (slower
+    # network, plus a connector that timed out and retried). 30 left only ~1.4x
+    # headroom; public-repo minutes are unlimited, so the only thing a longer
+    # ceiling risks is a hung run holding the concurrency group - and every HTTP
+    # call is already individually bounded by REQUEST_TIMEOUT_SECONDS.
+    timeout-minutes: 45
 
     # Always started (a service block cannot be conditional); only used in
     # ephemeral mode. Costs a few seconds and keeps one code path.

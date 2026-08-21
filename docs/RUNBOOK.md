@@ -180,8 +180,13 @@ Exit codes are meaningful:
 | 1 | Total ingest failure — every source failed, or none ran | §4 |
 | 2 | Ingested safely, **Slack delivery failed** | data is safe; the ledger marked those tenders retryable, so the next run re-announces them. Check the webhook. |
 
-A full live sweep of all sources takes about **13 minutes**. That is normal —
-it is page-cap and network bound, not stuck.
+A full live sweep takes about **13 minutes** locally and about **21 minutes** on
+a GitHub runner. That is normal - it is page-cap and network bound, not stuck.
+
+Individual sources time out and retry from time to time; `pncp` is the usual
+culprit (`ReadTimeout` on `pncp.gov.br`). One source failing never fails the run,
+and the next sweep picks up what it missed because the window overlaps by at
+least 72 hours.
 
 ---
 
