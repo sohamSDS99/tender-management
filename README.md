@@ -473,6 +473,6 @@ tender-monitor/
   **fails closed** with 503 when `CRON_SECRET` is unset. Hardening headers are applied to every
   response. There is no rate limiting and no per-user auth: set `ENABLE_API_DOCS=false` and read
   `docs/DECISIONS.md` D5 before making the API reachable beyond the machine it runs on.
-* GitHub Actions cannot start a runner on this account while its billing is unresolved; the
-  workflow files are valid and registered, and `scripts/verify_workflow_locally.sh` replays their
-  steps on the host. See `docs/RUNBOOK.md` §6.
+* The repository is public so that Actions minutes are unlimited and free. The workflow files are
+  therefore world-readable; they hold no secrets (every value arrives through `secrets.*` at run
+  time), and GitHub does not expose secrets to `pull_request` runs from forks.

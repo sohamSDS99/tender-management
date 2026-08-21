@@ -366,6 +366,14 @@ deliberately overwrites whatever logging configuration the process had, which is
 
 ---
 
+> **Amended after the repository was made public.** Actions minutes are now
+> unlimited and free, so the monthly-allowance argument below no longer applies.
+> The decision stands on its second reason, which was always the stronger one: a
+> throwaway database cannot keep the notification ledger, so a scheduled run
+> against one could neither honour at-most-once delivery nor keep what it
+> ingested. Spending 13 minutes fetching into a database that is discarded at the
+> end of the job buys nothing either way.
+
 ## D10 — A scheduled Actions run with no persistent database self-tests with fixtures
 
 **Decision.** In `.github/workflows/scheduled-fetch.yml`, the "Decide the run mode"

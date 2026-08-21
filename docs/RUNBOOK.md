@@ -331,25 +331,22 @@ gh workflow run scheduled-fetch.yml -f mode=replay   # deterministic demo
 gh workflow run scheduled-fetch.yml -f mode=live -f days_back=7
 ```
 
-**This account currently cannot start a runner.** Every dispatch fails in a few
-seconds with *"The job was not started because recent account payments have
-failed or your spending limit needs to be increased"*, and zero steps execute.
-Private-repo Actions minutes bill against a paid allowance. Two ways out:
+The repository is **public**, so Actions minutes are unlimited and free — there is
+no billing dependency and no monthly allowance to watch.
 
-1. **Make the repository public** — Actions minutes are unlimited and free for
-   public repositories. Permanently removes the billing dependency.
-2. Resolve billing / raise the spending limit under
-   **Settings → Billing & plans**.
+Both workflows have been run and are green. If a dispatch ever fails within a few
+seconds with *"The job was not started..."*, that is an account-level block rather
+than anything in this repository: check **Settings → Billing & plans**.
 
-Until then, the workflow's step sequence can still be verified on this machine,
-which runs the same commands against a throwaway PostgreSQL container:
+The workflow's step sequence can also be verified without GitHub, which is useful
+when changing the workflow itself:
 
 ```bash
 scripts/verify_workflow_locally.sh              # fixtures, seconds
 MODE=live scripts/verify_workflow_locally.sh    # real connectors, ~13 min
 ```
 
-Behaviour once runners work again, by configuration:
+Behaviour by configuration:
 
 | `DATABASE_URL` secret | Event | What happens |
 |---|---|---|
@@ -362,6 +359,10 @@ Never enable both the Actions schedule against the live database **and**
 
 GitHub disables scheduled workflows after roughly 60 days without repository
 activity. Any push resets the clock; check the Actions tab monthly.
+
+Because the repository is public, treat the workflow files as readable by
+anyone. They contain no secrets - every value arrives through `secrets.*` at run
+time - and `pull_request` runs from forks are not given secrets by GitHub.
 
 ---
 
