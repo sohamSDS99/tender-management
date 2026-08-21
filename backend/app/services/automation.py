@@ -89,8 +89,11 @@ def last_batch(db: Session) -> list[FetchRun]:
     return list(db.execute(stmt.order_by(FetchRun.source)).scalars().all())
 
 
-def slack_state(db: Session, settings: Settings, batch_id: str | None) -> dict[str, Any]:
+def slack_state(
+    db: Session, settings: Settings, batch_id: str | None, now: datetime | None = None
+) -> dict[str, Any]:
     """Slack health. A failed delivery is visible here, never swallowed."""
+    now = now or utcnow()
     if not settings.enable_slack_notifications:
         return {"status": "disabled", "detail": "ENABLE_SLACK_NOTIFICATIONS is false", "sent_total": 0}
     if not settings.slack_webhook_url:
@@ -120,7 +123,16 @@ def slack_state(db: Session, settings: Settings, batch_id: str | None) -> dict[s
         else 0
     )
 
-    degraded = latest_failure is not None and (batch_id is None or latest_failure.run_batch_id == batch_id)
+    # A failure only counts as *current* if it belongs to the last sweep, or is
+    # recent enough that no run has had a chance to retry it yet. Otherwise a
+    # single old failure would show the system as degraded for ever, including
+    # after later runs have succeeded.
+    recent_enough = latest_failure is not None and latest_failure.claimed_at >= now - timedelta(
+        hours=max(1, settings.slack_announce_lookback_hours)
+    )
+    degraded = latest_failure is not None and (
+        latest_failure.run_batch_id == batch_id if batch_id else recent_enough
+    )
     if unconfirmed:
         return {
             "status": "unconfirmed",
@@ -198,5 +210,5 @@ def automation_status(
             if batch
             else None
         ),
-        "slack": slack_state(db, settings, batch_id),
+        "slack": slack_state(db, settings, batch_id, now),
     }

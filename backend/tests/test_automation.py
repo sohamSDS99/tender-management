@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from app.models import SENT, FetchRun, SlackNotification, Tender
+from app.models import SENT, FetchRun, SlackNotification, Tender, utcnow
 from app.services import automation
 
 
@@ -227,3 +227,44 @@ def test_reaping_makes_the_dashboard_stop_reporting_running(db_session, settings
     after = automation.automation_status(db_session, settings)["last_run"]
     assert after["status"] == "failed"
     assert after["sources_failed"] == 1
+
+
+def test_an_old_failure_is_not_reported_as_current_degradation(db_session, settings) -> None:
+    """A single old failure must not show the system as degraded for ever."""
+    configured = settings.model_copy(update={"slack_webhook_url": "https://hooks.slack.com/services/a/b/c"})
+    tender = Tender(source="ted", source_notice_id="OLD", content_hash="h", title="t")
+    db_session.add(tender)
+    db_session.commit()
+    long_ago = datetime(2026, 1, 1, 0, 0)
+    db_session.add(
+        SlackNotification(
+            tender_id=tender.id,
+            channel_label=configured.slack_channel_label,
+            run_batch_id="ancient",
+            status="failed",
+            error_message="500 server_error",
+            claimed_at=long_ago,
+        )
+    )
+    db_session.commit()
+
+    # No batch at all: the failure is far outside the retry window.
+    state = automation.slack_state(db_session, configured, None)
+    assert state["status"] == "ok", "an ancient failure is not a current problem"
+
+    # A failure inside the window still surfaces.
+    fresh = Tender(source="ted", source_notice_id="NEW", content_hash="h2", title="t")
+    db_session.add(fresh)
+    db_session.commit()
+    db_session.add(
+        SlackNotification(
+            tender_id=fresh.id,
+            channel_label=configured.slack_channel_label,
+            run_batch_id="recent",
+            status="failed",
+            error_message="503 unavailable",
+            claimed_at=utcnow(),
+        )
+    )
+    db_session.commit()
+    assert automation.slack_state(db_session, configured, None)["status"] == "degraded"
