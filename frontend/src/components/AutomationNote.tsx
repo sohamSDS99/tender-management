@@ -37,6 +37,16 @@ export function AutomationNote({ automation }: { automation: AutomationStatus | 
       </p>
     );
   }
+  if (slack.status === 'unconfirmed') {
+    return (
+      <p className="autonote autonote--bad" role="status">
+        <Icon name="warning" size={14} />
+        {slack.unconfirmed} Slack {slack.unconfirmed === 1 ? 'announcement' : 'announcements'} left
+        this system without a confirmed reply — check {slack.channel_label ?? 'the channel'}. They
+        are not retried automatically, because a retry could post them twice.
+      </p>
+    );
+  }
   if (slack.status === 'degraded') {
     return (
       <p className="autonote autonote--bad" role="status">

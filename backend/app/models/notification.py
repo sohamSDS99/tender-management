@@ -20,6 +20,10 @@ from app.models.tender import utcnow
 CLAIMED = "pending"
 SENT = "sent"
 FAILED = "failed"
+# The POST left this process but no response came back, so we cannot know
+# whether Slack rendered it. Treated as delivered for the purpose of never
+# double-posting, and surfaced as a degraded state for a human to resolve.
+UNCONFIRMED = "unconfirmed"
 
 
 class SlackNotification(Base):

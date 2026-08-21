@@ -207,11 +207,55 @@ docker compose exec -T db psql -U tender -d tenders -c \
 | Dashboard shows "Cannot reach the API" | nginx up, API down | as above; the banner names the exact command |
 | `scheduler_running: false` but enabled | scheduler failed to start | restart `backend`, check for `scheduler started` |
 | No Slack message, `slack.status: unconfigured` | `SLACK_WEBHOOK_URL` unset | set it in `.env`, recreate `backend` |
-| `slack.status: degraded` | webhook rejected or unreachable | the detail field carries the redacted reason; tenders are safe and will be re-announced |
+| `slack.status: degraded` | Slack answered and rejected the post | the detail field carries the redacted reason; tenders are safe and the next run retries |
+| `slack.status: unconfirmed` | the POST left but no reply came back | see "Unconfirmed deliveries" below — this one needs a human |
 | Digest arrived but links 404 | `PUBLIC_APP_URL` wrong, or reader is not on this machine | see §5 |
 | One source always `failed` | upstream change or rate limit | check `error_message`; disable it with `ENABLE_<SOURCE>=false` if it is noisy |
 | Every source `failed` | no outbound network from the container | check the host's connectivity |
 | A tender was never announced | it scored below `SLACK_MIN_SCORE`, is not actionable, or was not new in that run | `select relevance_score, is_actionable from tenders where id=<id>;` and check `slack_notifications` |
+
+### Unconfirmed deliveries
+
+`slack.status: unconfirmed` means a digest left this system and Slack never
+answered — a dropped connection or a read timeout after the request was sent. It
+is genuinely unknown whether the message was rendered.
+
+These are **deliberately not retried**. Slack's incoming webhooks have no
+idempotency key, so re-sending a possibly-delivered digest would post it twice.
+The system chooses "possibly missed, visibly flagged" over "silently duplicated",
+and asks you to look:
+
+```bash
+curl -s http://localhost:8081/api/automation | python3 -c \
+  "import json,sys; print(json.load(sys.stdin)['slack'])"
+
+docker compose exec -T db psql -U tender -d tenders -c \
+  "select tender_id, run_batch_id, claimed_at, response_code, error_message
+     from slack_notifications where status = 'unconfirmed' order by claimed_at desc;"
+```
+
+Then check the channel for that timestamp:
+
+* **The message is there** — nothing to do. Optionally mark it settled so the
+  banner clears:
+
+  ```bash
+  docker compose exec -T db psql -U tender -d tenders -c \
+    "update slack_notifications set status='sent', posted_at=now()
+       where status='unconfirmed';"
+  ```
+
+* **The message is not there** — clear the rows so the next run announces them:
+
+  ```bash
+  docker compose exec -T db psql -U tender -d tenders -c \
+    "delete from slack_notifications where status='unconfirmed';"
+  docker compose exec -T backend python -m app.jobs.scheduled_fetch \
+    --trigger cron --days-back 7
+  ```
+
+  Note the wider window: those tenders are no longer new, so the run needs a
+  lookback that re-observes them.
 
 ### Force a re-announcement
 

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 
-from app.models import CLAIMED, FAILED, SENT, SlackNotification, Tender
+from app.models import CLAIMED, FAILED, SENT, UNCONFIRMED, SlackNotification, Tender
 from app.services import notifier
 from app.settings import Settings
 
@@ -353,6 +353,7 @@ def test_a_fresh_claim_by_a_sibling_process_blocks_a_second_post(db_session, sla
 
 
 def test_network_failure_is_reported_not_raised(db_session, slack_settings) -> None:
+    """A transport error is ambiguous, so it is 'unconfirmed', not 'failed'."""
     make_tender(db_session, notice="NET-1")
 
     def boom(request: httpx.Request) -> httpx.Response:
@@ -362,7 +363,8 @@ def test_network_failure_is_reported_not_raised(db_session, slack_settings) -> N
     outcome = notifier.notify_new_tenders(
         db_session, since=RUN_START, batch_id="b1", settings=slack_settings, now=NOW, client=client
     )
-    assert outcome.status == "failed"
+    assert outcome.status == "unconfirmed"
+    assert outcome.ok is False
     assert outcome.response_code is None
     assert "ConnectError" in (outcome.error or "")
 
@@ -553,3 +555,145 @@ def test_hostile_text_fields_are_escaped(db_session, slack_settings) -> None:
     blob = json.dumps(notifier.build_digest([tender], slack_settings, now=NOW))
     assert "<http://evil.test|DEU>" not in blob
     assert "&lt;http://evil.test|DEU&gt;" in blob
+
+
+# --- the ambiguous case: the POST left, but no reply came back ------------
+#
+# Slack's incoming webhooks have no idempotency key, so a request that may
+# already have been delivered must never be re-sent. These tests pin that:
+# retry only when Slack *answered*, and never re-announce something whose
+# delivery is unknown.
+
+
+def test_a_lost_response_is_delivered_at_most_once(db_session, slack_settings) -> None:
+    """The exact scenario that would otherwise post the same digest three times."""
+    make_tender(db_session, notice="LOST-1")
+    delivered: list[int] = []
+
+    def lost(request: httpx.Request) -> httpx.Response:
+        delivered.append(1)  # Slack got it...
+        raise httpx.ReadTimeout("connection reset after the request was sent")
+
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b1",
+        settings=slack_settings,
+        now=NOW,
+        client=httpx.Client(transport=httpx.MockTransport(lost)),
+        sleep=lambda _d: None,
+    )
+    assert outcome.status == "unconfirmed"
+    assert len(delivered) == 1, "an ambiguous transport error must not be retried"
+    assert db_session.query(SlackNotification).one().status == UNCONFIRMED
+
+    # And a later run must not re-announce it.
+    resent = Recorder()
+    later = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b2",
+        settings=slack_settings,
+        now=NOW + timedelta(hours=12),
+        client=resent.client(),
+    )
+    assert later.posted == 0
+    assert later.status == "heartbeat"
+    assert db_session.query(SlackNotification).count() == 1
+    assert db_session.query(SlackNotification).one().status == UNCONFIRMED
+
+
+def test_a_rejected_post_is_still_retried_because_nothing_was_delivered(db_session, slack_settings) -> None:
+    """A status code proves Slack answered, so re-sending cannot duplicate."""
+    make_tender(db_session, notice="REJECTED-1")
+    recorder = Recorder(status=500, body="server_error")
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b1",
+        settings=slack_settings,
+        now=NOW,
+        client=recorder.client(),
+        sleep=lambda _d: None,
+    )
+    assert outcome.status == "failed"
+    assert db_session.query(SlackNotification).one().status == FAILED
+
+    ok = Recorder()
+    retry = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b2",
+        settings=slack_settings,
+        now=NOW + timedelta(minutes=1),
+        client=ok.client(),
+    )
+    assert retry.status == "sent" and retry.posted == 1
+
+
+def test_a_transport_error_is_never_retried_within_a_run(slack_settings) -> None:
+    attempts: list[int] = []
+
+    def boom(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        raise httpx.ConnectError("refused")
+
+    delays: list[float] = []
+    code, error = notifier.post_webhook(
+        {"text": "x"},
+        slack_settings,
+        httpx.Client(transport=httpx.MockTransport(boom)),
+        sleep=delays.append,
+    )
+    assert code is None
+    assert "ConnectError" in (error or "")
+    assert len(attempts) == 1, "a possibly-delivered request must not be re-sent"
+    assert delays == []
+
+
+# --- the item cap ---------------------------------------------------------
+
+
+def test_the_item_cap_covers_the_remainder_with_a_link_not_silence(db_session, slack_settings) -> None:
+    """Documented behaviour, pinned so it stays deliberate.
+
+    The brief specifies capping the message and linking the rest. Every
+    qualifying tender is claimed and marked sent, so none is re-announced later;
+    the ones past the cap are reachable through the "+N more" link, which sorts
+    by discovery so they sit at the top. With SLACK_MIN_SCORE at 70 a real run
+    yields a handful, so the cap is rarely reached - but when it is, the count in
+    the footer must be honest.
+    """
+    capped = slack_settings.model_copy(update={"slack_max_items": 3})
+    for i in range(10):
+        make_tender(db_session, notice=f"CAP-{i}", score=90)
+
+    recorder = Recorder()
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b1",
+        settings=capped,
+        now=NOW,
+        client=recorder.client(),
+    )
+    assert outcome.posted == 10, "all qualifying tenders are accounted for"
+
+    payload = recorder.payloads[0]
+    named = [b for b in payload["blocks"] if b["type"] == "section" and "text" in b]
+    assert len(named) == 3, "only the cap is named individually"
+    footer = payload["blocks"][-1]["elements"][0]["text"]
+    assert "+7 more" in footer
+    assert "see all 10" in footer
+    assert "sort=first_seen_desc" in footer, "the link must surface the newest first"
+
+    # None of them is announced a second time by a later run.
+    second = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b2",
+        settings=capped,
+        now=NOW + timedelta(minutes=5),
+        client=Recorder().client(),
+    )
+    assert second.posted == 0

@@ -9,7 +9,8 @@ Exit codes
 ----------
 0   ingest finished (fully or partially) and notification is settled
 1   total ingest failure - every source failed, or the run could not start
-2   ingest is safe but the Slack notification failed (degraded, never silent)
+2   ingest is safe but the Slack notification failed, or its delivery could
+    not be confirmed (degraded, never silent)
 
 Scoring happens inside ``ingest.upsert_tender`` as each notice is stored, so
 there is no separate scoring pass to get out of step with it.
@@ -232,7 +233,7 @@ async def run_once(
     report.finished_at = utcnow()
     if total_failure:
         report.exit_code = EXIT_INGEST_FAILED
-    elif report.notification.get("status") == "failed":
+    elif report.notification.get("status") in ("failed", "unconfirmed"):
         report.exit_code = EXIT_NOTIFY_DEGRADED
     else:
         report.exit_code = EXIT_OK

@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
-from app.models import CLAIMED, FAILED, SENT, SlackNotification, Tender, utcnow
+from app.models import CLAIMED, FAILED, SENT, UNCONFIRMED, SlackNotification, Tender, utcnow
 from app.services.dhaka import format_dhaka
 from app.settings import Settings, get_settings, redact
 
@@ -81,7 +81,7 @@ class DigestOutcome:
 
     @property
     def ok(self) -> bool:
-        return self.status != "failed"
+        return self.status not in ("failed", "unconfirmed")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,8 +125,9 @@ def qualifying_tenders(
 def _claimable(db: Session, tender_ids: list[int], channel: str, stale_before: datetime) -> set[int]:
     """Ids not already announced, and not claimed by a live sibling process.
 
-    ``sent`` suppresses forever. ``pending`` suppresses only while fresh, so a
-    process killed mid-post does not silence a tender permanently.
+    ``sent`` and ``unconfirmed`` suppress forever - the second because the
+    message may already have been delivered. ``pending`` suppresses only while
+    fresh, so a process killed mid-post does not silence a tender permanently.
     """
     if not tender_ids:
         return set()
@@ -142,7 +143,7 @@ def _claimable(db: Session, tender_ids: list[int], channel: str, stale_before: d
     )
     blocked: set[int] = set()
     for row in rows:
-        if row.status == SENT:
+        if row.status in (SENT, UNCONFIRMED):
             blocked.add(row.tender_id)
         elif row.status == CLAIMED and row.claimed_at >= stale_before:
             blocked.add(row.tender_id)
@@ -473,10 +474,14 @@ def post_webhook(
 ) -> tuple[int | None, str | None]:
     """POST to the incoming webhook. Returns (status_code, error). Never raises.
 
-    Retries a rate-limit or a 5xx a bounded number of times with backoff, so a
-    momentary Slack blip does not cost a digest that then waits twelve hours for
-    the next run. A 4xx other than 429 is not retried: an invalid payload will
-    not become valid.
+    Retries only when Slack *answered* with a retryable status (429 or 5xx): a
+    reply proves the message was rejected, so re-sending cannot duplicate it. A
+    transport error is never retried, because the request may already have been
+    delivered and an incoming webhook has no idempotency key. A 4xx other than
+    429 is not retried either: an invalid payload will not become valid.
+
+    Returns ``(None, error)`` for the ambiguous transport case, which the caller
+    records as UNCONFIRMED rather than FAILED.
     """
     settings = settings or get_settings()
     owns = client is None
@@ -488,11 +493,10 @@ def post_webhook(
             try:
                 response = client.post(settings.slack_webhook_url, json=payload)
             except Exception as exc:
-                last = (None, redact(f"{type(exc).__name__}: {exc}", settings))
-                if attempt == attempts:
-                    break
-                sleep(settings.retry_backoff_seconds * attempt)
-                continue
+                # Ambiguous: the request may already have reached Slack. An
+                # incoming webhook has no idempotency key, so retrying could
+                # post the digest twice. Stop and report it as unconfirmed.
+                return None, redact(f"{type(exc).__name__}: {exc}", settings)
 
             if response.status_code < 400:
                 return response.status_code, None
@@ -605,12 +609,32 @@ def notify_new_tenders(
             tender_ids=[t.id for t in claimed],
         )
 
-    # Release the claims as 'failed' so the next run retries instead of going
-    # quiet forever. Ingested data is untouched.
-    settle(db, claimed, channel, FAILED, code, error, now, batch_id=batch_id)
-    log_ctx(logger, logging.ERROR, "slack digest failed", attempted=len(claimed), code=code, error=error)
+    # A status code means Slack answered and rejected it: nothing was delivered,
+    # so release the claims as 'failed' and let the next run retry. No status
+    # code means the request left this process and may have arrived - retrying
+    # would risk a duplicate, so it is recorded as unconfirmed, which blocks
+    # re-announcement and shows up as degraded for a human to resolve.
+    ambiguous = code is None
+    settle(
+        db,
+        claimed,
+        channel,
+        UNCONFIRMED if ambiguous else FAILED,
+        code,
+        error,
+        now,
+        batch_id=batch_id,
+    )
+    log_ctx(
+        logger,
+        logging.ERROR,
+        "slack digest unconfirmed" if ambiguous else "slack digest failed",
+        attempted=len(claimed),
+        code=code,
+        error=error,
+    )
     return DigestOutcome(
-        status="failed",
+        status="unconfirmed" if ambiguous else "failed",
         candidates=len(candidates),
         posted=0,
         suppressed=suppressed,

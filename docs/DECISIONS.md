@@ -476,6 +476,57 @@ twice.
 
 ---
 
+## D15 — A delivery we cannot confirm is never retried, and never hidden
+
+**Decision.** `post_webhook` retries only when Slack *answered* with a retryable
+status (429 or 5xx). A transport error — a dropped connection, a read timeout
+after the request was sent — is not retried at all. The claim is settled as
+`UNCONFIRMED`, which blocks re-announcement exactly like `SENT`, and the state is
+surfaced through `/api/automation` (`slack.status: "unconfirmed"`), as a banner in
+the dashboard, and as exit code 2 from the entrypoint. `docs/RUNBOOK.md` §4 has
+the resolution procedure.
+
+**Why.** Slack's incoming webhooks have no idempotency key, so a request that may
+already have been delivered cannot be safely re-sent. This was measured, not
+theorised: with a naive bounded retry, a `ReadTimeout` after delivery caused Slack
+to receive the same digest **twice within one run**, and then a third time on the
+next run — three deliveries of one digest, which is precisely the double-post the
+acceptance criteria forbid. A status code is different: it proves Slack rejected
+the message, so nothing was delivered and retrying is safe.
+
+**Alternatives rejected.** Retry everything — measured to triple-post. Treat a
+transport error as `FAILED` and retry on the next run — same duplicate, just
+twelve hours later. Treat it as `SENT` silently — would lose a tender with no
+signal at all, which is the one outcome that must never be invisible.
+
+**Consequences / accepted risk.** In this narrow window a digest may genuinely
+have been lost and will not resend itself; a human has to look at the channel and
+either clear the row or mark it settled. That is a deliberate trade: the failure
+is loud and one command from resolution, rather than a silent duplicate in a
+channel of executives. Tests: `test_a_lost_response_is_delivered_at_most_once`,
+`test_a_rejected_post_is_still_retried_because_nothing_was_delivered`,
+`test_a_transport_error_is_never_retried_within_a_run`.
+
+## D16 — The digest item cap names some tenders and links the rest
+
+**Decision.** A digest names at most `SLACK_MAX_ITEMS` tenders (default 8, hard
+capped at 11 so the payload cannot exceed Slack's 50-block limit). Every
+qualifying tender is claimed and marked sent, including those past the cap; the
+remainder are covered by a "+N more" link to the dashboard pre-filtered to the
+same threshold and sorted by discovery, so they sit at the top.
+
+**Why.** This is what the brief specifies: cap the message, link the rest. The
+alternative — claiming only what is shown and deferring the rest — cannot work
+with the "newly created in this run" rule, because a deferred tender is no longer
+new on the next run and would never be announced at all.
+
+**Consequences / accepted risk.** A tender past the cap is announced collectively
+rather than named, and is never named later. With `SLACK_MIN_SCORE` at 70 this is
+close to theoretical: a real 306-notice sweep produced zero tenders at or above
+70, and the entire 14-fixture seed set produces six. Pinned by
+`test_the_item_cap_covers_the_remainder_with_a_link_not_silence` so the behaviour
+stays deliberate and the footer count stays honest.
+
 ## D13 — Two dev-only frontend dependencies were added: `vitest` and `jsdom`
 
 **Decision.** `frontend/package.json` gains `vitest` and `jsdom` as

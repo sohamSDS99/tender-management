@@ -133,9 +133,10 @@ export interface FetchRun {
 
 /** Read-only automation picture. There is no way to start a fetch from the UI. */
 export interface SlackState {
-  status: 'ok' | 'degraded' | 'disabled' | 'unconfigured';
+  status: 'ok' | 'degraded' | 'unconfirmed' | 'disabled' | 'unconfigured';
   detail: string | null;
   sent_total: number;
+  unconfirmed: number;
   sent_in_last_batch: number;
   channel_label: string | null;
   min_score: number | null;

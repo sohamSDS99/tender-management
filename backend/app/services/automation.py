@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.jobs.schedule import next_run_local, next_run_utc, observes_dst, utc_cron_expressions
 from app.logging_config import log_ctx
-from app.models import SENT, FetchRun, SlackNotification, utcnow
+from app.models import SENT, UNCONFIRMED, FetchRun, SlackNotification, utcnow
 from app.services.dhaka import format_dhaka
 from app.services.scheduler import scheduler_state
 from app.settings import Settings, get_settings, redact
@@ -105,6 +105,11 @@ def slack_state(db: Session, settings: Settings, batch_id: str | None) -> dict[s
         .order_by(SlackNotification.claimed_at.desc())
         .limit(1)
     ).scalar_one_or_none()
+    # A delivery we could not confirm needs a human to look at the channel: it
+    # is deliberately never retried, because retrying could post it twice.
+    unconfirmed = db.execute(
+        select(func.count(SlackNotification.id)).where(SlackNotification.status == UNCONFIRMED)
+    ).scalar_one()
     sent_in_batch = (
         db.execute(
             select(func.count(SlackNotification.id)).where(
@@ -116,12 +121,28 @@ def slack_state(db: Session, settings: Settings, batch_id: str | None) -> dict[s
     )
 
     degraded = latest_failure is not None and (batch_id is None or latest_failure.run_batch_id == batch_id)
+    if unconfirmed:
+        return {
+            "status": "unconfirmed",
+            "detail": (
+                f"{unconfirmed} announcement(s) left this system but Slack never confirmed "
+                "receipt. They are not retried automatically, because Slack's incoming "
+                "webhooks have no idempotency key and a retry could post them twice. Check "
+                "the channel: see docs/RUNBOOK.md section 4."
+            ),
+            "sent_total": sent_total,
+            "unconfirmed": unconfirmed,
+            "sent_in_last_batch": sent_in_batch,
+            "channel_label": settings.slack_channel_label,
+            "min_score": settings.slack_min_score,
+        }
     return {
         "status": "degraded" if degraded else "ok",
         "detail": redact(latest_failure.error_message or "delivery failed", settings)
         if degraded and latest_failure
         else None,
         "sent_total": sent_total,
+        "unconfirmed": 0,
         "sent_in_last_batch": sent_in_batch,
         "channel_label": settings.slack_channel_label,
         "min_score": settings.slack_min_score,

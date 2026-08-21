@@ -170,6 +170,8 @@ class SlackState(BaseModel):
     status: str
     detail: str | None = None
     sent_total: int = 0
+    # Announcements that left this system without a confirmed reply from Slack.
+    unconfirmed: int = 0
     sent_in_last_batch: int = 0
     channel_label: str | None = None
     min_score: int | None = None
