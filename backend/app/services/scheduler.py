@@ -14,6 +14,7 @@ workflow call, so there is one run implementation, not three.
 from __future__ import annotations
 
 import logging
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -83,6 +84,29 @@ def start_scheduler(settings: Settings) -> AsyncIOScheduler | None:
         next_run=next_run_local(None, tuple(hours), settings.scheduler_timezone).isoformat(),
     )
     return scheduler
+
+
+def scheduler_state() -> dict[str, object]:
+    """What is actually scheduled in this process, not what config asked for.
+
+    ENABLE_SCHEDULER only records an intention. If the scheduler failed to start,
+    or another trigger owns the schedule, the dashboard must be able to say so
+    rather than promising a run that will never fire.
+    """
+    if _scheduler is None:
+        return {"running": False, "jobs": []}
+    jobs = []
+    for job in _scheduler.get_jobs():
+        next_run = job.next_run_time
+        jobs.append(
+            {
+                "id": job.id,
+                "next_run_at": (
+                    next_run.astimezone(ZoneInfo("UTC")).replace(tzinfo=None) if next_run else None
+                ),
+            }
+        )
+    return {"running": bool(_scheduler.running), "jobs": jobs}
 
 
 def stop_scheduler() -> None:

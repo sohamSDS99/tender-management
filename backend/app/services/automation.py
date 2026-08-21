@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.jobs.schedule import next_run_local, next_run_utc, observes_dst, utc_cron_expressions
 from app.models import SENT, FetchRun, SlackNotification, utcnow
 from app.services.dhaka import format_dhaka
+from app.services.scheduler import scheduler_state
 from app.settings import Settings, get_settings, redact
 
 # Worst-first: the status of a batch is the worst status among its sources.
@@ -97,6 +98,7 @@ def automation_status(
     hours = tuple(settings.scheduler_hour_list)
     tz = settings.scheduler_timezone
 
+    state = scheduler_state()
     batch = last_batch(db)
     statuses = [r.status for r in batch]
     finished = [r.finished_at for r in batch if r.finished_at]
@@ -109,7 +111,11 @@ def automation_status(
         "observes_dst": observes_dst(tz, now.year),
         "next_run_at": next_run_utc(None, hours, tz),
         "next_run_local_label": next_run_local(None, hours, tz).strftime("%d %b %Y, %H:%M"),
+        # Intent vs reality: enabled-but-not-running is a real failure mode and
+        # has to be visible, not hidden behind the config flag.
         "scheduler_in_process": settings.enable_scheduler,
+        "scheduler_running": bool(state["running"]),
+        "scheduler_jobs": state["jobs"],
         "last_run": (
             {
                 "batch_id": batch_id,

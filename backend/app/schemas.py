@@ -55,6 +55,9 @@ class TenderListItem(UtcModel):
     review_flags: list[str] = Field(default_factory=list)
     is_actionable: bool
     last_seen_at: datetime
+    # The dashboard marks a tender "New" when this is at or after the last run's
+    # start, so the list needs it too - not just the detail view.
+    first_seen_at: datetime
 
 
 class TenderDetail(TenderListItem):
@@ -69,7 +72,6 @@ class TenderDetail(TenderListItem):
     source_updated_at: datetime | None
     source_timezone: str | None
     content_hash: str
-    first_seen_at: datetime
     created_at: datetime
     updated_at: datetime
     raw_payload: dict[str, Any] | None
@@ -104,6 +106,9 @@ class FetchRunSchema(UtcModel):
     window_from: datetime | None
     window_to: datetime | None
     trigger: str
+    # Groups the per-source runs of one sweep; correlates with
+    # slack_notifications.run_batch_id.
+    batch_id: str | None
 
 
 class FetchResponse(UtcModel):
@@ -190,6 +195,11 @@ class LastRun(UtcModel):
     errors: list[LastRunError] = Field(default_factory=list)
 
 
+class ScheduledJob(UtcModel):
+    id: str
+    next_run_at: datetime | None
+
+
 class AutomationStatus(UtcModel):
     """Read-only replacement for the removed manual-fetch controls."""
 
@@ -200,5 +210,7 @@ class AutomationStatus(UtcModel):
     next_run_at: datetime
     next_run_local_label: str
     scheduler_in_process: bool
+    scheduler_running: bool
+    scheduler_jobs: list[ScheduledJob] = Field(default_factory=list)
     last_run: LastRun | None
     slack: SlackState

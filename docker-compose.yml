@@ -1,22 +1,78 @@
+# The whole web app, locally, in one command:
+#
+#     docker compose up -d --build
+#
+# Ports are overridable: set WEB_PORT / API_PORT in .env if these are taken.
+#
+#   http://localhost:8080          the dashboard (nginx serves the built SPA and
+#                                  proxies /api and /health to the API, so the
+#                                  browser only ever talks to one origin)
+#   http://localhost:8080/health   API health, through the same origin
+#   http://localhost:8000/docs     API docs, direct
+#
+# Storage is PostgreSQL in a named volume, so the database survives
+# `docker compose down` and any rebuild. SQLite still works for local dev and is
+# what the test suite uses; see docs/DECISIONS.md (D3).
+#
+# The API container owns the schedule: ENABLE_SCHEDULER=true runs the sweep at
+# 00:00 and 12:00 Asia/Dhaka. Exactly one trigger owner may be enabled - see
+# docs/DECISIONS.md (D2) before turning on the GitHub Actions schedule as well.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tender
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tender}
+      POSTGRES_DB: tenders
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tender -d tenders"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    # Not published to the host by default: nothing outside this network needs
+    # it. Uncomment to inspect the database with psql from the host.
+    # ports:
+    #   - "55432:5432"
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       # Optional: `docker compose up --build` works with no .env at all.
       - path: .env
         required: false
     environment:
-      # Container-local paths always win over whatever is in .env.
-      DATABASE_URL: sqlite:////app/data/tenders.db
+      # Container-local values always win over whatever is in .env.
+      DATABASE_URL: postgresql+psycopg://tender:${POSTGRES_PASSWORD:-tender}@db:5432/tenders
       RELEVANCE_CONFIG_PATH: /app/config/relevance_profiles.yaml
+      RUN_MIGRATIONS_ON_STARTUP: "true"
+      # Same origin as the dashboard, so no CORS is needed in the browser.
       CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      # This container is the trigger owner for a locally hosted deployment.
+      ENABLE_SCHEDULER: "true"
+      SCHEDULER_TIMEZONE: Asia/Dhaka
+      SCHEDULER_HOURS_LOCAL: "0,12"
+      # Where Slack digest links point. Must be reachable by whoever clicks them.
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
+      # Secrets: supplied by .env or the shell, never baked into the image.
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_MIN_SCORE: ${SLACK_MIN_SCORE:-70}
+      SLACK_CHANNEL_LABEL: ${SLACK_CHANNEL_LABEL:-#tenders}
+      ENABLE_SLACK_NOTIFICATIONS: ${ENABLE_SLACK_NOTIFICATIONS:-true}
+      CRON_SECRET: ${CRON_SECRET:-}
+      SAM_GOV_API_KEY: ${SAM_GOV_API_KEY:-}
     volumes:
-      - ./data:/app/data
       - ./config:/app/config:ro
     ports:
-      - "8000:8000"
+      # Override with API_PORT in .env if 8000 is taken on this machine.
+      - "${API_PORT:-8000}:8000"
     restart: unless-stopped
 
   frontend:
@@ -27,5 +83,10 @@ services:
       backend:
         condition: service_started
     ports:
-      - "8080:80"
+      # Override with WEB_PORT in .env if 8080 is taken on this machine, and set
+      # PUBLIC_APP_URL to match or the Slack links will point at the wrong port.
+      - "${WEB_PORT:-8080}:80"
     restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -9,6 +9,15 @@ export type DeploymentFit =
   | 'mandatory_on_premises'
   | 'offline_or_air_gapped';
 
+export type SortOption =
+  | 'score_desc'
+  | 'score_asc'
+  | 'deadline_asc'
+  | 'deadline_desc'
+  | 'published_desc'
+  | 'published_asc'
+  | 'first_seen_desc';
+
 export interface Tender {
   id: number;
   source: string;
@@ -34,6 +43,7 @@ export interface Tender {
   review_flags: string[];
   is_actionable: boolean;
   last_seen_at: string;
+  first_seen_at: string;
 }
 
 export interface TenderDetail extends Tender {
@@ -48,7 +58,6 @@ export interface TenderDetail extends Tender {
   source_updated_at: string | null;
   source_timezone: string | null;
   content_hash: string;
-  first_seen_at: string;
   created_at: string;
   updated_at: string;
   raw_payload: Record<string, unknown> | null;
@@ -119,28 +128,76 @@ export interface FetchRun {
   window_from: string | null;
   window_to: string | null;
   trigger: string;
+  batch_id: string | null;
 }
 
-export interface FetchResponse {
-  runs: { id: number; source: string; status: string }[];
-  run_ids: number[];
-  skipped_sources: string[];
-  window_from: string;
-  window_to: string;
+/** Read-only automation picture. There is no way to start a fetch from the UI. */
+export interface SlackState {
+  status: 'ok' | 'degraded' | 'disabled' | 'unconfigured';
+  detail: string | null;
+  sent_total: number;
+  sent_in_last_batch: number;
+  channel_label: string | null;
+  min_score: number | null;
 }
 
+export interface LastRun {
+  batch_id: string | null;
+  trigger: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  started_at_local_label: string;
+  sources_total: number;
+  sources_failed: number;
+  records_received: number;
+  records_created: number;
+  records_updated: number;
+  errors: { source: string; message: string }[];
+}
+
+export interface AutomationStatus {
+  timezone: string;
+  run_hours_local: number[];
+  cron_utc: string[];
+  observes_dst: boolean;
+  next_run_at: string;
+  next_run_local_label: string;
+  /** What the config asked for. */
+  scheduler_in_process: boolean;
+  /** Whether the API process actually has the schedule registered. */
+  scheduler_running: boolean;
+  scheduler_jobs: { id: string; next_run_at: string | null }[];
+  last_run: LastRun | null;
+  slack: SlackState;
+}
+
+/** The full filter set. Every field round-trips through the URL. */
 export interface TenderFilters {
   query: string;
   minimum_score: number;
+  maximum_score: number;
   sources: string[];
   countries: string[];
   categories: string[];
   statuses: string[];
   fit_statuses: FitStatus[];
   deployment_fits: DeploymentFit[];
+  deadline_from: string;
   deadline_to: string;
+  published_from: string;
+  published_to: string;
   active_only: boolean;
-  sort: string;
+  has_deadline: boolean | null;
+  sort: SortOption;
   page: number;
   page_size: number;
+}
+
+export type Theme = 'light' | 'dark' | 'system';
+export type Density = 'comfortable' | 'compact';
+
+export interface Preferences {
+  theme: Theme;
+  density: Density;
 }

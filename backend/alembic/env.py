@@ -13,7 +13,12 @@ from app.settings import get_settings
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which would switch off every
+    # logger the application has already created. init_db() runs this migration
+    # in-process at startup, so that default silently killed all app and uvicorn
+    # logging for the rest of the process's life. See app.db.init_db, which also
+    # restores the root handler afterwards.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata

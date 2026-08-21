@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
+from app.logging_config import configure_logging
 from app.settings import BACKEND_DIR, get_settings
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,12 @@ def init_db() -> None:
             cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
             cfg.set_main_option("sqlalchemy.url", settings.database_url)
             command.upgrade(cfg, "head")
+            # alembic.ini owns a [logger_root] of its own, so running the upgrade
+            # in-process leaves the root logger pointing at alembic's stderr
+            # handler at WARNING. Without this, every later app log line - the
+            # scheduler starting, a sweep finishing, a Slack failure - is thrown
+            # away, and the runbook has nothing to diagnose from.
+            configure_logging(settings.log_level)
             return
         except Exception:  # pragma: no cover - defensive boot path
             logger.warning("alembic upgrade failed, falling back to create_all", exc_info=True)

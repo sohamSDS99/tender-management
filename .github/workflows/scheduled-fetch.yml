@@ -51,7 +51,9 @@ jobs:
   fetch:
     name: Fetch, score and notify
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # A live 8-source sweep measured ~13 min; 30 gives headroom without
+    # letting a hung connector burn the monthly free allowance.
+    timeout-minutes: 30
 
     # Always started (a service block cannot be conditional); only used in
     # ephemeral mode. Costs a few seconds and keeps one code path.
@@ -127,7 +129,19 @@ jobs:
             slack=dry-run
           fi
 
-          if [ "${IN_MODE:-live}" = "replay" ]; then
+          # A live sweep of 8 sources measured ~13 minutes. On a private repo
+          # that is ~800 Actions minutes a month against a 2,000-minute free
+          # allowance - too close to the cap to spend on a database that is
+          # thrown away at the end of the job. So a *scheduled* run with no
+          # persistent database self-tests with the committed fixtures (seconds)
+          # instead, and a live sweep happens when it can actually be kept:
+          # either a persistent database, or an explicit manual dispatch.
+          mode="${IN_MODE:-live}"
+          if [ "$db" = "ephemeral" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            mode=replay
+            echo "::notice title=Self-test mode::No DATABASE_URL secret, so this scheduled run exercises the pipeline with the committed seed fixtures instead of a full live sweep. Add DATABASE_URL to make scheduled runs live and persistent."
+          fi
+          if [ "$mode" = "replay" ]; then
             source_flag="--seed --seed-reset"
           else
             source_flag=""
@@ -152,6 +166,7 @@ jobs:
 
           {
             echo "db=$db"
+            echo "effective_mode=$mode"
             echo "slack=$slack"
             echo "notify_flag=$notify_flag"
             echo "source_flag=$source_flag"
@@ -159,7 +174,7 @@ jobs:
             echo "sources=$sources"
           } >> "$GITHUB_OUTPUT"
 
-          echo "database=$db slack=$slack mode=${IN_MODE:-live}"
+          echo "database=$db slack=$slack mode=$mode"
 
       - name: Wait for the ephemeral database
         if: steps.mode.outputs.db == 'ephemeral'
@@ -209,7 +224,7 @@ jobs:
           MODE_DB: ${{ steps.mode.outputs.db }}
           MODE_SLACK: ${{ steps.mode.outputs.slack }}
           RUN_EXIT_CODE: ${{ steps.run.outputs.exit_code }}
-          RUN_MODE: ${{ inputs.mode || 'live' }}
+          RUN_MODE: ${{ steps.mode.outputs.effective_mode }}
         run: python scripts/ci_summary.py backend/report.json
 
       - name: Upload the run report
