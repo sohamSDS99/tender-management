@@ -7,3 +7,15 @@ frontend/dist
 data
 .git
 *.db
+# Secrets must never enter the build context, even though no Dockerfile
+# copies them today - a future COPY . would silently bake them into a layer.
+.env
+.env.*
+!.env.example
+**/.env
+# Local dev noise
+.github
+docs
+scripts
+*.md
+!README.md
