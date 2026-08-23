@@ -25,13 +25,36 @@ from app.settings import Settings, get_settings, redact
 logger = logging.getLogger(__name__)
 
 # Worst-first: the status of a batch is the worst status among its sources.
-STATUS_RANK = {"failed": 0, "partial": 1, "running": 2, "queued": 3, "skipped": 4, "success": 5}
+# Worst-first, but "failed" is reserved for a batch where nothing worked - see
+# _batch_status.
+STATUS_RANK = {"partial": 0, "running": 1, "queued": 2, "skipped": 3, "success": 4}
+
+IN_FLIGHT = ("running", "queued")
 
 
 def _batch_status(statuses: list[str]) -> str:
+    """One status for a whole sweep, matching how a source reports itself.
+
+    A single failing connector must not make the sweep read as "failed". The
+    whole design point of one FetchRun per source is that one source failing does
+    not fail the run: on the live sweep of 2026-08-21, pncp timed out while the
+    other six sources stored 269 notices, and calling that "failed" tells the
+    reader the opposite of what happened.
+
+    So "failed" means every source failed. Some-but-not-all is "partial", which
+    is exactly what an individual source calls a run that lost some records.
+    """
     if not statuses:
         return "unknown"
-    return min(statuses, key=lambda s: STATUS_RANK.get(s, 99))
+    failed = [s for s in statuses if s == "failed"]
+    if len(failed) == len(statuses):
+        return "failed"
+    remaining = [s for s in statuses if s != "failed"]
+    if failed:
+        # Something did fail; never report that as clean, even if the rest are
+        # still in flight.
+        return "running" if all(s in IN_FLIGHT for s in remaining) else "partial"
+    return min(remaining, key=lambda s: STATUS_RANK.get(s, 99))
 
 
 def reap_interrupted_runs(db: Session, settings: Settings | None = None, now: datetime | None = None) -> int:

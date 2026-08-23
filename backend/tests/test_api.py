@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
 from app.models import FetchRun
 from app.services import ingest
-from tests.test_ingest import make_tender
 
-NOW = datetime.utcnow()
+# Share test_ingest's frozen instant rather than reading the wall clock.
+# make_tender() dates its fixtures relative to that constant, so a live utcnow()
+# here drifts away from them and the date-window assertions below start failing
+# once real time passes it - a time bomb that fired on 2026-08-22.
+from tests.test_ingest import NOW, make_tender
 
 
 @pytest.fixture

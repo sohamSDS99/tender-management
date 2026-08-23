@@ -54,11 +54,17 @@ def test_last_run_aggregates_the_whole_batch(db_session, settings) -> None:
     assert last["trigger"] == "cron"
 
 
-def test_batch_status_is_the_worst_source_status(db_session, settings) -> None:
+def test_a_partly_failed_batch_reports_partial_and_names_the_failure(db_session, settings) -> None:
+    """Some-but-not-all failing is "partial" - the same word a single source uses.
+
+    Reporting "failed" here would tell the reader the sweep did not work, when in
+    fact ted's notices were stored. The failure still has to be named, though:
+    "partial" without the reason is not actionable.
+    """
     add_run(db_session, source="ted", status="success")
     add_run(db_session, source="sam", status="failed", error_message="boom")
     last = automation.automation_status(db_session, settings)["last_run"]
-    assert last["status"] == "failed"
+    assert last["status"] == "partial"
     assert last["sources_failed"] == 1
     assert last["errors"] == [{"source": "sam", "message": "boom"}]
 
@@ -225,7 +231,10 @@ def test_reaping_makes_the_dashboard_stop_reporting_running(db_session, settings
     assert automation.automation_status(db_session, settings)["last_run"]["status"] == "running"
     automation.reap_interrupted_runs(db_session, settings, stale + timedelta(hours=2))
     after = automation.automation_status(db_session, settings)["last_run"]
-    assert after["status"] == "failed"
+    # The point of reaping: the dashboard stops claiming a run is still going.
+    assert after["status"] != "running"
+    # ted succeeded, so the batch is partial rather than a wholesale failure.
+    assert after["status"] == "partial"
     assert after["sources_failed"] == 1
 
 
@@ -268,3 +277,40 @@ def test_an_old_failure_is_not_reported_as_current_degradation(db_session, setti
     )
     db_session.commit()
     assert automation.slack_state(db_session, configured, None)["status"] == "degraded"
+
+
+# --- batch status semantics ----------------------------------------------
+# One failing connector must not make the whole sweep read as "failed": the
+# per-source FetchRun design exists precisely so one source can fail harmlessly.
+
+
+def test_one_failing_source_among_many_is_partial_not_failed(db_session, settings) -> None:
+    """The live 2026-08-21 sweep: pncp timed out, 269 notices still landed."""
+    add_run(db_session, source="ted", status="success", records_created=10)
+    add_run(db_session, source="canada_buys", status="success", records_created=225)
+    add_run(db_session, source="pncp", status="failed", error_message="ReadTimeout")
+    last = automation.automation_status(db_session, settings)["last_run"]
+    assert last["status"] == "partial", "a sweep that stored 235 notices is not a failure"
+    assert last["sources_failed"] == 1
+    assert last["records_created"] == 235
+
+
+def test_every_source_failing_is_reported_as_failed(db_session, settings) -> None:
+    add_run(db_session, source="ted", status="failed", error_message="boom")
+    add_run(db_session, source="pncp", status="failed", error_message="boom")
+    assert automation.automation_status(db_session, settings)["last_run"]["status"] == "failed"
+
+
+def test_a_failure_alongside_in_flight_sources_still_shows_running(db_session, settings) -> None:
+    add_run(db_session, source="ted", status="failed", error_message="boom")
+    add_run(db_session, source="pncp", status="running")
+    assert automation.automation_status(db_session, settings)["last_run"]["status"] == "running"
+
+
+def test_a_skipped_source_does_not_degrade_a_clean_sweep(db_session, settings) -> None:
+    """SAM.gov with no API key is skipped, which is expected, not a problem."""
+    add_run(db_session, source="ted", status="success", records_created=10)
+    add_run(db_session, source="sam", status="skipped", error_message="SAM_GOV_API_KEY not set")
+    last = automation.automation_status(db_session, settings)["last_run"]
+    assert last["status"] == "skipped"
+    assert last["sources_failed"] == 0
