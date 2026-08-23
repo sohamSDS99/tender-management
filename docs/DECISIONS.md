@@ -632,6 +632,61 @@ row at a time. `docs/RUNBOOK.md` §7 therefore names restoring a dump as the
 lossless path and states which single revision is the exception. Verified end to
 end: `head -> base -> head` runs clean on PostgreSQL with data present.
 
+## D13 — Internal network access, deliberately with no user accounts
+
+**Decision.** The dashboard is reachable by anyone on the company network and has no
+login, no user profiles and no per-user state. `PUBLIC_APP_URL` is set to the host's
+LAN address (`http://192.168.1.5:8081`) so the deep links in a Slack digest open for
+colleagues, not just on the machine running the stack. The containers already listen
+on all interfaces, so no port change was needed.
+
+Confirmed reachable across the LAN interface rather than loopback:
+
+```
+dashboard  http://192.168.1.5:8081/          -> 200
+health     http://192.168.1.5:8081/health    -> 200
+deep link  http://192.168.1.5:8081/?tender=1 -> 200
+api        http://192.168.1.5:8081/api/stats -> 200
+```
+
+**Why.** Requested directly: internal members of the company should reach the
+dashboard, with no user profiles. Adding accounts would mean a user table, a session
+mechanism, a password reset path and an onboarding step for every colleague - all to
+protect data that is, in substance, public procurement notices that governments have
+already published. The proprietary part is the relevance scoring, and that is not
+worth an auth system on an internal-only tool.
+
+**Alternatives rejected.** Per-user accounts (cost outweighs the benefit for
+internal-only reads, see above). A single shared password via nginx basic auth
+(a shared password that is never rotated is theatre, and it breaks the Slack deep
+links by prompting mid-navigation). Binding to loopback only (defeats the purpose -
+colleagues could not open the links at all).
+
+**Consequences / accepted risk.**
+
+* **Reads are open to anyone on the same network.** On a trusted office LAN that is
+  the intent. On an untrusted network - a cafe, a hotel, a conference - the dashboard
+  becomes readable by strangers on that network for as long as the laptop is joined
+  to it. Mitigation: stop the stack (`docker compose stop`) when working from an
+  untrusted network, or publish only on loopback by setting the ports to
+  `127.0.0.1:8081:80`.
+* **Writes remain closed even from inside the network.** Verified from the LAN
+  interface: `POST /api/fetch` and `POST /api/tenders/rescore` both return `401`
+  without `X-Cron-Secret`. Colleagues can read everything and change nothing.
+* **The database is not exposed.** `tender-monitor-db-1` publishes no host port
+  (`{"5432/tcp": null}`); it is reachable only inside the compose network.
+* **The LAN address can move.** It is a DHCP lease. If the router reassigns it, every
+  previously sent Slack link breaks. Durable fixes, in order of preference: a DHCP
+  reservation for this machine on the router; or use the mDNS hostname, which is
+  verified working (`http://Sohams-MacBook-Air.local:8081/` -> 200) and survives a
+  lease change, at the cost of requiring mDNS resolution on the client - fine for
+  Apple and Windows 10+, unreliable on some corporate networks.
+* This decision covers the **internal network only**. Nothing here changes the
+  position in D5 on internet exposure: before that, turn off `ENABLE_API_DOCS` and
+  put real authentication in front of it.
+
+---
+
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their

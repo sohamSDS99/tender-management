@@ -307,20 +307,66 @@ docker compose exec -T backend python -m app.jobs.scheduled_fetch \
 
 ---
 
-## 5. Slack links do not open for a colleague
+## 5. Slack links, and who can reach the dashboard
 
-`PUBLIC_APP_URL` is baked into every digest entry as
-`{PUBLIC_APP_URL}/?tender=<id>`. Its default, `http://localhost:8080`, only
-resolves on the machine running the app.
+The dashboard is served to the whole company network with no login, by design -
+see `docs/DECISIONS.md` D13. `PUBLIC_APP_URL` is the LAN address, so the deep
+link in every Slack entry opens for colleagues and not only on the host:
 
-- Same office network: set it to the host's LAN address, e.g.
-  `http://192.168.1.42:8081`, and recreate `backend`.
-- Remote: put a tunnel in front (`cloudflared tunnel --url http://localhost:8081`)
-  and set `PUBLIC_APP_URL` to the tunnel URL.
-- Before exposing the API beyond the machine, set `ENABLE_API_DOCS=false` and
-  read `docs/DECISIONS.md` D5 — reads are deliberately unauthenticated.
+```
+PUBLIC_APP_URL=http://192.168.1.5:8081
+```
 
-Existing digests keep the old URL. Only new ones pick up the change.
+Colleagues open `http://192.168.1.5:8081` directly, or just click a tender in
+Slack. They can read everything and change nothing: both write endpoints return
+`401` without the shared secret, and the database publishes no host port.
+
+### If the links stop working
+
+The LAN address is a DHCP lease and can be reassigned. Symptom: links that used
+to open now time out.
+
+```bash
+ipconfig getifaddr en0        # the current address
+```
+
+If it changed, update `PUBLIC_APP_URL` in `.env` and recreate the API:
+
+```bash
+docker compose up -d backend
+docker compose exec -T backend python -c \
+  "from app.services.notifier import tender_permalink; print(tender_permalink(1))"
+```
+
+Digests already sent keep the old address; only new ones pick up the change.
+
+Two durable fixes, better than editing this on every lease change:
+
+1. **A DHCP reservation** for this machine on the router. Preferred - the address
+   then never moves and every client resolves it with no extra protocol.
+2. **The mDNS hostname**, verified working here:
+   `PUBLIC_APP_URL=http://Sohams-MacBook-Air.local:8081`. Survives a lease
+   change. Requires the client to resolve `.local`, which Apple devices and
+   Windows 10+ do, but some corporate networks block.
+
+### Working from an untrusted network
+
+On a cafe or hotel network, "anyone on the network" stops meaning "colleagues".
+Either stop the stack:
+
+```bash
+docker compose stop
+```
+
+or bind it to this machine only, by changing the published ports in
+`docker-compose.yml` to `127.0.0.1:${WEB_PORT:-8080}:80` and
+`127.0.0.1:${API_PORT:-8000}:8000`, then `docker compose up -d`.
+
+### Before exposing it to the internet
+
+Different decision entirely, and not covered by D13. At minimum: set
+`ENABLE_API_DOCS=false`, put real authentication in front of the whole app, and
+re-read `docs/DECISIONS.md` D5.
 
 ---
 
