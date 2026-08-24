@@ -60,8 +60,8 @@ export function SystemSection({
   automation: AutomationStatus | null;
   sources: SourceStatus[];
   runs: FetchRun[];
-  /** The sweep-time editor. Lives here because it is an operating control,
-   *  not part of the daily hunt. */
+  /** The sweep controls — on/off, and the times. Live here because they are
+   *  operating controls, not part of the daily hunt. */
   schedule?: ReactNode;
 }) {
   if (sources.length === 0) return null;
@@ -82,9 +82,14 @@ export function SystemSection({
       <summary>
         <Icon name="chevronRight" size={12} />
         {healthy} of {sources.length} sources healthy
-        {automation?.cron_utc
-          ? ` · sweeps at ${automation.run_hours_local.map((h) => `${String(h).padStart(2, '0')}:00`).join(' and ')} ${automation.timezone}`
-          : ''}
+        {/* A collapsed section must not read as healthy while sweeps are off. */}
+        {automation && !automation.scheduler_in_process ? (
+          <span className="system__paused"> · sweeps paused</span>
+        ) : automation?.cron_utc ? (
+          ` · sweeps at ${automation.run_hours_local.map((h) => `${String(h).padStart(2, '0')}:00`).join(' and ')} ${automation.timezone}`
+        ) : (
+          ''
+        )}
       </summary>
 
       <div className="system__body">

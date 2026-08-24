@@ -1467,6 +1467,66 @@ a {
 /* ============================================================
    SCHEDULE EDITOR  —  the one control that changes anything
    ============================================================ */
+/* The sweep on/off switch. Sits directly above the times, because "whether" and
+   "when" are one decision to the person reading it. */
+.trigger {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.trigger__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.trigger__row > h3 {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.trigger__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--good-ink);
+}
+.trigger__state--off {
+  color: var(--bad-ink);
+}
+/* Pushes the buttons to the far edge, so the state and the action are not read
+   as one control. */
+.trigger__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.trigger__hint {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  margin-top: 8px;
+  max-width: 70ch;
+}
+.trigger__hint--warn {
+  color: var(--bad-ink);
+}
+.btn--danger {
+  border-color: var(--bad-ink);
+  background: var(--paper);
+  color: var(--bad-ink);
+  font-weight: 600;
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--bad-tint);
+}
+/* A collapsed system section has to carry the paused state on its own. */
+.system__paused {
+  color: var(--bad-ink);
+  font-weight: 600;
+}
+
 .schedule {
   padding-bottom: 8px;
 }

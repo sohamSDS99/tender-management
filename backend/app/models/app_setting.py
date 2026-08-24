@@ -19,6 +19,10 @@ from app.models.tender import utcnow
 #: Local hours of day, comma separated, in SCHEDULER_TIMEZONE. e.g. "0,12"
 KEY_RUN_HOURS = "scheduler.run_hours_local"
 
+#: Whether the sweep is triggered at all, "true" or "false". The env var
+#: ENABLE_SCHEDULER is the default; this row is an operator overriding it.
+KEY_SCHEDULER_ENABLED = "scheduler.enabled"
+
 
 class AppSetting(Base):
     __tablename__ = "app_settings"

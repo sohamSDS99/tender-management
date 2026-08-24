@@ -730,6 +730,8 @@ class of confusion this product has no need for).
 * **A bad value cannot disable sweeps.** An empty list is refused rather than
   accepted as "never run", and a hand-edited or corrupt stored row falls back to
   the environment default instead of stopping the scheduler from starting.
+  *Superseded in part by D21*: sweeps can now be stopped, but only by asking for
+  exactly that, never as a side effect of a malformed schedule.
 * **The GitHub Actions cron does not follow.** That schedule is static YAML in git
   and this setting cannot rewrite it. It does not matter today, because the local
   APScheduler owns the schedule (D2) and the Actions runs are an ephemeral
@@ -761,6 +763,87 @@ cannot run (SAM.gov without an API key) still shows its stored count, because
 "1 notice, currently unavailable" is truer than hiding it. The same reasoning
 removed the counts from the Fit / Hosting / Capability filter chips, where a global
 total sitting beside a narrowed list promised results that were not there.
+
+---
+
+## D21 — Whether the sweep runs is editable from the dashboard, not just when
+
+**Decision.** `PUT /api/automation/trigger` takes `{"enabled": true|false}`, stores it
+in `app_settings` under `scheduler.enabled`, and starts or stops this process's
+APScheduler immediately - no restart, no redeploy. `ENABLE_SCHEDULER` becomes the
+*default* for that decision rather than the decision itself, exactly as
+`SCHEDULER_HOURS_LOCAL` became the default for the hours in D19. The endpoint is
+ungated, like the schedule endpoint and unlike every other write.
+
+Carried by `app/services/schedule_settings.py` (`parse_enabled`, `get_enabled`,
+`set_enabled`, `enabled_changed_at`), `app/services/scheduler.py` (`set_trigger`,
+and `start_scheduler` now consulting the stored value),
+`app/api/routes.py::set_trigger`, and `frontend/src/components/TriggerSwitch.tsx`.
+No migration: `app_settings` is a key/value table that already exists
+(`b4efd5d106b6`).
+
+**Why.** Requested directly, and D19 had left the gap. An operator facing a source
+that is rate-limiting the system, a maintenance window, or a bad deploy could change
+*when* the sweep ran but not stop it, short of editing `ENABLE_SCHEDULER` and
+recreating the container - which is the same objection D19 raised against leaving the
+hours in the environment: the value a reader sees would be whatever the image was
+started with rather than what is actually running.
+
+**What this supersedes.** D19 listed "a bad value cannot disable sweeps" as a
+property. That property was about *accidental* disabling - an empty hour list read as
+"never run" - and it still holds: `parse_hours` still refuses an empty list, and
+`parse_enabled` refuses anything that is not recognisably a yes or a no. What has
+changed is that deliberately stopping the sweep is now possible, because a tool that
+cannot be stopped from its own interface is not safer, only harder to operate.
+
+**Why not gate it behind `CRON_SECRET`.** The same reasoning as D19: the browser
+would have to hold the shared secret, which D5 forbids. And the action does not
+belong with the gated ones - `POST /api/fetch` spends outbound requests against eight
+public services and `/rescore` rewrites every stored row, whereas pausing spends
+strictly less than doing nothing.
+
+**Alternatives rejected.** A confirmation-free toggle (an accidental pause is
+invisible for a week, which is exactly how a missed tender happens - so pausing asks
+twice and resuming does not). Storing the intent without acting on the running
+process, leaving it until a restart (the switch would report success and no sweep
+would happen - the one failure `scheduler_state()` exists to expose). A timed pause
+that auto-resumes (another scheduler to be wrong about, and it hides the state it was
+meant to make safe).
+
+**Consequences / accepted risk.**
+
+* **A paused system looks healthy unless it says otherwise, so it says otherwise in
+  three places.** The dashboard banner (`Notice.tsx`, ranked above every other warning
+  because nothing else on the page will change while sweeps are off), the collapsed
+  system summary (` · sweeps paused`, so a closed section cannot read as fine), and
+  the control itself with the time it was paused. That visibility *is* the guard -
+  prohibition was the alternative, and it is what D19 tried.
+* **The route is `async def`, and must stay that way.** `AsyncIOScheduler.start()`
+  binds to the running event loop via `asyncio.get_running_loop()`. A sync FastAPI
+  route executes in a threadpool worker with no loop, so the switch would return 200
+  and never fire a sweep. `tests/test_scheduler_jobs.py` asserts that a resume
+  registers real jobs.
+* **Switching sweeps on can create a second trigger owner.** If Actions also runs
+  against this database, both fetch the same window (D2). D2 already established that
+  this is survivable rather than corrupting - ingest upserts on
+  `(source, source_notice_id)`, and the `slack_notifications` unique constraint (D6)
+  stops a re-announcement - so the control says so instead of refusing. The note
+  appears whenever the dashboard, rather than the environment, is what is keeping
+  sweeps on.
+* **Anyone on the company network can pause the sweep.** Same trust boundary and same
+  accepted risk as D18 and D19: the network is the perimeter. Every change is logged,
+  and pausing logs at WARNING rather than INFO precisely because the interesting case
+  is the one nobody remembers doing.
+* **`scheduler_in_process` in `GET /api/automation` changed meaning**, from
+  "`ENABLE_SCHEDULER` is true" to "the decision in force". It had to: the dashboard's
+  "switched on but not running" alarm keys on it, and a deliberate pause would
+  otherwise have tripped it and read as a fault.
+* **`stop_scheduler()` now clears its reference even if the shutdown fails.**
+  AsyncIOScheduler shuts down *via* the loop it started on, so a loop that has already
+  gone raises - and a retained reference would have the dashboard report a scheduler
+  that cannot fire.
+* **The GitHub Actions cron still does not follow**, for the reason D19 gives: it is
+  static YAML in git and this setting cannot rewrite it.
 
 ---
 

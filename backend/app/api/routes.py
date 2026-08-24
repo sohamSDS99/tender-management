@@ -27,6 +27,8 @@ from app.schemas import (
     StatsResponse,
     TenderDetail,
     TenderPage,
+    TriggerResponse,
+    TriggerUpdate,
 )
 from app.security import require_cron_secret
 from app.services import automation, ingest, schedule_settings, scheduler
@@ -97,18 +99,90 @@ def set_schedule(
 
     applied = scheduler.reschedule(hours, settings)
     tz = settings.scheduler_timezone
+    if applied:
+        detail = "The running scheduler was updated."
+    elif not schedule_settings.get_enabled(db, settings):
+        # Distinguish the two reasons nothing was rescheduled. "No scheduler runs
+        # here" reads as "another process owns the trigger", which is the wrong
+        # thing to tell someone who has simply paused the sweep.
+        detail = "Saved. Sweeps are paused, so these times apply once you switch them back on."
+    else:
+        detail = (
+            "Saved. No scheduler runs in this process, so it takes effect wherever the "
+            "sweep is triggered from."
+        )
     return ScheduleResponse(
         hours_local=hours,
         timezone=tz,
         cron_utc=utc_cron_expressions(tuple(hours), tz),
         next_run_local_label=next_run_local(None, tuple(hours), tz).strftime("%d %b %Y, %H:%M"),
         applied_to_running_scheduler=applied,
-        detail=(
-            "The running scheduler was updated."
-            if applied
-            else "Saved. No scheduler runs in this process, so it takes effect wherever the "
-            "sweep is triggered from."
-        ),
+        detail=detail,
+    )
+
+
+@router.put(
+    "/api/automation/trigger",
+    response_model=TriggerResponse,
+    tags=["system"],
+    summary="Switch automated sweeps on or off",
+)
+async def set_trigger(
+    payload: TriggerUpdate,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> TriggerResponse:
+    """Pause or resume the automated sweep.
+
+    Ungated for the same reason as the schedule endpoint: whether the sweep runs
+    is an operating decision, and the member of staff making it in the dashboard
+    *is* the authorisation (docs/DECISIONS.md D19, extended by D21). It spends no
+    outbound requests and rewrites no rows - pausing spends strictly less than
+    doing nothing.
+
+    This deliberately supersedes D19's "a bad value cannot disable sweeps": that
+    held while the only editable value was the hours. An operator who needs to
+    stop the sweep - a source rate-limiting us, a maintenance window - had no way
+    to, short of recreating the container. The guard is now visibility rather than
+    prohibition: a paused system says so on the dashboard, unmissably, until it is
+    switched back on.
+
+    ``async def``, not sync: ``AsyncIOScheduler.start()`` binds to the running
+    event loop, and a sync route would execute in a threadpool worker that has
+    none - the switch would report success and never fire a sweep.
+    """
+    try:
+        enabled = schedule_settings.set_enabled(db, payload.enabled, settings)
+    except schedule_settings.InvalidTriggerState as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    hours = schedule_settings.get_run_hours(db, settings)
+    running = scheduler.set_trigger(enabled, hours, settings)
+    tz = settings.scheduler_timezone
+    label = next_run_local(None, tuple(hours), tz).strftime("%d %b %Y, %H:%M") if enabled else None
+
+    if not enabled:
+        detail = (
+            "Sweeps are paused. No notices will be collected and no digest will be sent "
+            "until you switch them back on."
+        )
+    elif running:
+        detail = f"Sweeps are on. The next one is {label} {tz}."
+    else:
+        # Asked for, but this process is not the trigger owner. Say so rather
+        # than promising a run that will never fire (D2).
+        detail = (
+            "Saved. No scheduler runs in this process, so sweeps happen wherever the "
+            "trigger is owned - check that it is switched on there."
+        )
+
+    return TriggerResponse(
+        enabled=enabled,
+        is_custom=schedule_settings.enabled_is_customised(db),
+        default=schedule_settings.default_enabled(settings),
+        scheduler_running=running,
+        next_run_local_label=label,
+        detail=detail,
     )
 
 

@@ -10,6 +10,17 @@ export function Notice({ automation }: { automation: AutomationStatus | null }) 
   if (!automation) return null;
   const { slack, last_run: last } = automation;
 
+  // First, and deliberately: while sweeps are off nothing else on this page is
+  // going to change, so no other warning is more useful than this one.
+  if (!automation.scheduler_in_process) {
+    return (
+      <p className="notice notice--bad" role="status">
+        <Icon name="block" size={14} />
+        Automated sweeps are paused, so no new tenders are being collected. Switch them back on in
+        the sources section at the bottom of this page.
+      </p>
+    );
+  }
   if (automation.scheduler_in_process && !automation.scheduler_running) {
     return (
       <p className="notice notice--bad" role="status">

@@ -250,6 +250,8 @@ Interactive documentation: <http://localhost:8000/docs>.
 | POST | `/api/tenders/rescore` | reload `relevance_profiles.yaml` and re-score everything — **requires `X-Cron-Secret`** |
 | GET | `/api/stats` | dashboard counters, distributions, filter option values |
 | GET | `/api/automation` | next run in Dhaka time, last run's outcome, Slack health, the scheduler's actual registered jobs |
+| PUT | `/api/automation/schedule` | set the times of day the sweep runs (1–6 local hours) — **no secret**, see D19 |
+| PUT | `/api/automation/trigger` | switch automated sweeps on or off — **no secret**, see D21 |
 
 `GET /api/tenders` query parameters: `query`, `sources`, `countries`, `categories`, `statuses`,
 `fit_statuses`, `deployment_fits`, `minimum_score`, `maximum_score`, `published_from`,
@@ -298,9 +300,10 @@ Slack digest, and exits with a meaningful code.
 
 ## 8. Automation, scheduling and reliability
 
-Fetching is fully automated and there is **no way to start one from the UI**.
+Fetching is fully automated and there is **no way to start one from the UI**. What the UI *can*
+do is decide when it runs, and whether it runs at all — see **Operator controls** below.
 
-**Schedule.** Two runs a day at **00:00 and 12:00 Asia/Dhaka**. Dhaka is UTC+6 with no DST, so
+**Schedule.** Two runs a day at **00:00 and 12:00 Asia/Dhaka** by default. Dhaka is UTC+6 with no DST, so
 that is `0 18 * * *` and `0 6 * * *` in UTC. The conversion is computed from `ZoneInfo` in
 `backend/app/jobs/schedule.py` and asserted in `tests/test_jobs_schedule.py`, which also checks
 that `.github/workflows/scheduled-fetch.yml` still agrees with the code. The offset is never
@@ -315,6 +318,22 @@ hardcoded.
 
 `Settings.enable_scheduler` defaults to **false** so no process ever fetches unexpectedly. Running
 both against the same database fetches every window twice; see `docs/DECISIONS.md` D2.
+
+**Operator controls.** Both of the scheduling decisions are editable from the dashboard, with the
+environment variable kept only as the default. Neither needs a shared secret: the member of staff
+making the change *is* the authorisation, on a tool with no accounts on an internal network
+(D19, D21). Both are stored in `app_settings`, survive a restart, and are applied to the running
+scheduler without one.
+
+| Control | Endpoint | Environment default |
+|---|---|---|
+| **Sweep times** — 1–6 local hours a day | `PUT /api/automation/schedule` | `SCHEDULER_HOURS_LOCAL` |
+| **Automated sweeps on/off** — pause and resume | `PUT /api/automation/trigger` | `ENABLE_SCHEDULER` |
+
+Pausing asks for confirmation, resuming does not, and a paused system says so in three places —
+a banner at the top of the dashboard, the collapsed system summary, and the control itself with
+the time it was paused. A paused system that looked healthy would be indistinguishable from one
+that had simply found nothing. `docs/RUNBOOK.md` sections 5b and 5c are the operating procedures.
 
 **One run, one code path.** The APScheduler job, the CLI and the workflow all call
 `run_once()` in `backend/app/jobs/scheduled_fetch.py`: window → fetch → score → notify.

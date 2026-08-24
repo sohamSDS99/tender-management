@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (20 records, D1–D20).
+`docs/DECISIONS.md` explains why it is built this way (21 records, D1–D21).
 
 ## What this is
 
@@ -19,7 +19,7 @@ dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL interna
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 268 tests
+./.venv/bin/python -m pytest -q          # 307 tests
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 5 revisions, head b4efd5d106b6
 
@@ -110,7 +110,20 @@ against the same database — never both, or every window is fetched twice. D2.
 
 **The sweep schedule lives in the database, not the env var.** `SCHEDULER_HOURS_LOCAL`
 is only the default; once someone sets times in the dashboard the stored value
-wins and applies without a restart. D19.
+wins and applies without a restart. D19. The same is true of *whether* it runs:
+`ENABLE_SCHEDULER` is only the default for `scheduler.enabled` in `app_settings`,
+and a pause set in the dashboard survives a restart. D21.
+
+**`PUT /api/automation/trigger` must stay `async def`.** `AsyncIOScheduler.start()`
+calls `asyncio.get_running_loop()`, and a sync FastAPI route runs in a threadpool
+worker that has none - the switch would return 200 and never fire a sweep. Same
+reason `stop_scheduler()` clears its reference in a `finally`: shutdown goes
+*through* the loop the scheduler started on, so a dead loop raises, and a retained
+reference would have the dashboard promise a run that cannot happen.
+
+**`scheduler_in_process` means "the decision in force", not `ENABLE_SCHEDULER`.**
+The dashboard's "switched on but not running" alarm keys on it, so if it reported
+the env var a deliberate pause would read as a fault. D21.
 
 **`PUBLIC_APP_URL` must not be a bare IP.** The host's address moved from
 `192.168.1.5` to `192.168.0.133` mid-project, which would have killed every Slack
@@ -127,6 +140,7 @@ internal-network only, and there are no accounts (D5, D18). Writes split:
 | `POST /api/fetch` | `X-Cron-Secret` | spends outbound requests against 8 public services |
 | `POST /api/tenders/rescore` | `X-Cron-Secret` | rewrites every stored row |
 | `PUT /api/automation/schedule` | **none** | the person choosing the time in the UI *is* the authorisation (D19) |
+| `PUT /api/automation/trigger` | **none** | same reasoning; pausing spends less than doing nothing (D21) |
 
 An unset `CRON_SECRET` refuses the gated endpoints with 503 — it does not leave
 them open. `tests/test_security.py` and `test_automation.py` assert the split.

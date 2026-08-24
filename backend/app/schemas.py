@@ -218,6 +218,9 @@ class AutomationStatus(UtcModel):
     scheduler_in_process: bool
     scheduler_running: bool
     scheduler_jobs: list[ScheduledJob] = Field(default_factory=list)
+    trigger_is_custom: bool = False
+    trigger_default: bool = False
+    trigger_changed_at: datetime | None = None
     last_run: LastRun | None
     slack: SlackState
 
@@ -237,4 +240,22 @@ class ScheduleResponse(BaseModel):
     cron_utc: list[str]
     next_run_local_label: str
     applied_to_running_scheduler: bool
+    detail: str
+
+
+class TriggerUpdate(BaseModel):
+    """Whether the sweep is triggered automatically at all."""
+
+    enabled: bool = Field(
+        description="true runs sweeps at the configured times; false pauses every sweep.",
+        examples=[True],
+    )
+
+
+class TriggerResponse(BaseModel):
+    enabled: bool
+    is_custom: bool
+    default: bool
+    scheduler_running: bool
+    next_run_local_label: str | None
     detail: str
