@@ -927,6 +927,78 @@ rather than posting a blank name.
 
 ---
 
+## D23 — The two expensive writes are cost-controlled, not secret-gated
+
+**Decision.** `POST /api/fetch` and `POST /api/tenders/rescore` no longer require
+`CRON_SECRET`. Anyone who can reach the API may call them, subject to server-side
+limits that are *not* authentication:
+
+* **single-flight** — a sweep is refused with **409** while one is already in
+  flight, so a repeatedly clicked button produces one sweep, not eight.
+* **cooldown** — **429** with `Retry-After` until
+  `OPERATOR_FETCH_COOLDOWN_SECONDS` (300) has passed since the last sweep started,
+  and `OPERATOR_RESCORE_COOLDOWN_SECONDS` (120) for a re-score.
+* **a switch** — `ALLOW_OPERATOR_ACTIONS=false` closes both to the browser again
+  and answers **403**.
+
+`CRON_SECRET` still works and **bypasses both limits**, because CI and the
+scheduled entrypoint control their own timing. `require_cron_secret()` was deleted
+rather than left unused: an unused gate in a security module reads as protection
+that is not there. Carried by `app/services/operator.py`,
+`app/security.py::has_cron_secret`, and the two routes.
+
+**Why.** Requested directly and non-negotiably: the redesigned dashboard has
+"Fetch new tenders", "Re-score" and a per-source fetch button, and they had to
+work. The alternative the brief explicitly ruled out was putting the shared secret
+in the page, which D5 forbids — a secret in a browser is readable by everyone on
+the network, which is strictly worse than having no secret at all.
+
+**Why the gate was the wrong instrument anyway.** These two endpoints were never
+gated for confidentiality. Reads are already completely open (D5) — the data is
+public procurement notices. They were gated because one spends outbound requests
+against eight public services and the other rewrites every stored row. That is
+cost control, and a shared secret is a poor cost control: it says who may ask,
+never how often. A single actor holding the secret could always have hammered
+those eight services, and now nobody can, secret or not. In that specific sense the
+limits are *stricter* than what they replaced.
+
+**Consequences / accepted risk.**
+
+* **Anyone on the company network can start a sweep.** That is a real widening,
+  and it is the same boundary D18, D19 and D21 already accept: the network is the
+  perimeter, there are no accounts, and the person acting in the dashboard is the
+  authorisation. It is only defensible while the API is not reachable from the
+  internet (README section 12). `ALLOW_OPERATOR_ACTIONS=false` is the switch for
+  the day that changes, and it must be set before any such exposure.
+* **Neither action can destroy data**, which is what makes the widening
+  survivable rather than reckless. Ingest upserts on
+  `(source, source_notice_id)`; a re-score recomputes a deterministic function of
+  stored data. The worst outcome of a mis-click is wasted requests, and the
+  cooldown bounds even that.
+* **A crash mid-sweep must not brick the button.** `_sweep_in_flight()` ignores
+  `fetch_runs` rows older than `STALE_RUN_MINUTES`, matching what
+  `reap_interrupted_runs()` would do to them, so one orphaned row does not disable
+  operator fetches for ever. Tested.
+* **The unset-secret behaviour changed.** It used to answer 503 — fail closed,
+  correct while the secret was the only control. With the limits in place that only
+  broke the dashboard, so a deployment with no `CRON_SECRET` now works.
+* **409 and 429 are deliberately different.** "Already running" resolves itself;
+  "too soon" needs the caller to wait a stated number of seconds, so it carries
+  `Retry-After` and a message naming the remaining time. The dashboard shows that
+  message verbatim rather than a generic failure.
+* **Re-score keeps its own cooldown**, derived from an `app_settings` row because a
+  re-score leaves no `fetch_runs` row to read a timestamp from. A sweep and a
+  re-score therefore never gate each other.
+
+**Alternatives rejected.** Putting `CRON_SECRET` in the frontend bundle or asking
+the user for it (D5; and a password prompt for "refresh the data" is absurd).
+A per-IP rate limiter (D5 records no rate limiting, and IP is meaningless on a
+flat office LAN). Leaving the buttons visible but disabled (the brief called this
+non-negotiable, and a permanently disabled control is worse than none). A queue
+with a worker (infrastructure for a problem a cooldown solves).
+
+---
+
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import type {
   AutomationStatus,
+  Density,
   FetchRun,
   SourceStatus,
   Stats,
   TenderFilters,
   TenderPage,
+  Theme,
 } from '../types';
 import {
   DEFAULT_FILTERS,
@@ -16,7 +18,15 @@ import {
   filtersFromSearch,
   searchFromFilters,
 } from '../state/urlFilters';
-import { OWNED, VIEWS, activeView, type ViewContext, type ViewKey } from '../state/views';
+import {
+  OWNED,
+  TILES,
+  VIEWS,
+  activeView,
+  type TileKey,
+  type ViewContext,
+  type ViewKey,
+} from '../state/views';
 import { usePreferences } from '../state/preferences';
 import {
   FALLBACK_BANDS,
@@ -26,26 +36,23 @@ import {
   makeSourceLabel,
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
-import { Filters } from '../components/Filters';
+import { LinkBase } from '../components/LinkBase';
 import { Masthead } from '../components/Masthead';
 import { Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
-import { SystemSection } from '../components/SystemSection';
+import { RunsTable } from '../components/RunsTable';
+import { SettingsPanel } from '../components/SettingsPanel';
+import { SourcesPanel } from '../components/SourcesPanel';
+import { BucketNote, StatTiles } from '../components/StatTiles';
 import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
-import { Views } from '../components/Views';
-import { Icon } from '../components/Icon';
 import { ScheduleEditor } from '../components/ScheduleEditor';
 import { TriggerSwitch } from '../components/TriggerSwitch';
-import { SourceSummary } from '../components/SourceSummary';
 
 /**
  * The whole filter set lives in the URL, so any view is shareable and survives a
  * refresh — and so a Slack digest can link to a filtered dashboard, not only to
  * `?tender=<id>`.
- *
- * Nothing here can start a fetch. Sweeps run at 00:00 and 12:00 Asia/Dhaka; the
- * masthead reports them.
  */
 const initial = filtersFromSearch(window.location.search);
 
@@ -63,10 +70,17 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unreachable, setUnreachable] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [systemOpen, setSystemOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const { resolved: theme, toggleTheme } = usePreferences();
+
+  // Which whole-system action is in flight, and what the server said about it.
+  const [busy, setBusy] = useState<'fetch' | 'rescore' | null>(null);
+  const [busySource, setBusySource] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(
+    null,
+  );
+
+  const { preferences, resolved: theme, update, toggleTheme } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
@@ -143,6 +157,55 @@ export function Dashboard() {
     void loadMeta();
   }, [loadMeta, reloadToken]);
 
+  // --- whole-system actions (D23) -----------------------------------------
+  /**
+   * A sweep runs for about thirteen minutes in the background, so the 202 only
+   * means "started". Poll the metadata while it runs rather than leaving the page
+   * claiming the old numbers.
+   */
+  const sweeping = automation?.last_run?.status === 'running';
+  useEffect(() => {
+    if (!sweeping) return;
+    const timer = window.setInterval(() => void loadMeta(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [sweeping, loadMeta]);
+
+  const runAction = useCallback(
+    async (kind: 'fetch' | 'rescore', source?: string) => {
+      setBusy(kind);
+      if (source) setBusySource(source);
+      setActionMessage(null);
+      try {
+        if (kind === 'fetch') {
+          const started = await api.fetchNow(source ? [source] : undefined);
+          setActionMessage({
+            tone: 'ok',
+            text: `Sweep started across ${started.run_ids.length} source${started.run_ids.length === 1 ? '' : 's'}. This takes a few minutes; the page updates as it goes.`,
+          });
+        } else {
+          const result = await api.rescore();
+          setActionMessage({
+            tone: 'ok',
+            text: `Re-scored ${result.rescored.toLocaleString('en-GB')} notices against the current profile.`,
+          });
+          setReloadToken((v) => v + 1);
+        }
+        await loadMeta();
+      } catch (err) {
+        // The server's message is written for the person who clicked — a cooldown
+        // says how many seconds are left — so show it rather than a generic one.
+        setActionMessage({
+          tone: 'bad',
+          text: err instanceof ApiError ? err.message : String(err),
+        });
+      } finally {
+        setBusy(null);
+        setBusySource(null);
+      }
+    },
+    [loadMeta],
+  );
+
   // --- filters and views --------------------------------------------------
   const onChange = useCallback((patch: Partial<TenderFilters>) => {
     setFilters((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
@@ -183,18 +246,76 @@ export function Dashboard() {
     [viewContext],
   );
 
+  const applyTile = useCallback((patch: Partial<TenderFilters>) => {
+    setFilters({ ...DEFAULT_FILTERS, ...patch, page: 1 });
+  }, []);
+
+  // Machine keys like "sds_management" have no business on screen, on a chip or
+  // on a card badge.
+  const categoryLabel = useCallback(
+    (key: string) => stats?.categories.find((c) => c.key === key)?.label ?? key.replace(/_/g, ' '),
+    [stats],
+  );
+
   const chips = useMemo(
     () =>
       activeChips(filters, {
         fit: fitLabel,
         deployment: deploymentLabel,
         source: sourceLabel,
-        category: (key) =>
-          stats?.categories.find((c) => c.key === key)?.label ?? key.replace(/_/g, ' '),
+        category: categoryLabel,
         country: countryLabel,
       }),
-    [filters, sourceLabel, stats],
+    [filters, sourceLabel, categoryLabel],
   );
+
+  const currentView = activeView(filters, viewContext);
+
+  /** Which tile, if any, the current filters are exactly. */
+  const activeTile: TileKey | null = useMemo(() => {
+    for (const tile of TILES) {
+      const wanted = { ...DEFAULT_FILTERS, ...tile.patch(viewContext) };
+      const same = (OWNED as (keyof TenderFilters)[]).every((key) => {
+        const a = wanted[key];
+        const b = filters[key];
+        if (Array.isArray(a) && Array.isArray(b)) {
+          return a.length === b.length && a.every((v) => (b as unknown[]).includes(v));
+        }
+        return a === b;
+      });
+      if (same) return tile.key;
+    }
+    return null;
+  }, [filters, viewContext]);
+
+  /**
+   * Counts beside the tabs, taken only where /api/stats counts exactly the same
+   * population the tab filters on. "New this fetch" has no such stat, so it shows
+   * no number rather than a guess.
+   */
+  const bucketCounts = useMemo(
+    () => ({
+      new: null,
+      relevant: stats === null ? null : stats.good_fit_or_better + stats.possible_or_review,
+      irrelevant: stats?.not_relevant ?? null,
+      all: stats?.total_tenders ?? null,
+    }),
+    [stats],
+  );
+
+  // While a bucket tab is lit it already says what is being filtered, so neither
+  // the chip row nor the Settings badge should repeat it. What they must still
+  // show is anything narrowed *beyond* the bucket — a source, a country — because
+  // that is invisible otherwise.
+  const extraChips = useMemo(
+    () => (currentView ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips),
+    [chips, currentView],
+  );
+
+  const bucketNote = useMemo(() => {
+    const view = VIEWS.find((v) => v.key === currentView);
+    return view ? view.note(viewContext) : null;
+  }, [currentView, viewContext]);
 
   // --- detail navigation --------------------------------------------------
   const items = page?.items ?? [];
@@ -213,131 +334,151 @@ export function Dashboard() {
     [items, selectedIndex],
   );
 
-  // While a view tab is lit it already says what is being filtered, so neither
-  // the chip row nor the Filters badge should repeat it. What they must still
-  // show is anything the user narrowed *beyond* the view — a source, a country —
-  // because that is invisible otherwise.
-  const currentView = activeView(filters, viewContext);
-  const extraChips = useMemo(
-    () => (currentView ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips),
-    [chips, currentView],
-  );
+  const settingsOpen = preferences.settingsOpen;
 
   return (
     <>
-      <div className="page">
+      <div className="shell">
         <Masthead
           automation={automation}
+          stats={stats}
           theme={theme}
+          preference={preferences.theme}
+          busy={busy}
+          onFetch={() => void runAction('fetch')}
+          onRescore={() => void runAction('rescore')}
           onToggleTheme={toggleTheme}
-          onEditSchedule={() => {
-            setSystemOpen(true);
-            // After the disclosure has actually opened, not before.
-            window.requestAnimationFrame(() =>
-              document.getElementById('system-details')?.scrollIntoView({ block: 'center' }),
-            );
-          }}
         />
 
-        <SourceSummary
+        <StatTiles
+          stats={stats}
           sources={sources}
-          filters={filters}
-          loading={loading && sources.length === 0}
-          onToggleSource={(name) =>
-            onChange({
-              sources: filters.sources.includes(name)
-                ? filters.sources.filter((s) => s !== name)
-                : [...filters.sources, name],
-            })
-          }
+          activeTile={activeTile}
+          onApply={applyTile}
+          onShowSources={() => setSourcesOpen(true)}
         />
 
-        <Views filters={filters} context={viewContext} onSelect={selectView} />
-
-        <Toolbar
-          filters={filters}
-          chips={extraChips}
-          filtersOpen={filtersOpen}
-          onChange={onChange}
-          onToggleFilters={() => setFiltersOpen((open) => !open)}
-        />
-
-        {filtersOpen ? (
-          <Filters
-            filters={filters}
-            stats={stats}
-            sources={sources}
-            total={page?.total ?? 0}
-            onChange={onChange}
-            onReset={clearAll}
-            onClose={() => setFiltersOpen(false)}
-          />
-        ) : extraChips.length > 0 ? (
-          <div className="active">
-            {extraChips.map((chip) => (
-              <span className="fchip" key={chip.key}>
-                {chip.label}
-                <button
-                  type="button"
-                  aria-label={`Remove filter: ${chip.label}`}
-                  onClick={() => onChange(chip.clear)}
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <Notice automation={automation} />
-
-        <main>
-          <p className="count" aria-live="polite">
-            {/* Suppressed while erroring: the last successful count is stale, and
-                showing "6 tenders" above "cannot reach the API" contradicts
-                itself. */}
-            {page && !error
-              ? `${page.total.toLocaleString('en-GB')} ${page.total === 1 ? 'tender' : 'tenders'}`
-              : ' '}
-          </p>
-
-          <TenderList
-            tenders={items}
-            loading={loading}
-            error={error}
-            unreachable={unreachable}
-            selectedId={selectedId}
-            newSince={viewContext.lastRunAt}
-            filterCount={activeFilterCount(filters)}
-            total={page?.total ?? 0}
-            storedTotal={stats?.total_tenders ?? 0}
-            bands={bands}
-            sourceLabel={sourceLabel}
-            onSelect={setSelectedId}
-            onRetry={() => setReloadToken((v) => v + 1)}
-            onClearFilters={clearAll}
-            onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-            onShowAll={() => selectView('all')}
-          />
-
-          {page && !error ? (
-            <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
+        <div className={`layout${settingsOpen ? '' : ' is-collapsed'}`}>
+          {settingsOpen ? (
+            <SettingsPanel
+              filters={filters}
+              stats={stats}
+              sources={sources}
+              total={page?.total ?? 0}
+              theme={preferences.theme}
+              density={preferences.density}
+              pageSize={filters.page_size}
+              onChange={onChange}
+              onReset={clearAll}
+              onClose={() => update({ settingsOpen: false })}
+              onTheme={(next: Theme) => update({ theme: next })}
+              onDensity={(next: Density) => update({ density: next })}
+              onPageSize={(size) => onChange({ page_size: size })}
+              automation={
+                <>
+                  <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
+                  <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
+                  {automation ? <LinkBase url={automation.public_app_url} /> : null}
+                </>
+              }
+            />
           ) : null}
-        </main>
 
-        <SystemSection
-          open={systemOpen}
-          onToggle={setSystemOpen}
-          automation={automation}
-          sources={sources}
-          runs={runs}
-          schedule={
-            <>
-              <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
-              <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
-            </>
-          }
-        />
+          <div className="col">
+            <SourcesPanel
+              sources={sources}
+              open={sourcesOpen}
+              onToggle={setSourcesOpen}
+              lastSweepAt={automation?.last_run?.started_at ?? null}
+              busySource={busySource}
+              onFetchSource={(name) => void runAction('fetch', name)}
+            />
+
+            <Toolbar
+              filters={filters}
+              stats={stats}
+              viewContext={viewContext}
+              activeView={currentView}
+              bucketCounts={bucketCounts}
+              activeFilterCount={activeFilterCount(filters)}
+              settingsOpen={settingsOpen}
+              onSearch={(query) => onChange({ query })}
+              onSort={(sort) => onChange({ sort })}
+              onToggleSettings={() => update({ settingsOpen: !settingsOpen })}
+              onSelectView={selectView}
+              onClearAll={clearAll}
+              chips={extraChips.map((chip) => ({
+                label: chip.label,
+                onRemove: () => onChange(chip.clear),
+              }))}
+            />
+
+            {actionMessage ? (
+              <p
+                className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
+                role="status"
+              >
+                {actionMessage.text}
+              </p>
+            ) : null}
+
+            <Notice automation={automation} />
+
+            <main>
+              {bucketNote ? <BucketNote text={bucketNote} /> : null}
+
+              <div className="results__head">
+                <h2 aria-live="polite">
+                  {/* Suppressed while erroring: the last successful count is stale,
+                      and showing "6 tenders" above "cannot reach the API"
+                      contradicts itself. */}
+                  {page && !error ? (
+                    <>
+                      {page.total.toLocaleString('en-GB')} {page.total === 1 ? 'tender' : 'tenders'}
+                      {page.pages > 1 ? (
+                        <span className="muted">
+                          {' '}
+                          · page {page.page} of {page.pages}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    ' '
+                  )}
+                </h2>
+              </div>
+
+              <TenderList
+                tenders={items}
+                loading={loading}
+                error={error}
+                unreachable={unreachable}
+                selectedId={selectedId}
+                newSince={viewContext.lastRunAt}
+                filterCount={activeFilterCount(filters)}
+                total={page?.total ?? 0}
+                storedTotal={stats?.total_tenders ?? 0}
+                bands={bands}
+                sourceLabel={sourceLabel}
+                categoryLabel={categoryLabel}
+                onSelect={setSelectedId}
+                onRetry={() => setReloadToken((v) => v + 1)}
+                onClearFilters={clearAll}
+                onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
+                onShowAll={() => selectView('all')}
+              />
+
+              {page && !error ? (
+                <Pager
+                  page={page}
+                  onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))}
+                />
+              ) : null}
+            </main>
+
+            <RunsTable runs={runs} sourceLabel={sourceLabel} />
+          </div>
+        </div>
       </div>
 
       <div

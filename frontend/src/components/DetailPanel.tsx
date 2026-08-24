@@ -34,7 +34,8 @@ const WEIGHTS = [
   { key: 'intent', label: 'Procurement intent', weight: 0.15 },
 ] as const;
 
-const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
+/** The tone names the stylesheet uses, keyed by the tone the labels module returns. */
+const TONE_CLASS = { green: 'green', amber: 'amber', red: 'red', grey: 'grey' } as const;
 
 export function DetailPanel({
   bands,
@@ -185,27 +186,26 @@ export function DetailPanel({
   return (
     <aside
       id="detail-panel"
-      className={`panel${open ? ' is-on' : ''}`}
+      className={`drawer drawer--detail${open ? ' is-on' : ''}`}
       role="dialog"
       aria-modal={open}
       aria-label="Tender detail"
       aria-hidden={!open}
       style={open ? undefined : { visibility: 'hidden' }}
     >
-      <header className="panel__head">
+      <header className="drawer__head">
         {tender ? (
           <span
-            className={`score score--${TONE_CLASS[scoreTone(tender.relevance_score, bands)]}`}
-            style={{ flex: 'none', width: 40 }}
+            className={`score score--${TONE_CLASS[scoreTone(tender.relevance_score, bands)]} num`}
+            style={{ flex: 'none' }}
           >
-            <span className="score__n">{tender.relevance_score}</span>
-            <span className="score__bar">
-              <i style={{ width: `${Math.max(4, tender.relevance_score)}%` }} />
-            </span>
+            {tender.relevance_score}
           </span>
         ) : null}
         <div style={{ minWidth: 0 }}>
-          <h2>{tender?.title ?? (error ? 'Could not load this tender' : 'Loading…')}</h2>
+          <h2 className="detail__title">
+            {tender?.title ?? (error ? 'Could not load this tender' : 'Loading…')}
+          </h2>
           {tender ? (
             <p>
               {tender.buyer_name ?? 'Buyer not published'} · {sourceLabel(tender.source)} ·{' '}
@@ -213,7 +213,7 @@ export function DetailPanel({
             </p>
           ) : null}
         </div>
-        <div className="panel__nav">
+        <div className="detail__nav">
           <button
             type="button"
             className="btn btn--icon"
@@ -240,7 +240,7 @@ export function DetailPanel({
         </div>
       </header>
 
-      <div className="panel__body">
+      <div className="drawer__body">
         {error ? (
           <div className="state state--error" role="alert">
             <h3>Could not load this tender</h3>
@@ -258,14 +258,14 @@ export function DetailPanel({
                 {deploymentLabel(tender.deployment_fit)}
               </span>
               {tender.relevance_category ? (
-                <span className="badge badge--flat">
+                <span className="badge badge--grey">
                   {tender.relevance_category.replace(/_/g, ' ')}
                 </span>
               ) : null}
-              <span className="badge badge--flat">Found {formatDate(tender.first_seen_at)}</span>
+              <span className="badge badge--grey">Found {formatDate(tender.first_seen_at)}</span>
             </div>
 
-            <section className="sec">
+            <section className="dsection">
               <h3>Why this scores {tender.relevance_score}</h3>
               <p className="formula">
                 <b>0.55</b> × topic <b>{sub.topic}</b> &nbsp;+&nbsp; <b>0.30</b> × product and
@@ -292,7 +292,7 @@ export function DetailPanel({
                   <div className="meter" key={row.key}>
                     <div className="meter__top">
                       <span>
-                        {row.label} <span className="meter__w">× {row.weight.toFixed(2)}</span>
+                        {row.label} <span className="meter__weight">× {row.weight.toFixed(2)}</span>
                       </span>
                       <b>{sub[row.key]}</b>
                     </div>
@@ -343,7 +343,7 @@ export function DetailPanel({
               {tender.review_flags.length ? (
                 <>
                   <h4 className="subhead">Worth checking by hand</h4>
-                  <ul className="reasons reasons--warn">
+                  <ul className="reasons reasons--flag">
                     {tender.review_flags.map((item) => (
                       <li key={item}>
                         <Icon name="warn" size={13} />
@@ -355,7 +355,7 @@ export function DetailPanel({
               ) : null}
             </section>
 
-            <section className="sec">
+            <section className="dsection">
               <h3>Key facts</h3>
               <dl className="facts">
                 <div>
@@ -402,7 +402,7 @@ export function DetailPanel({
             </section>
 
             {tender.classification_codes.length ? (
-              <section className="sec">
+              <section className="dsection">
                 <h3>Classification</h3>
                 <div className="tags">
                   {tender.classification_codes.map((code, index) => (
@@ -416,15 +416,15 @@ export function DetailPanel({
             ) : null}
 
             {tender.description ? (
-              <section className="sec">
+              <section className="dsection">
                 <h3>Description</h3>
-                <p className="prose">{tender.description}</p>
+                <p className="desc">{tender.description}</p>
               </section>
             ) : null}
 
-            <section className="sec">
+            <section className="dsection">
               <h3>Links</h3>
-              <div className="links">
+              <div className="linklist">
                 {noticeHref ? (
                   <a href={noticeHref} target="_blank" rel="noreferrer noopener">
                     Original notice
@@ -450,7 +450,7 @@ export function DetailPanel({
             </section>
 
             {tender.raw_payload ? (
-              <section className="sec">
+              <section className="dsection">
                 <details className="raw">
                   <summary>
                     <Icon name="chevronRight" size={12} />
@@ -459,7 +459,7 @@ export function DetailPanel({
                   <div className="raw__actions">
                     <button
                       type="button"
-                      className="btn btn--quiet"
+                      className="btn btn--ghost"
                       onClick={() =>
                         void navigator.clipboard
                           ?.writeText(JSON.stringify(tender.raw_payload, null, 2))
@@ -478,8 +478,8 @@ export function DetailPanel({
         ) : null}
       </div>
 
-      <footer className="panel__foot">
-        <span className="grow num">
+      <footer className="drawer__foot">
+        <span className="count num">
           {position ? (
             <>
               {position.index} of {position.total} · <span className="kbd">j</span>{' '}
@@ -489,7 +489,7 @@ export function DetailPanel({
         </span>
         <button
           type="button"
-          className="btn btn--quiet"
+          className="btn btn--ghost"
           onClick={() =>
             void navigator.clipboard?.writeText(window.location.href).then(() => flash('link'))
           }

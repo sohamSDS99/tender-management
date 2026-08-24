@@ -9,17 +9,23 @@ import {
   fitTone,
   formatDate,
   formatValue,
+  safeHref,
   scoreTone,
 } from '../labels';
 import { Icon } from './Icon';
 
 /**
- * Hairline-separated rows, not cards.
+ * One card per notice.
  *
- * Exactly one element per row is loud — the title. Everything else sits at
- * 0.8125rem in a quieter ink, because the reader is scanning titles and deadlines
- * and rejecting most of them. Colour appears only where it carries meaning: the
- * score band, a deadline inside 14 days, a disqualifier.
+ * The card is clickable and *also* contains a real link to the buyer's original
+ * notice. Those two things fight: an anchor cannot live inside a button. So the
+ * title is the button and its ::after overlays the whole card as the hit area,
+ * while the external link sits above that overlay. Both are genuinely focusable,
+ * which a div-with-onClick would not be, and the link genuinely navigates, which
+ * a styled span would not.
+ *
+ * Colour appears only where it carries meaning: the score band, a deadline inside
+ * two weeks, a disqualifier. Every coloured thing also says what it is in words.
  */
 export interface TenderListProps {
   tenders: Tender[];
@@ -38,6 +44,8 @@ export interface TenderListProps {
   storedTotal: number;
   bands: ScoreBands;
   sourceLabel: (key: string) => string;
+  /** Machine keys like "sds_management" have no business on screen. */
+  categoryLabel: (key: string) => string;
   onSelect: (id: number) => void;
   onRetry: () => void;
   onClearFilters: () => void;
@@ -45,14 +53,16 @@ export interface TenderListProps {
   onShowAll: () => void;
 }
 
-const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
+const SCORE_CLASS = { green: 'green', amber: 'amber', red: 'red', grey: 'grey' } as const;
+const BADGE_CLASS = { green: 'green', amber: 'amber', red: 'red', grey: 'grey' } as const;
 
-function Row({
+function Card({
   tender,
   selected,
   isNew,
   bands,
   sourceLabel,
+  categoryLabel,
   onSelect,
 }: {
   tender: Tender;
@@ -60,6 +70,7 @@ function Row({
   isNew: boolean;
   bands: ScoreBands;
   sourceLabel: (key: string) => string;
+  categoryLabel: (key: string) => string;
   onSelect: (id: number) => void;
 }) {
   const { urgency, label } = deadlineUrgency(tender.deadline);
@@ -67,110 +78,114 @@ function Row({
   const disqualifier = tender.disqualifiers[0];
   const flag = tender.review_flags[0];
   const reason = tender.relevance_reasons[0];
+  const href = safeHref(tender.source_url);
 
   const meta = [
     tender.buyer_name,
     countryLabel(tender.buyer_country),
-    sourceLabel(tender.source),
     tender.publication_date ? `published ${formatDate(tender.publication_date)}` : null,
   ].filter(Boolean) as string[];
 
   return (
-    <button
-      type="button"
-      className={`row${selected ? ' is-on' : ''}`}
-      onClick={() => onSelect(tender.id)}
-    >
-      {/* No aria-label: button takes its name from its content, so an explicit
-          label would replace the deadline, urgency, value and reason a
-          screen-reader user needs in order to reject the notice. */}
-      <span className="sr">Score {tender.relevance_score} of 100.</span>
-      <span className={`score score--${TONE_CLASS[band]}`}>
-        <span className="score__n">{tender.relevance_score}</span>
-        <span className="score__bar">
-          <i style={{ width: `${Math.max(4, tender.relevance_score)}%` }} />
-        </span>
-      </span>
+    <div className={`rescard${selected ? ' is-selected' : ''}`}>
+      <div>
+        <span className={`score score--${SCORE_CLASS[band]} num`}>{tender.relevance_score}</span>
+      </div>
 
-      <span>
-        <span className="row__title">{tender.title || 'Untitled notice'}</span>
+      <div>
+        <h3 className="rescard__title">
+          <button type="button" className="rescard__titlebtn" onClick={() => onSelect(tender.id)}>
+            {tender.title || 'Untitled notice'}
+          </button>
+        </h3>
 
-        {/* Our classification first: it is what the reader is judging on. Kept on
-            its own line so a badge can never orphan itself when a country name
-            makes the facts line longer. */}
-        <span className="row__badges">
-          <span className={`badge badge--${TONE_CLASS[fitTone(tender.fit_status)]}`}>
+        <div className="badges">
+          <span className={`badge badge--${BADGE_CLASS[fitTone(tender.fit_status)]}`}>
+            {fitTone(tender.fit_status) === 'green' ? <Icon name="check" size={11} /> : null}
             {fitLabel(tender.fit_status)}
           </span>
-          <span className={`badge badge--${TONE_CLASS[deploymentTone(tender.deployment_fit)]}`}>
+          <span className={`badge badge--${BADGE_CLASS[deploymentTone(tender.deployment_fit)]}`}>
             {deploymentLabel(tender.deployment_fit)}
           </span>
+          {tender.relevance_category ? (
+            <span className="badge badge--line">{categoryLabel(tender.relevance_category)}</span>
+          ) : null}
           {isNew ? <span className="badge badge--new">New</span> : null}
-          {!tender.is_actionable ? <span className="badge badge--flat">Closed</span> : null}
-        </span>
+          {!tender.is_actionable ? <span className="badge badge--grey">Closed</span> : null}
+        </div>
 
-        <span className="row__meta">
+        <p className="metaline">
           {meta.map((part, index) => (
-            <span key={`${part}-${index}`}>
-              {index > 0 ? <span className="sep">·&nbsp;</span> : null}
-              {part}
-            </span>
+            <span key={`${part}-${index}`}>{part}</span>
           ))}
-        </span>
+          <span className="mono">{sourceLabel(tender.source)}</span>
+        </p>
 
-        {disqualifier ? (
-          <span className="row__why row__why--bad">
-            <Icon name="block" size={13} />
-            {disqualifier}
-          </span>
-        ) : flag ? (
-          <span className="row__why row__why--warn">
-            <Icon name="warn" size={13} />
-            {flag}
-          </span>
-        ) : reason ? (
-          <span className="row__why">
+        {reason ? (
+          <p className="rescard__why">
             <Icon name="check" size={13} />
             {reason}
-          </span>
+          </p>
         ) : null}
-      </span>
+        {disqualifier ? (
+          <p className="flagline flagline--bad">
+            <Icon name="block" size={13} />
+            {disqualifier}
+          </p>
+        ) : flag ? (
+          <p className="flagline flagline--flag">
+            <Icon name="warn" size={13} />
+            {flag}
+          </p>
+        ) : null}
+      </div>
 
-      <span className="row__side">
-        <span className="row__deadline">{tender.deadline ? formatDate(tender.deadline) : '—'}</span>
+      <div className="rescard__side">
         <span
-          className={`row__left${
-            urgency === 'urgent'
-              ? ' row__left--urgent'
-              : urgency === 'soon'
-                ? ' row__left--soon'
-                : ''
+          className={`deadline${
+            urgency === 'urgent' ? ' deadline--urgent' : urgency === 'soon' ? ' deadline--soon' : ''
           }`}
         >
-          {label}
+          <b>{tender.deadline ? formatDate(tender.deadline) : '—'}</b>
+          <em>
+            {tender.deadline ? <Icon name="clock" size={11} /> : null}
+            {label}
+          </em>
         </span>
-        <span className="row__value">{formatValue(tender.estimated_value, tender.currency)}</span>
-      </span>
-    </button>
+        <span className={`value${tender.estimated_value === null ? ' muted' : ''}`}>
+          {formatValue(tender.estimated_value, tender.currency)}
+        </span>
+        {href ? (
+          <a
+            className="openlink"
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            // Above the title button's overlay, so this link wins its own clicks.
+            onClick={(event) => event.stopPropagation()}
+          >
+            Original notice
+            <Icon name="external" size={11} />
+          </a>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
 function Skeletons() {
   return (
-    <div className="rows" aria-busy="true">
+    <div className="list" aria-busy="true">
       <span className="sr">Loading tenders…</span>
       {[68, 54, 74, 61, 47].map((width, index) => (
         <div className="skel" key={index}>
+          <div className="sk sk--pill" />
           <div>
-            <div className="sk" style={{ height: 17, marginBottom: 5 }} />
-            <div className="sk" style={{ height: 3 }} />
+            <div className="sk sk--h" style={{ width: `${width}%` }} />
+            <div className="sk sk--s" style={{ width: '38%' }} />
           </div>
           <div>
-            <div className="sk" style={{ height: 15, width: `${width}%`, marginBottom: 8 }} />
-            <div className="sk" style={{ height: 12, width: '38%' }} />
-          </div>
-          <div>
-            <div className="sk" style={{ height: 12, width: '70%', marginLeft: 'auto' }} />
+            <div className="sk sk--s" style={{ width: '70%', marginLeft: 'auto' }} />
           </div>
         </div>
       ))}
@@ -190,6 +205,7 @@ export function TenderList({
   storedTotal,
   bands,
   sourceLabel,
+  categoryLabel,
   onSelect,
   onRetry,
   onClearFilters,
@@ -199,6 +215,9 @@ export function TenderList({
   if (error) {
     return (
       <div className="state state--error" role="alert">
+        <div className="state__icon">
+          <Icon name="warn" size={22} />
+        </div>
         {/* Only an unreachable API deserves the docker sentence. A rejected
             request or a frontend fault used to be reported as "start the
             backend", which sent the reader after the wrong problem. */}
@@ -230,6 +249,9 @@ export function TenderList({
     const pastEnd = total > 0;
     return (
       <div className="state">
+        <div className="state__icon">
+          <Icon name="search" size={22} />
+        </div>
         <h3>{pastEnd ? 'Nothing on this page' : 'Nothing matches'}</h3>
         <p>
           {pastEnd
@@ -237,8 +259,8 @@ export function TenderList({
             : filterCount > 0
               ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them returns you to the default view.`
               : storedTotal > 0
-                ? `Nothing in this view matches. ${storedTotal.toLocaleString('en-GB')} tenders are stored — the All tab shows every one.`
-                : 'Nothing has been stored yet. The next sweep is shown at the top of the page.'}
+                ? `Nothing in this view matches. ${storedTotal.toLocaleString('en-GB')} tenders are stored — the All stored tab shows every one.`
+                : 'Nothing has been stored yet. Start a sweep from the top of the page, or wait for the next scheduled one.'}
         </p>
         {pastEnd || filterCount > 0 || storedTotal > 0 ? (
           <div className="state__actions">
@@ -270,15 +292,16 @@ export function TenderList({
     Boolean(newSince) && new Date(tender.first_seen_at).getTime() >= new Date(newSince!).getTime();
 
   return (
-    <div className="rows">
+    <div className="list">
       {tenders.map((tender) => (
-        <Row
+        <Card
           key={tender.id}
           tender={tender}
           selected={tender.id === selectedId}
           isNew={isNew(tender)}
           bands={bands}
           sourceLabel={sourceLabel}
+          categoryLabel={categoryLabel}
           onSelect={onSelect}
         />
       ))}

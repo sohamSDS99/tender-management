@@ -23,6 +23,11 @@ KEY_RUN_HOURS = "scheduler.run_hours_local"
 #: ENABLE_SCHEDULER is the default; this row is an operator overriding it.
 KEY_SCHEDULER_ENABLED = "scheduler.enabled"
 
+#: ISO instant of the last operator-initiated re-score, for the cooldown (D23).
+#: A re-score leaves no fetch_runs row, so unlike a sweep it has nothing else to
+#: derive "when did this last happen" from.
+KEY_LAST_RESCORE_AT = "operator.last_rescore_at"
+
 
 class AppSetting(Base):
     __tablename__ = "app_settings"

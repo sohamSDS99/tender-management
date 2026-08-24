@@ -22,7 +22,12 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'copy'
-  | 'link';
+  | 'link'
+  | 'download'
+  | 'refresh'
+  | 'info'
+  | 'chevronDown'
+  | 'settings';
 
 const PATHS: Record<IconName, string[]> = {
   check: ['M4.5 12.5l4.5 4.5L19.5 6.5'],
@@ -53,6 +58,11 @@ const PATHS: Record<IconName, string[]> = {
     'M10.5 13.5a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7L11.5 6.7',
     'M13.5 10.5a4 4 0 0 0-5.7 0l-2.3 2.3a4 4 0 0 0 5.7 5.7l1.3-1.3',
   ],
+  download: ['M12 3.5v11', 'm7.5 10 4.5 4.5 4.5-4.5', 'M4.5 20.5h15'],
+  refresh: ['M20.5 12a8.5 8.5 0 1 1-2.8-6.3', 'M20.5 3.5v6h-6'],
+  info: ['M12 16v-5', 'M12 8h.01', 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z'],
+  chevronDown: ['m6 9.5 6 6 6-6'],
+  settings: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 4.5v5', 'M8 14.5v5'],
 };
 
 export function Icon({

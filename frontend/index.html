@@ -8,20 +8,33 @@
       content="Monitor public tenders for SDS and EHS software opportunities"
     />
     <title>Tender Monitor · SDS & EHS software opportunities</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Inter, with a full system fallback stack in the CSS: this machine is on an
+         internal network and may have no route to Google, in which case the page
+         must still be correctly typeset rather than unstyled. -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script>
-      // Stamp the theme before first paint. Without this the light palette is
-      // painted and then replaced once React mounts and writes data-theme, which
-      // a dark-theme reader sees as a white flash on every load.
+      // Stamp theme and density before first paint. Without this the stylesheet's
+      // default is painted and then replaced once React mounts, which reads as a
+      // flash on every load. Dark is the product default, so an unset preference
+      // and any failure here both land on dark - which is what :root carries.
       (function () {
         try {
-          var raw = localStorage.getItem('tender-monitor:preferences');
-          var theme = raw ? JSON.parse(raw).theme : 'system';
-          if (theme !== 'light' && theme !== 'dark') {
+          var raw = localStorage.getItem('tender-monitor:preferences:v2');
+          var saved = raw ? JSON.parse(raw) : {};
+          var theme = saved.theme || 'dark';
+          if (theme === 'system') {
             theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
           }
           document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.density =
+            saved.density === 'compact' ? 'compact' : 'comfortable';
         } catch (e) {
-          /* a private-mode browser still gets a correct light default */
+          /* :root is dark, so a private-mode browser still gets the intended default */
         }
       })();
     </script>

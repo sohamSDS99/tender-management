@@ -213,8 +213,14 @@ export interface TenderFilters {
 
 export type Theme = 'light' | 'dark' | 'system';
 
+/** Card height. Applied as `html[data-density]`, which the stylesheet keys off. */
+export type Density = 'comfortable' | 'compact';
+
 export interface Preferences {
   theme: Theme;
+  density: Density;
+  /** Whether the left Settings panel is showing. Persisted so it survives a reload. */
+  settingsOpen: boolean;
 }
 
 export interface ScheduleResponse {
@@ -224,6 +230,18 @@ export interface ScheduleResponse {
   next_run_local_label: string;
   applied_to_running_scheduler: boolean;
   detail: string;
+}
+
+/** What `POST /api/fetch` answers with: 202 and the runs it just created. */
+export interface FetchStartedResponse {
+  run_ids: number[];
+  skipped_sources: string[];
+  window_from: string;
+  window_to: string;
+}
+
+export interface RescoreResponse {
+  rescored: number;
 }
 
 export interface TriggerResponse {

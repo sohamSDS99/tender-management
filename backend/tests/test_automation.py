@@ -374,13 +374,21 @@ def test_a_refused_change_leaves_the_previous_schedule_running(client) -> None:
 def test_the_schedule_endpoint_needs_no_shared_secret(anon_client) -> None:
     """A member of staff setting the time in the dashboard *is* the authorisation.
 
-    The write endpoints that stay gated are the ones a browser has no business
-    triggering: POST /api/fetch spends outbound requests against eight public
-    services, and /rescore rewrites every stored row.
+    Since D23 nothing is gated on the secret, so the contrast is no longer
+    "gated vs ungated" but *what* limits each one: choosing a time is free and
+    unlimited, while starting a sweep spends outbound requests and so carries a
+    cooldown. Proven by starting one and being refused the second immediately.
     """
     assert anon_client.put("/api/automation/schedule", json={"hours_local": [8, 20]}).status_code == 200
-    assert anon_client.post("/api/fetch").status_code == 401
-    assert anon_client.post("/api/tenders/rescore").status_code == 401
+    assert anon_client.put("/api/automation/schedule", json={"hours_local": [9, 21]}).status_code == 200
+
+    assert anon_client.post("/api/fetch").status_code == 202
+    assert anon_client.post("/api/fetch").status_code in (409, 429)
+
+    # Re-scoring has its own, separate cooldown: it rewrites every row but spends
+    # no outbound request, so a sweep must not gate it and vice versa.
+    assert anon_client.post("/api/tenders/rescore").status_code == 200
+    assert anon_client.post("/api/tenders/rescore").status_code == 429
 
 
 # --- pausing and resuming the sweep (docs/DECISIONS.md D21) ----------------
@@ -476,11 +484,13 @@ def test_a_nonsense_trigger_state_is_refused(client) -> None:
 def test_the_trigger_endpoint_needs_no_shared_secret(anon_client) -> None:
     """Same authorisation as the schedule: the person in the dashboard (D19/D21).
 
-    Pausing spends no outbound requests and rewrites no rows, so the reasoning
-    that keeps /api/fetch gated does not reach it.
+    Pausing spends no outbound requests and rewrites no rows, so it carries no
+    cooldown at all - unlike a sweep, which does (D23). Toggling repeatedly is
+    therefore always allowed.
     """
     assert anon_client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
-    assert anon_client.post("/api/fetch").status_code == 401
+    assert anon_client.put("/api/automation/trigger", json={"enabled": True}).status_code == 200
+    assert anon_client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
 
 
 def test_setting_times_while_paused_says_so_rather_than_blaming_another_process(client) -> None:
