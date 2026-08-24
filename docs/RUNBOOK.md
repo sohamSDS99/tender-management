@@ -310,7 +310,7 @@ docker compose exec -T backend python -m app.jobs.scheduled_fetch \
 ## 5. Slack links, and who can reach the dashboard
 
 The dashboard is served to the whole company network with no login, by design -
-see `docs/DECISIONS.md` D13. `PUBLIC_APP_URL` is the LAN address, so the deep
+see `docs/DECISIONS.md` D18. `PUBLIC_APP_URL` is the LAN address, so the deep
 link in every Slack entry opens for colleagues and not only on the host:
 
 ```
@@ -374,7 +374,7 @@ or bind it to this machine only, by changing the published ports in
 
 ### Before exposing it to the internet
 
-Different decision entirely, and not covered by D13. At minimum: set
+Different decision entirely, and not covered by D18. At minimum: set
 `ENABLE_API_DOCS=false`, put real authentication in front of the whole app, and
 re-read `docs/DECISIONS.md` D5.
 
@@ -420,7 +420,7 @@ docker compose restart backend
 
 Bad values are refused, not repaired: an empty list, an hour outside 0-23, or
 more than six a day all return 422 with a message naming the problem, and the
-previous schedule keeps running. See `docs/DECISIONS.md` D14 for why this
+previous schedule keeps running. See `docs/DECISIONS.md` D19 for why this
 endpoint needs no shared secret when the others do.
 
 **One caveat.** This does not rewrite `.github/workflows/scheduled-fetch.yml`,

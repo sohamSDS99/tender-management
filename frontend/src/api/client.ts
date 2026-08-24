@@ -96,7 +96,7 @@ export function buildQuery(filters: TenderFilters): string {
  * of those endpoints require the CRON_SECRET header, which a browser must never
  * hold. `setSchedule` is the exception — *when* the sweep runs is an operating
  * decision a member of staff makes, and the person making it in the dashboard is
- * the authorisation. See docs/DECISIONS.md D14.
+ * the authorisation. See docs/DECISIONS.md D19.
  */
 export const api = {
   tenders: (filters: TenderFilters) => request<TenderPage>(`/api/tenders?${buildQuery(filters)}`),

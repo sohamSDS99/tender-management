@@ -632,7 +632,7 @@ row at a time. `docs/RUNBOOK.md` §7 therefore names restoring a dump as the
 lossless path and states which single revision is the exception. Verified end to
 end: `head -> base -> head` runs clean on PostgreSQL with data present.
 
-## D13 — Internal network access, deliberately with no user accounts
+## D18 — Internal network access, deliberately with no user accounts
 
 **Decision.** The dashboard is reachable by anyone on the company network and has no
 login, no user profiles and no per-user state. `PUBLIC_APP_URL` is set to the host's
@@ -687,7 +687,7 @@ colleagues could not open the links at all).
 
 ---
 
-## D14 — The sweep schedule is editable from the dashboard, and the person editing it is the authorisation
+## D19 — The sweep schedule is editable from the dashboard, and the person editing it is the authorisation
 
 **Decision.** `PUT /api/automation/schedule` takes local hours (1-6 of them, 0-23)
 and is **not** behind `CRON_SECRET`, unlike every other write endpoint. The value is
@@ -743,7 +743,7 @@ class of confusion this product has no need for).
 
 ---
 
-## D15 — Tender counts by source sit at the top of the page
+## D20 — Tender counts by source sit at the top of the page
 
 **Decision.** A single strip under the masthead lists every source with the number
 of notices stored from it, ordered by volume, each with a health pip and each

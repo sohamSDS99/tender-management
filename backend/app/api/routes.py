@@ -79,7 +79,7 @@ def set_schedule(
     """Change when the automated sweep runs.
 
     Deliberately *not* behind CRON_SECRET, unlike the other write endpoints. The
-    reasoning is written up in docs/DECISIONS.md D14, and it turns on what this
+    reasoning is written up in docs/DECISIONS.md D19, and it turns on what this
     endpoint is: the schedule is an operating decision that a member of staff
     makes, and the person making it in the dashboard *is* the authorisation. The
     endpoints that stay gated are the ones a browser has no business triggering -

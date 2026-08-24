@@ -12,7 +12,7 @@ Two things this deliberately does not do:
   web form invites a class of confusion the product has no need for.
 * it does not touch the GitHub Actions cron, which is static YAML in git. When
   Actions owns the schedule, that file is authoritative and this value is not -
-  see ``docs/DECISIONS.md`` D2 and D14.
+  see ``docs/DECISIONS.md`` D2 and D19.
 """
 
 from __future__ import annotations

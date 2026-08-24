@@ -37,6 +37,27 @@ export function resolveTheme(theme: Theme): 'light' | 'dark' {
   return theme === 'system' ? (prefersDark() ? 'dark' : 'light') : theme;
 }
 
+/**
+ * The theme actually in force. Pure, so the OS preference is an argument rather
+ * than something read from the environment mid-render.
+ */
+export function resolveWithSystem(theme: Theme, systemDark: boolean): 'light' | 'dark' {
+  if (theme === 'system') return systemDark ? 'dark' : 'light';
+  return theme;
+}
+
+/**
+ * What one press of the toggle should select.
+ *
+ * Extracted because this is where the bug was: the toggle computed from the
+ * *stored* preference while the button's label was rendered from a resolved
+ * value that had gone stale, so after the OS switched themes mid-session one
+ * press did the opposite of what the label promised.
+ */
+export function toggledTheme(theme: Theme, systemDark: boolean): 'light' | 'dark' {
+  return resolveWithSystem(theme, systemDark) === 'dark' ? 'light' : 'dark';
+}
+
 export function usePreferences() {
   const [preferences, setPreferences] = useState<Preferences>(readPreferences);
   // Held in state, not just written to the DOM: the toggle's icon and label are
@@ -46,8 +67,7 @@ export function usePreferences() {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.dataset.theme =
-      preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : preferences.theme;
+    root.dataset.theme = resolveWithSystem(preferences.theme, systemDark);
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
     } catch {
@@ -71,18 +91,12 @@ export function usePreferences() {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setPreferences((prev) => ({
-      ...prev,
-      theme:
-        (prev.theme === 'system' ? (prefersDark() ? 'dark' : 'light') : prev.theme) === 'dark'
-          ? 'light'
-          : 'dark',
-    }));
-  }, []);
+    // systemDark, not prefersDark(): the same value the label was rendered from,
+    // so one press always does what the label says.
+    setPreferences((prev) => ({ ...prev, theme: toggledTheme(prev.theme, systemDark) }));
+  }, [systemDark]);
 
-  // The theme actually in force, which 'system' alone cannot tell the caller.
-  const resolved: 'light' | 'dark' =
-    preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : preferences.theme;
+  const resolved = resolveWithSystem(preferences.theme, systemDark);
 
   return { preferences, resolved, update, toggleTheme };
 }

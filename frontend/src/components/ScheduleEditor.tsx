@@ -8,7 +8,7 @@ import { Icon } from './Icon';
  *
  * The sweep is automated, but *when* it runs is a human decision — so this is the
  * one place in the app a reader can change something. The person making the
- * change is the authorisation (docs/DECISIONS.md D14); there is no secret to
+ * change is the authorisation (docs/DECISIONS.md D19); there is no secret to
  * hold and no account to log into.
  *
  * The hours are local to the configured timezone. The UTC cron equivalents are
