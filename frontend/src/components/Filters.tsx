@@ -6,7 +6,7 @@ import type {
   Stats,
   TenderFilters,
 } from '../types';
-import { DEFAULT_FILTERS, DEPLOYMENT_FITS, FIT_STATUSES } from '../state/urlFilters';
+import { DEPLOYMENT_FITS, FIT_STATUSES, isDefaultFilters } from '../state/urlFilters';
 import { countryLabel, deploymentLabel, fitLabel } from '../labels';
 
 /**
@@ -42,7 +42,7 @@ export function Filters({
   const toggle = <T extends string>(list: T[], value: T): T[] =>
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 
-  const isDefault = JSON.stringify(filters) === JSON.stringify(DEFAULT_FILTERS);
+  const isDefault = isDefaultFilters(filters);
 
   return (
     <div className="filters">

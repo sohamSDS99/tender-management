@@ -28,9 +28,12 @@ export interface TenderListProps {
   /** Anything first seen at or after this is marked New. */
   newSince: string | null;
   filterCount: number;
+  /** Total matching the current query, which may exceed what this page holds. */
+  total: number;
   onSelect: (id: number) => void;
   onRetry: () => void;
   onClearFilters: () => void;
+  onFirstPage: () => void;
 }
 
 const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
@@ -168,9 +171,11 @@ export function TenderList({
   selectedId,
   newSince,
   filterCount,
+  total,
   onSelect,
   onRetry,
   onClearFilters,
+  onFirstPage,
 }: TenderListProps) {
   if (error) {
     return (
@@ -191,19 +196,36 @@ export function TenderList({
   if (loading) return <Skeletons />;
 
   if (tenders.length === 0) {
+    // Three genuinely different situations, and saying the wrong one is worse
+    // than saying nothing: this page is past the end of a non-empty result set;
+    // filters have excluded everything; or the database really is empty.
+    const pastEnd = total > 0;
     return (
       <div className="state">
-        <h3>Nothing matches</h3>
+        <h3>{pastEnd ? 'Nothing on this page' : 'Nothing matches'}</h3>
         <p>
-          {filterCount > 0
-            ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them shows everything stored.`
-            : 'Nothing is stored yet. The next sweep is shown at the top of the page.'}
+          {pastEnd
+            ? `There ${total === 1 ? 'is 1 tender' : `are ${total.toLocaleString('en-GB')} tenders`} in this view, but none on this page.`
+            : filterCount > 0
+              ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them shows everything stored.`
+              : 'Nothing has been stored yet. The next sweep is shown at the top of the page.'}
         </p>
-        {filterCount > 0 ? (
+        {pastEnd || filterCount > 0 ? (
           <div className="state__actions">
-            <button type="button" className="btn btn--primary" onClick={onClearFilters}>
-              Clear filters
-            </button>
+            {pastEnd ? (
+              <button type="button" className="btn btn--primary" onClick={onFirstPage}>
+                Go to the first page
+              </button>
+            ) : null}
+            {filterCount > 0 ? (
+              <button
+                type="button"
+                className={pastEnd ? 'btn' : 'btn btn--primary'}
+                onClick={onClearFilters}
+              >
+                Clear filters
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

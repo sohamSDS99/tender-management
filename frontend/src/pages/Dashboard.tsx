@@ -11,6 +11,7 @@ import type {
 import {
   DEFAULT_FILTERS,
   activeChips,
+  correctedPage,
   filtersFromSearch,
   searchFromFilters,
 } from '../state/urlFilters';
@@ -89,6 +90,13 @@ export function Dashboard() {
       if (id !== requestId.current) return;
       setPage(result);
       setError(null);
+      // A shared or stale link can name a page past the end of the result set —
+      // which showed zero rows under a count that said there were six, with no
+      // pager to escape by. Correct the URL instead of stranding the reader.
+      const corrected = correctedPage(result.page, result.pages);
+      if (corrected !== null) {
+        setFilters((prev) => (prev.page === corrected ? prev : { ...prev, page: corrected }));
+      }
     } catch (err) {
       if (id !== requestId.current) return;
       setError(err instanceof ApiError ? err.message : String(err));
@@ -240,12 +248,14 @@ export function Dashboard() {
             selectedId={selectedId}
             newSince={viewContext.lastRunAt}
             filterCount={extraChips.length}
+            total={page?.total ?? 0}
             onSelect={setSelectedId}
             onRetry={() => setReloadToken((v) => v + 1)}
             onClearFilters={clearAll}
+            onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
           />
 
-          {page && !loading && !error ? (
+          {page && !error ? (
             <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
           ) : null}
         </main>

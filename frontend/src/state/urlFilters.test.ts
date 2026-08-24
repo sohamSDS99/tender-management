@@ -3,7 +3,9 @@ import {
   DEFAULT_FILTERS,
   activeChips,
   activeFilterCount,
+  correctedPage,
   filtersFromSearch,
+  isDefaultFilters,
   searchFromFilters,
 } from './urlFilters';
 import type { TenderFilters } from '../types';
@@ -193,5 +195,69 @@ describe('chips explain why the result set looks the way it does', () => {
       filters = { ...filters, ...activeChips(filters, LABELS)[0].clear };
     }
     expect(activeChips(filters, LABELS)).toEqual([]);
+  });
+});
+
+describe('correctedPage', () => {
+  it('pulls a past-the-end page back to the last real one', () => {
+    // A stale link saying page=5 for a six-row, one-page result set.
+    expect(correctedPage(5, 1)).toBe(1);
+    expect(correctedPage(12, 3)).toBe(3);
+  });
+
+  it('leaves a valid page alone, so no needless re-render happens', () => {
+    expect(correctedPage(1, 1)).toBeNull();
+    expect(correctedPage(3, 3)).toBeNull();
+    expect(correctedPage(2, 9)).toBeNull();
+  });
+
+  it('does nothing when there are no pages to correct towards', () => {
+    expect(correctedPage(4, 0)).toBeNull();
+    expect(correctedPage(1, Number.NaN)).toBeNull();
+  });
+});
+
+describe('score bounds parsed from a link', () => {
+  it('a lone maximum does not invent a floor', () => {
+    // Regression: the default floor is 70, so "?maximum_score=50" used to be
+    // read as "between 50 and 70" — inventing both bounds from a default the
+    // reader never asked for.
+    const f = filtersFromSearch('?maximum_score=50').filters;
+    expect([f.minimum_score, f.maximum_score]).toEqual([0, 50]);
+  });
+
+  it('a lone maximum above the default floor keeps the floor', () => {
+    const f = filtersFromSearch('?maximum_score=90').filters;
+    expect([f.minimum_score, f.maximum_score]).toEqual([70, 90]);
+  });
+
+  it('a lone minimum keeps the ceiling open', () => {
+    const f = filtersFromSearch('?minimum_score=30').filters;
+    expect([f.minimum_score, f.maximum_score]).toEqual([30, 100]);
+  });
+
+  it('both supplied and inverted is read the sane way round', () => {
+    const f = filtersFromSearch('?minimum_score=80&maximum_score=20').filters;
+    expect([f.minimum_score, f.maximum_score]).toEqual([20, 80]);
+  });
+
+  it('both supplied in order is left exactly as asked', () => {
+    const f = filtersFromSearch('?minimum_score=25&maximum_score=60').filters;
+    expect([f.minimum_score, f.maximum_score]).toEqual([25, 60]);
+  });
+});
+
+describe('isDefaultFilters', () => {
+  it('is true for a fresh load, whatever the key order', () => {
+    // Regression: JSON.stringify compared key order too, so a parsed-but-default
+    // filter set reported "changed" and left Reset looking available.
+    expect(isDefaultFilters(filtersFromSearch('').filters)).toBe(true);
+    expect(isDefaultFilters(DEFAULT_FILTERS)).toBe(true);
+  });
+
+  it('is false as soon as anything is narrowed', () => {
+    expect(isDefaultFilters(filtersFromSearch('?query=sds').filters)).toBe(false);
+    expect(isDefaultFilters(filtersFromSearch('?sources=ted').filters)).toBe(false);
+    expect(isDefaultFilters(filtersFromSearch('?minimum_score=10').filters)).toBe(false);
   });
 });

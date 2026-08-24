@@ -118,17 +118,29 @@ export function filtersFromSearch(search: string): {
 } {
   const params = new URLSearchParams(search);
   const all = (key: string) => params.getAll(key).filter(Boolean);
-  const minimum = clampScore(params.get('minimum_score'), DEFAULT_FILTERS.minimum_score);
-  const maximum = clampScore(params.get('maximum_score'), DEFAULT_FILTERS.maximum_score);
+  // The score bounds need care. The default floor is 70 (the Needs-attention
+  // view), so a link that supplies only `maximum_score=50` used to be read as
+  // "between 50 and 70" — the swap below fired against a default the reader
+  // never asked for, inventing both bounds. A lone maximum below the default
+  // floor means "cap it here", so the floor drops away instead.
+  const rawMin = params.get('minimum_score');
+  const rawMax = params.get('maximum_score');
+  let minimum = clampScore(rawMin, DEFAULT_FILTERS.minimum_score);
+  let maximum = clampScore(rawMax, DEFAULT_FILTERS.maximum_score);
+  if (rawMin === null && rawMax !== null && maximum < minimum) minimum = 0;
+  if (rawMax === null && rawMin !== null && minimum > maximum) maximum = 100;
+  if (rawMin !== null && rawMax !== null && minimum > maximum) {
+    // Both supplied but inverted: a sane reading beats returning nothing.
+    [minimum, maximum] = [maximum, minimum];
+  }
   const sort = params.get('sort');
   const rawTender = params.get('tender');
 
   return {
     filters: {
       query: params.get('query') ?? '',
-      // A link with the pair inverted still returns rows instead of nothing.
-      minimum_score: Math.min(minimum, maximum),
-      maximum_score: Math.max(minimum, maximum),
+      minimum_score: minimum,
+      maximum_score: maximum,
       sources: all('sources'),
       countries: all('countries'),
       categories: all('categories'),
@@ -313,4 +325,37 @@ export function activeFilterCount(filters: TenderFilters): number {
     source: (v) => v,
     category: (v) => v,
   }).length;
+}
+
+/**
+ * The page to use when the requested one is past the end of the result set.
+ *
+ * A shared or stale link can name `page=5` for a six-row result. Left alone that
+ * renders zero rows under a count claiming six, with no pager to escape by.
+ * Returns null when the requested page is fine, so the caller can skip the
+ * state update entirely rather than re-rendering on every load.
+ */
+export function correctedPage(requested: number, pages: number): number | null {
+  if (!Number.isFinite(pages) || pages < 1) return null;
+  if (requested <= pages) return null;
+  return pages;
+}
+
+/**
+ * True when nothing is narrowed beyond the shipped default.
+ *
+ * Compared field by field rather than with JSON.stringify: a parsed filter set
+ * has the same values in a different key order, so the string comparison this
+ * replaces reported "changed" on a completely fresh load and left the Reset
+ * button looking available when there was nothing to reset.
+ */
+export function isDefaultFilters(filters: TenderFilters): boolean {
+  return (Object.keys(DEFAULT_FILTERS) as (keyof TenderFilters)[]).every((key) => {
+    const a = filters[key];
+    const b = DEFAULT_FILTERS[key];
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((v, i) => v === b[i]);
+    }
+    return a === b;
+  });
 }
