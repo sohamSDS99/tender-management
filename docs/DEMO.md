@@ -24,16 +24,25 @@ curl -s http://localhost:8081/api/automation | python3 -m json.tool | head -20
 Expect `"status":"ok"` with `"dialect":"postgresql"`, and
 `"scheduler_running": true` with two entries in `scheduler_jobs`.
 
-Then load the deterministic dataset and confirm Slack works, **before** anyone is
-watching:
+Then load the deterministic dataset and confirm Slack delivery works, **before**
+anyone is watching:
 
 ```bash
 docker compose exec -T backend python -m app.jobs.scheduled_fetch \
   --seed --seed-reset --trigger cron
 ```
 
-Expect `slack=sent` and `14 fixture tender(s) inserted`. Check the channel: one
-digest, six tenders. That is your proof the webhook is alive.
+Expect `slack=sent` and `14 fixture tender(s) inserted`. Two transports can
+deliver this — a bot token or an incoming webhook (`docs/DECISIONS.md` D22) —
+so confirm which one just fired and where, rather than assuming:
+
+```bash
+curl -s http://localhost:8081/api/automation | python3 -c \
+  "import json,sys; s=json.load(sys.stdin)['slack']; print(s['transport'], s['status'], s['channel_label'])"
+```
+
+Check the channel it names: one digest, six tenders. That is your proof delivery
+is alive, whichever transport is configured.
 
 Now open two browser tabs and leave them open:
 
@@ -46,7 +55,9 @@ demo changes.
 
 ```bash
 python scripts/fake_slack.py --port 9099
-# then set SLACK_WEBHOOK_URL=http://host.docker.internal:9099/hook in .env
+# The webhook transport only takes over when no bot token is configured (D22),
+# so comment out SLACK_BOT_TOKEN (or SLACK_CHANNEL_ID) in .env and set:
+# SLACK_WEBHOOK_URL=http://host.docker.internal:9099/hook
 # and: docker compose up -d backend
 ```
 
@@ -210,14 +221,17 @@ Reload. Everything returns.
 A **live** sweep of the real sources is deliberately not part of this script: it
 takes about 13 minutes and depends on eight external services. If someone asks to
 see real data arrive, show `docs/RUNBOOK.md` §3 and offer to run it afterwards.
-The 320 tenders already in the database came from a real sweep.
+The dashboard's "stored, from" strip already shows real counts from real sweeps —
+that number keeps growing on its own, so read it off screen rather than trusting
+a figure written here.
 
 ---
 
 ## Questions you should expect
 
 **"What does it cost to run?"** Nothing. Eight free public sources, a free Slack
-webhook, and it runs on this machine. No paid API, no per-seat licence.
+app (a bot token or a webhook, either costs nothing), and it runs on this
+machine. No paid API, no per-seat licence.
 
 **"Could it miss a tender?"** Each run looks back at least 72 hours, so a delayed
 or missed run catches up rather than skipping. Deduplication is on
