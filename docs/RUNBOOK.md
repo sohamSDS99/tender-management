@@ -314,10 +314,20 @@ see `docs/DECISIONS.md` D13. `PUBLIC_APP_URL` is the LAN address, so the deep
 link in every Slack entry opens for colleagues and not only on the host:
 
 ```
-PUBLIC_APP_URL=http://192.168.1.5:8081
+PUBLIC_APP_URL=http://Sohams-MacBook-Air.local:8081
 ```
 
-Colleagues open `http://192.168.1.5:8081` directly, or just click a tender in
+The hostname rather than the IP, and for a concrete reason: during development
+the host's address moved from `192.168.1.5` to `192.168.0.133` between one
+afternoon and the next. Every link sent before that would have been dead. The
+mDNS hostname survived the change; it needs the client to resolve `.local`,
+which Apple devices and Windows 10+ do but some corporate networks block. If
+yours is one of them, ask IT for a fixed address instead.
+
+The dashboard shows this value under **Sweep times and source health** and warns
+when it is a bare IP or `localhost`, because a wrong value fails silently.
+
+Colleagues open the address above directly, or just click a tender in
 Slack. They can read everything and change nothing: both write endpoints return
 `401` without the shared secret, and the database publishes no host port.
 

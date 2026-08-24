@@ -205,6 +205,7 @@ class ScheduledJob(UtcModel):
 class AutomationStatus(UtcModel):
     """Read-only replacement for the removed manual-fetch controls."""
 
+    public_app_url: str
     timezone: str
     run_hours_local: list[int]
     run_hours_are_custom: bool

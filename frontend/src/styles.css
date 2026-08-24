@@ -1567,3 +1567,19 @@ a {
   color: var(--accent);
   text-decoration-color: var(--accent);
 }
+
+/* Where Slack links point — shown because a wrong value fails silently. */
+.linkbase > h3 {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.linkbase > p {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+.linkbase__warn {
+  margin-top: 6px;
+  color: var(--warn-ink);
+  max-width: 70ch;
+}

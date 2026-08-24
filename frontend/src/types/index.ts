@@ -158,6 +158,8 @@ export interface LastRun {
 }
 
 export interface AutomationStatus {
+  /** The base every Slack digest link is built from. */
+  public_app_url: string;
   timezone: string;
   run_hours_local: number[];
   run_hours_are_custom: boolean;

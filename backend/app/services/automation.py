@@ -208,6 +208,9 @@ def automation_status(
     batch_id = next((r.batch_id for r in batch if r.batch_id), None)
 
     return {
+        # Every Slack digest links to this base. A wrong value means every link
+        # is dead and nothing on screen would otherwise say so.
+        "public_app_url": settings.app_base_url,
         "timezone": tz,
         "run_hours_local": list(hours),
         "run_hours_are_custom": is_customised(db),
