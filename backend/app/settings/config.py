@@ -115,6 +115,20 @@ class Settings(BaseSettings):
     # Matches the fetch window's 72h floor.
     slack_announce_lookback_hours: int = 72
 
+    # --- operator actions from the dashboard (D23) ---
+    # The dashboard can start a sweep and re-score without holding CRON_SECRET.
+    # The secret was never a confidentiality control here - reads are wide open
+    # (D5) - it was cost control, so cost controls replace it. Set false to close
+    # these to the browser again, which is what an internet-exposed deployment
+    # must do.
+    allow_operator_actions: bool = True
+    # Minimum gap between operator-started sweeps. A full sweep queries eight
+    # public services for ~13 minutes, so this is what stops a repeatedly clicked
+    # button from hammering them.
+    operator_fetch_cooldown_seconds: int = 300
+    # Re-scoring spends no outbound request but rewrites every stored row.
+    operator_rescore_cooldown_seconds: int = 120
+
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to
     # {public_app_url}/?tender={id}, which Dashboard.tsx already reads.

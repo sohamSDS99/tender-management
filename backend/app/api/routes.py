@@ -30,8 +30,8 @@ from app.schemas import (
     TriggerResponse,
     TriggerUpdate,
 )
-from app.security import require_cron_secret
-from app.services import automation, ingest, schedule_settings, scheduler
+from app.security import has_cron_secret
+from app.services import automation, ingest, operator, schedule_settings, scheduler
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -369,17 +369,30 @@ def get_tender(tender_id: int, db: Session = Depends(get_db)) -> Tender:
     response_model=FetchResponse,
     status_code=202,
     tags=["fetch"],
-    dependencies=[Depends(require_cron_secret)],
-    summary="Operator/CI only - requires the X-Cron-Secret header",
+    summary="Start a sweep - CI with X-Cron-Secret, or an operator under the cooldown",
 )
 async def trigger_fetch(
-    payload: FetchRequest | None = None, settings: Settings = Depends(settings_dep)
+    payload: FetchRequest | None = None,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+    trusted: bool = Depends(has_cron_secret),
 ) -> dict[str, object]:
+    """Start a sweep now.
+
+    Callable from the dashboard without a shared secret (D23). The secret was
+    never protecting anything confidential here - reads are wide open (D5) - it
+    was protecting eight public services from being hammered, so the guards in
+    app/services/operator.py do that job directly: one sweep at a time, and a
+    minimum gap between operator-initiated runs. A caller presenting
+    CRON_SECRET is trusted and skips both, because CI controls its own schedule.
+    """
     payload = payload or FetchRequest()
     if payload.sources:
         unknown = [s for s in payload.sources if s not in SOURCE_NAMES]
         if unknown:
             raise HTTPException(status_code=400, detail=f"unknown sources: {', '.join(unknown)}")
+    if not trusted:
+        operator.guard_fetch(db, settings)
     return await ingest.start_fetch(payload.sources, payload.days_back, "manual", settings)
 
 
@@ -402,12 +415,24 @@ def list_fetch_runs(
     "/api/tenders/rescore",
     response_model=RescoreResponse,
     tags=["tenders"],
-    dependencies=[Depends(require_cron_secret)],
-    summary="Operator/CI only - requires the X-Cron-Secret header",
+    summary="Re-score every stored notice - CI with X-Cron-Secret, or an operator under the cooldown",
 )
-def rescore(db: Session = Depends(get_db)) -> RescoreResponse:
+def rescore(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+    trusted: bool = Depends(has_cron_secret),
+) -> RescoreResponse:
+    """Reload relevance_profiles.yaml and re-score everything.
+
+    Spends no outbound request, but rewrites every stored row, so it carries its
+    own cooldown rather than the sweep's (D23).
+    """
+    if not trusted:
+        operator.guard_rescore(db, settings)
     get_engine.cache_clear()  # pick up edits to relevance_profiles.yaml
-    return RescoreResponse(rescored=ingest.rescore_all(db))
+    rescored = ingest.rescore_all(db)
+    operator.mark_rescore(db)
+    return RescoreResponse(rescored=rescored)
 
 
 @router.get("/api/stats", response_model=StatsResponse, tags=["system"])

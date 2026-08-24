@@ -2,14 +2,16 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (22 records, D1–D22).
+`docs/DECISIONS.md` explains why it is built this way (23 records, D1–D23).
 
 ## What this is
 
 Tender Monitor watches eight free public procurement sources, normalises every
 notice, scores it for relevance to SDS/EHS software work, and surfaces the few
 worth a human's time. Fetching is automated twice a day; a Slack digest announces
-new high scorers. Read-only for its users, internal network only, no accounts.
+new high scorers. Internal network only, no accounts. Notices are never edited,
+but a sweep, a re-score and the schedule can all be driven from the dashboard
+(D19, D21, D23).
 
 Runs as three containers on one machine: `docker compose up -d --build` →
 dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL internal.
@@ -19,14 +21,14 @@ dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL interna
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 321 tests
+./.venv/bin/python -m pytest -q          # 336 tests
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 5 revisions, head b4efd5d106b6
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 68 tests
+npx vitest run                           # 70 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -153,15 +155,26 @@ when it looks fragile.
 Reads are open by design — the data is public procurement notices, the tool is
 internal-network only, and there are no accounts (D5, D18). Writes split:
 
-| Endpoint | Gate | Why |
-|---|---|---|
-| `POST /api/fetch` | `X-Cron-Secret` | spends outbound requests against 8 public services |
-| `POST /api/tenders/rescore` | `X-Cron-Secret` | rewrites every stored row |
-| `PUT /api/automation/schedule` | **none** | the person choosing the time in the UI *is* the authorisation (D19) |
-| `PUT /api/automation/trigger` | **none** | same reasoning; pausing spends less than doing nothing (D21) |
+**Nothing is gated on the shared secret any more (D23).** The secret is now a
+*bypass* of the cost limits, not a key. Every write is callable from the browser:
 
-An unset `CRON_SECRET` refuses the gated endpoints with 503 — it does not leave
-them open. `tests/test_security.py` and `test_automation.py` assert the split.
+| Endpoint | Limit | Why that limit |
+|---|---|---|
+| `POST /api/fetch` | single-flight (409) + 300s cooldown (429) | spends outbound requests against 8 public services |
+| `POST /api/tenders/rescore` | 120s cooldown (429) | rewrites every stored row |
+| `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
+| `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
+
+`ALLOW_OPERATOR_ACTIONS=false` closes the first two to the browser (403) and must
+be set before the API is ever internet-reachable. `X-Cron-Secret` still works and
+skips the cooldowns, for CI. An unset `CRON_SECRET` no longer 503s these endpoints —
+it used to, which was right while the secret was the only control and only broke
+the dashboard once the limits existed. `tests/test_operator_guards.py` and
+`test_security.py` assert all of it.
+
+**A crashed sweep must not brick the Fetch button.** `_sweep_in_flight()` ignores
+`fetch_runs` rows older than `STALE_RUN_MINUTES`; without that, one orphaned
+`running` row disables operator fetches for ever. D23.
 
 ## Frontend
 
@@ -173,8 +186,20 @@ Dependencies are **`react` + `react-dom` only**. `vitest` is a devDependency.
 Adding anything else needs a record in `docs/DECISIONS.md`.
 
 - Desktop only, confirmed. A narrow window must degrade, not break; no phone polish.
+- **Dark is the default**, on bare `:root`; light is the `[data-theme="light"]`
+  override. Preferences live under `tender-monitor:preferences:v2` — v1 is ignored
+  on purpose, because its default was `system` and reading it back overrode the new
+  dark default for anyone who had loaded the old page.
 - Views are filter *presets*, not separate state — `activeView` reads filters back
   to decide which tab is lit. `sort` is deliberately not view-owned.
+- **A tab count must equal the list the tab opens.** The score buckets therefore
+  filter on score *alone* — no `active_only`, no fit filters — because the counts
+  come from `/api/stats`, which counts purely on `relevance_score`. Adding a filter
+  the count does not apply puts a number beside a tab that disagrees with itself.
+- Tiles are filters too: clicking one narrows to exactly the population it counted.
+- The result card's title is the real `<button>` and its `::after` overlays the card
+  as the hit area; the "Original notice" anchor sits above it. An anchor cannot live
+  inside a button, and a div-with-onClick is not keyboard reachable.
 - The whole filter set round-trips through the URL. The parameter names are a
   contract with the Slack digest (`minimum_score`, `active_only`, `sort`, `tender`).
 - Counts are shown only where a stored total is the honest reading. Facet counts

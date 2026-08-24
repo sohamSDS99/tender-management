@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import Depends, Header, HTTPException, Request, Response
+from fastapi import Depends, Header, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.settings import Settings, get_settings
@@ -58,28 +58,27 @@ def settings_dep() -> Settings:
     return get_settings()
 
 
-def require_cron_secret(
+def has_cron_secret(
     x_cron_secret: str | None = Header(default=None, alias=CRON_HEADER),
     settings: Settings = Depends(settings_dep),
-) -> None:
-    """Gate for operator/CI-only endpoints.
+) -> bool:
+    """True when the caller presented the shared secret. Never raises.
 
-    Fails closed: with no CRON_SECRET configured the endpoint is refused
-    outright rather than left open. Compared in constant time so the response
-    latency cannot be used to guess the secret.
+    This is the *trusted caller* test, not a gate: an operator in the dashboard is
+    also allowed to run these actions, but under the cooldown and single-flight
+    guards in app/services/operator.py instead. A trusted caller bypasses those,
+    because CI and the scheduled entrypoint already control their own timing.
+    See docs/DECISIONS.md (D23).
+
+    Compared in constant time so response latency cannot be used to guess it.
     """
     expected = settings.cron_secret
-    if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "This endpoint is disabled because CRON_SECRET is not configured. "
-                "Set it in the environment and restart."
-            ),
-        )
-    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, expected):
-        raise HTTPException(
-            status_code=401,
-            detail=f"Missing or invalid {CRON_HEADER} header.",
-            headers={"WWW-Authenticate": CRON_HEADER},
-        )
+    if not expected or not x_cron_secret:
+        return False
+    return secrets.compare_digest(x_cron_secret, expected)
+
+
+# require_cron_secret() was removed in D23. No endpoint gated on it any more, and
+# an unused gate sitting in a security module reads as protection that is not
+# there. The remaining test of the secret is has_cron_secret() above, which grants
+# a bypass of the operator guards rather than access.

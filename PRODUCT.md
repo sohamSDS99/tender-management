@@ -50,8 +50,13 @@ Not a keyword alert. Two things a neighbouring tool could not truthfully copy:
 ## Operating Context
 
 - Runs on a machine inside the company network; reached at a LAN address.
-- Fetches automatically at **00:00 and 12:00 Asia/Dhaka**. There is no way to
-  start a fetch from the interface, deliberately.
+- Fetches automatically at **00:00 and 12:00 Asia/Dhaka**, and those times are
+  editable from the dashboard (D19), as is whether it runs at all (D21).
+- A sweep and a full re-score **can** be started from the interface, by anyone on
+  the network, without a secret. Requested directly, and it reversed the earlier
+  position that fetching must be untriggerable. The controls that stop it being
+  abused are server-side and are not authentication: one sweep at a time, and a
+  cooldown between operator-initiated runs (D23).
 - A Slack digest announces newly-found notices scoring 70+, each linking straight
   into this dashboard's detail view for that notice.
 - Typical arrival pattern: a couple of hundred notices ingested per sweep, of
@@ -68,8 +73,12 @@ one and read its full record including the score reasoning, key facts,
 classification codes, description, documents and raw source payload; see which
 sources are healthy and when the next automated run is; share any view by URL.
 
-**Read-only by design.** Every write endpoint requires a shared secret the browser
-is never given. Nothing a user clicks can change data.
+**No per-notice editing.** Nothing a user clicks changes a stored notice: there is
+no status to set, no owner to assign, no decision to record. What a user *can*
+trigger are the two whole-system operations — start a sweep, re-score everything —
+and the sweep schedule. Both sweep and re-score are additive or deterministic: a
+sweep upserts on `(source, notice id)`, and a re-score recomputes a pure function
+of data already stored, so neither can destroy anything (D23).
 
 **Terminology used throughout** (and which the interface should not rename):
 tender / notice, buyer, deadline, relevance score, fit status, deployment fit,

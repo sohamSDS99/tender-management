@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Preferences, Theme } from '../types';
+import type { Density, Preferences, Theme } from '../types';
 
 /**
  * Theme and card density.
@@ -9,12 +9,34 @@ import type { Preferences, Theme } from '../types';
  * localStorage so a reload keeps the reader's choice; 'system' follows the OS
  * and keeps following it if the OS setting changes mid-session.
  */
-const STORAGE_KEY = 'tender-monitor:preferences';
+/**
+ * Versioned, and v2 deliberately ignores v1.
+ *
+ * v1's default was 'system', so almost every stored value is that default rather
+ * than a choice anyone made — and reading it back would have overridden the new
+ * dark default for everyone who had ever loaded the old page. Starting clean
+ * costs one re-pick for the few who genuinely chose light or system.
+ */
+const STORAGE_KEY = 'tender-monitor:preferences:v2';
 
-export const DEFAULT_PREFERENCES: Preferences = { theme: 'system' };
+/**
+ * Dark is the default, not 'system'.
+ *
+ * Requested directly. 'system' would have most readers land on light without
+ * ever seeing the theme the product was designed in; light stays one press away.
+ */
+export const DEFAULT_PREFERENCES: Preferences = {
+  theme: 'dark',
+  density: 'comfortable',
+  settingsOpen: true,
+};
 
 function isTheme(value: unknown): value is Theme {
   return value === 'light' || value === 'dark' || value === 'system';
+}
+
+function isDensity(value: unknown): value is Density {
+  return value === 'comfortable' || value === 'compact';
 }
 
 export function readPreferences(): Preferences {
@@ -22,7 +44,14 @@ export function readPreferences(): Preferences {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFERENCES;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
-    return { theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFERENCES.theme };
+    return {
+      theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFERENCES.theme,
+      density: isDensity(parsed.density) ? parsed.density : DEFAULT_PREFERENCES.density,
+      settingsOpen:
+        typeof parsed.settingsOpen === 'boolean'
+          ? parsed.settingsOpen
+          : DEFAULT_PREFERENCES.settingsOpen,
+    };
   } catch {
     // A private-mode browser or a corrupt value must not stop the app rendering.
     return DEFAULT_PREFERENCES;
@@ -68,6 +97,7 @@ export function usePreferences() {
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = resolveWithSystem(preferences.theme, systemDark);
+    root.dataset.density = preferences.density;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
     } catch {

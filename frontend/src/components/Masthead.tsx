@@ -1,71 +1,99 @@
-import type { AutomationStatus } from '../types';
-import { relativeTime } from '../labels';
+import type { AutomationStatus, Stats, Theme } from '../types';
+import { formatDateTime } from '../labels';
 import { Icon } from './Icon';
 
 /**
- * One line: what this is, what the automation is doing, and the theme control.
+ * The topbar: identity, when the data last changed, and the two actions that act
+ * on the whole system.
  *
- * The predecessor spent a bordered card and five metric tiles here. Automation
- * status is a sentence because that is what it is — there is nothing to interact
- * with, and nothing a bidder needs to do about it.
+ * Both actions were impossible until D23. They required `CRON_SECRET`, which the
+ * browser is never given, so the only honest thing the old UI could do was leave
+ * them out. The secret has been replaced by server-side cost controls — one sweep
+ * at a time, and a cooldown — so these buttons now do what they say.
+ *
+ * Neither is destructive and neither needs a confirm: a sweep only adds and
+ * updates (every write is an upsert keyed on source + notice id), and a re-score
+ * recomputes a deterministic function of data already stored. The server refuses
+ * with a readable reason when either is too soon.
  */
 export function Masthead({
   automation,
+  stats,
   theme,
+  busy,
+  onFetch,
+  onRescore,
   onToggleTheme,
-  onEditSchedule,
 }: {
   automation: AutomationStatus | null;
+  stats: Stats | null;
   theme: 'light' | 'dark';
+  /** Which action is in flight, so only that button shows a pending label. */
+  busy: 'fetch' | 'rescore' | null;
+  onFetch: () => void;
+  onRescore: () => void;
   onToggleTheme: () => void;
-  /** Opens the sweep-time editor, the only control that changes anything. */
-  onEditSchedule: () => void;
+  /** The stored preference, for the toggle's label. */
+  preference?: Theme;
 }) {
-  const last = automation?.last_run ?? null;
+  const lastRun = automation?.last_run;
+  const sweeping = lastRun?.status === 'running' || busy === 'fetch';
 
   return (
-    <header className="masthead">
-      <h1>Tender Monitor</h1>
+    <header className="topbar">
+      <div className="brandline">
+        <div className="logo" aria-hidden="true">
+          TM
+        </div>
+        <div>
+          <h1>Tender Monitor</h1>
+          <p>SDS management · authoring · chemical compliance · EHS software opportunities</p>
+        </div>
+      </div>
 
-      <p className="masthead__status">
-        {automation ? (
-          <>
-            {last ? (
-              <>
-                Last swept <b>{relativeTime(last.started_at)}</b>, found{' '}
-                <b>{last.records_created.toLocaleString('en-GB')}</b> new
-                {last.sources_failed > 0 ? (
-                  <>
-                    {' '}
-                    from {last.sources_total - last.sources_failed} of {last.sources_total} sources
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <>No sweep yet</>
-            )}
-            {' · next '}
-            <button
-              type="button"
-              className="linkish"
-              title={`${automation.next_run_local_label} ${automation.timezone} — click to change the sweep times`}
-              onClick={onEditSchedule}
-            >
-              {relativeTime(automation.next_run_at)}
-            </button>
-          </>
-        ) : (
-          'Checking automation…'
-        )}
-      </p>
+      <div className="topbar__actions">
+        <div className="lastfetch">
+          {stats?.last_successful_fetch ? (
+            <>
+              Last successful fetch
+              <b>{formatDateTime(stats.last_successful_fetch)}</b>
+            </>
+          ) : (
+            <>
+              No successful fetch yet
+              <b>—</b>
+            </>
+          )}
+        </div>
 
-      <div className="masthead__actions">
+        <button
+          type="button"
+          className="btn"
+          disabled={busy !== null}
+          onClick={onRescore}
+          title="Reload the relevance profile and re-score every stored notice"
+        >
+          <Icon name="refresh" size={14} />
+          {busy === 'rescore' ? 'Re-scoring…' : 'Re-score'}
+        </button>
+
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={busy !== null || sweeping}
+          onClick={onFetch}
+          title="Query all enabled sources now"
+        >
+          <Icon name="download" size={14} />
+          {sweeping ? 'Sweeping…' : 'Fetch new tenders'}
+        </button>
+
         <button
           type="button"
           className="btn btn--icon"
           onClick={onToggleTheme}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
           aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
         >
           <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
         </button>

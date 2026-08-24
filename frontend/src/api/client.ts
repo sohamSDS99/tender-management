@@ -1,5 +1,7 @@
 import type {
   AutomationStatus,
+  FetchStartedResponse,
+  RescoreResponse,
   ScheduleResponse,
   FetchRun,
   SourceStatus,
@@ -117,4 +119,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
     }),
+  /**
+   * Start a sweep now. Callable without a secret since D23 — the guards that
+   * replaced it live on the server, so a 409 means "already running" and a 429
+   * means "too soon", both with a message written for the person who clicked.
+   */
+  fetchNow: (sources?: string[]) =>
+    request<FetchStartedResponse>('/api/fetch', {
+      method: 'POST',
+      body: JSON.stringify(sources?.length ? { sources } : {}),
+    }),
+  /** Reload the relevance config and re-score every stored notice. */
+  rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
 };
