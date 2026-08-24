@@ -4,6 +4,7 @@ import {
   deploymentLabel,
   deploymentTone,
   fitLabel,
+  countryLabel,
   fitTone,
   formatDate,
   formatValue,
@@ -53,7 +54,7 @@ function Row({
 
   const meta = [
     tender.buyer_name,
-    tender.buyer_country,
+    countryLabel(tender.buyer_country),
     tender.source,
     tender.publication_date ? `published ${formatDate(tender.publication_date)}` : null,
   ].filter(Boolean) as string[];
@@ -77,13 +78,10 @@ function Row({
       <span>
         <span className="row__title">{tender.title || 'Untitled notice'}</span>
 
-        <span className="row__meta">
-          {meta.map((part, index) => (
-            <span key={`${part}-${index}`}>
-              {index > 0 ? <span className="sep">·&nbsp;</span> : null}
-              {part}
-            </span>
-          ))}
+        {/* Our classification first: it is what the reader is judging on. Kept on
+            its own line so a badge can never orphan itself when a country name
+            makes the facts line longer. */}
+        <span className="row__badges">
           <span className={`badge badge--${TONE_CLASS[fitTone(tender.fit_status)]}`}>
             {fitLabel(tender.fit_status)}
           </span>
@@ -92,6 +90,15 @@ function Row({
           </span>
           {isNew ? <span className="badge badge--new">New</span> : null}
           {!tender.is_actionable ? <span className="badge badge--flat">Closed</span> : null}
+        </span>
+
+        <span className="row__meta">
+          {meta.map((part, index) => (
+            <span key={`${part}-${index}`}>
+              {index > 0 ? <span className="sep">·&nbsp;</span> : null}
+              {part}
+            </span>
+          ))}
         </span>
 
         {disqualifier ? (

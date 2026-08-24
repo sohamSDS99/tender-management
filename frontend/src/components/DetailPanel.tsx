@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import type { TenderDetail } from '../types';
 import {
+  countryLabel,
   deadlineUrgency,
   deploymentLabel,
   deploymentTone,
@@ -320,7 +321,7 @@ export function DetailPanel({
                 </div>
                 <div>
                   <dt>Country</dt>
-                  <dd>{tender.buyer_country ?? '—'}</dd>
+                  <dd>{countryLabel(tender.buyer_country)}</dd>
                 </div>
                 <div>
                   <dt>Published</dt>

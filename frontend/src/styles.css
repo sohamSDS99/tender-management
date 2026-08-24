@@ -716,12 +716,18 @@ a {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.row__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
 .row__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 3px 8px;
-  margin-top: 5px;
+  margin-top: 6px;
   font-size: 0.8125rem;
   color: var(--ink-3);
 }

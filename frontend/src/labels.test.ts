@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countryLabel,
   deadlineUrgency,
   deploymentLabel,
   fitLabel,
   formatValue,
+  relativeTime,
   safeHref,
   scoreTone,
 } from './labels';
@@ -96,5 +98,56 @@ describe('score and label mapping', () => {
     expect(fitLabel('high_fit')).toBe('Excellent fit');
     expect(deploymentLabel('mandatory_on_premises')).toBe('Mandatory on-premises');
     expect(fitLabel('something_new')).toBe('something_new');
+  });
+});
+
+describe('countryLabel', () => {
+  it('turns ISO alpha-3 into a readable name', () => {
+    expect(countryLabel('DEU')).toBe('Germany');
+    expect(countryLabel('NLD')).toBe('Netherlands');
+    expect(countryLabel('ROU')).toBe('Romania');
+  });
+
+  it('turns ISO alpha-2 into a readable name', () => {
+    expect(countryLabel('GB')).toBe('United Kingdom');
+    expect(countryLabel('AU')).toBe('Australia');
+  });
+
+  it('passes a name through untouched', () => {
+    expect(countryLabel('Indonesia')).toBe('Indonesia');
+    expect(countryLabel('Eastern and Southern Africa')).toBe('Eastern and Southern Africa');
+  });
+
+  it('never guesses at something it does not recognise', () => {
+    expect(countryLabel('ZZZ')).toBe('ZZZ');
+    expect(countryLabel('')).toBe('—');
+    expect(countryLabel(null)).toBe('—');
+  });
+
+  it('is case-insensitive on codes', () => {
+    expect(countryLabel('deu')).toBe('Germany');
+  });
+});
+
+describe('relativeTime', () => {
+  const now = new Date('2026-08-21T12:00:00Z');
+
+  it('describes the recent past the way a person would', () => {
+    expect(relativeTime('2026-08-21T11:00:00Z', now)).toBe('1 hour ago');
+    expect(relativeTime('2026-08-21T09:00:00Z', now)).toBe('3 hours ago');
+    expect(relativeTime('2026-08-20T12:00:00Z', now)).toBe('yesterday');
+  });
+
+  it('describes the near future', () => {
+    expect(relativeTime('2026-08-21T18:00:00Z', now)).toBe('in 6 hours');
+  });
+
+  it('collapses anything within the last minute', () => {
+    expect(relativeTime('2026-08-21T11:59:50Z', now)).toBe('just now');
+  });
+
+  it('says never rather than inventing a date', () => {
+    expect(relativeTime(null, now)).toBe('never');
+    expect(relativeTime('not a date', now)).toBe('never');
   });
 });

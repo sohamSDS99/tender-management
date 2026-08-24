@@ -1,5 +1,5 @@
 import type { AutomationStatus } from '../types';
-import { formatDateTime } from '../labels';
+import { relativeTime } from '../labels';
 import { Icon } from './Icon';
 
 /**
@@ -27,22 +27,24 @@ export function Masthead({
       <p className="masthead__status">
         {automation ? (
           <>
-            Next sweep <b>{automation.next_run_local_label}</b> Dhaka
             {last ? (
               <>
-                {' · '}last found <b>{last.records_created.toLocaleString('en-GB')}</b> new
+                Last swept <b>{relativeTime(last.started_at)}</b>, found{' '}
+                <b>{last.records_created.toLocaleString('en-GB')}</b> new
                 {last.sources_failed > 0 ? (
                   <>
                     {' '}
                     from {last.sources_total - last.sources_failed} of {last.sources_total} sources
                   </>
                 ) : null}
-                {' · '}
-                {formatDateTime(last.started_at)}
               </>
             ) : (
-              ' · no sweep yet'
+              <>No sweep yet</>
             )}
+            {' · next '}
+            <b title={`${automation.next_run_local_label} Dhaka`}>
+              {relativeTime(automation.next_run_at)}
+            </b>
           </>
         ) : (
           'Checking automation…'

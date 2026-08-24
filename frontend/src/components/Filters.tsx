@@ -7,7 +7,7 @@ import type {
   TenderFilters,
 } from '../types';
 import { DEFAULT_FILTERS, DEPLOYMENT_FITS, FIT_STATUSES } from '../state/urlFilters';
-import { deploymentLabel, fitLabel } from '../labels';
+import { countryLabel, deploymentLabel, fitLabel } from '../labels';
 
 /**
  * Filters, inline and collapsed by default.
@@ -183,7 +183,7 @@ export function Filters({
                     checked={filters.countries.includes(country)}
                     onChange={() => onChange({ countries: toggle(filters.countries, country) })}
                   />
-                  {country}
+                  {countryLabel(country)}
                 </label>
               ))}
             </div>

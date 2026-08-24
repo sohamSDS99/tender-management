@@ -181,3 +181,137 @@ export function linkLabel(url: string): string {
     return url;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Country names
+ *
+ * The eight feeds disagree about how to write a country: TED sends ISO alpha-3
+ * ("DEU"), the OCDS feeds send alpha-2 ("GB"), and the World Bank sends the name
+ * outright ("Indonesia"). Left alone, the filter list reads
+ * "AU · Bangladesh · DEU · Eastern and Southern Africa", which is noise to
+ * someone who just wants to tick "Germany".
+ *
+ * Intl.DisplayNames does the alpha-2 case for free and needs no dependency, but
+ * it does not accept alpha-3 - hence the map, which covers the codes the feeds
+ * actually emit (TED is EU-wide, plus the non-EU countries seen in the data).
+ * Anything unrecognised is passed through untouched rather than guessed at.
+ * --------------------------------------------------------------------------- */
+const ALPHA3_TO_ALPHA2: Record<string, string> = {
+  AUS: 'AU',
+  AUT: 'AT',
+  BEL: 'BE',
+  BGR: 'BG',
+  BRA: 'BR',
+  CAN: 'CA',
+  CHE: 'CH',
+  CYP: 'CY',
+  CZE: 'CZ',
+  DEU: 'DE',
+  DNK: 'DK',
+  ESP: 'ES',
+  EST: 'EE',
+  FIN: 'FI',
+  FRA: 'FR',
+  GBR: 'GB',
+  GRC: 'GR',
+  HRV: 'HR',
+  HUN: 'HU',
+  IRL: 'IE',
+  ISL: 'IS',
+  ITA: 'IT',
+  LIE: 'LI',
+  LTU: 'LT',
+  LUX: 'LU',
+  LVA: 'LV',
+  MLT: 'MT',
+  NLD: 'NL',
+  NOR: 'NO',
+  POL: 'PL',
+  PRT: 'PT',
+  ROU: 'RO',
+  SVK: 'SK',
+  SVN: 'SI',
+  SWE: 'SE',
+  TUR: 'TR',
+  USA: 'US',
+};
+
+let regionNames: Intl.DisplayNames | null | undefined;
+
+function regions(): Intl.DisplayNames | null {
+  if (regionNames === undefined) {
+    try {
+      regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+    } catch {
+      regionNames = null;
+    }
+  }
+  return regionNames;
+}
+
+/** "DEU" and "DE" both become "Germany"; "Indonesia" stays as it is. */
+export function countryLabel(value: string | null | undefined): string {
+  if (!value) return '—';
+  const raw = value.trim();
+  if (raw.length > 3) return raw;
+
+  const code = raw.toUpperCase();
+  const alpha2 = code.length === 3 ? ALPHA3_TO_ALPHA2[code] : code;
+  if (!alpha2 || alpha2.length !== 2) return raw;
+  try {
+    return regions()?.of(alpha2) ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Relative time
+ *
+ * "3 hours ago" is instantly parseable; "21 Aug 2026, 16:59" makes the reader do
+ * arithmetic. Used for the sweep status, where the question is always "is this
+ * fresh?" rather than "what was the timestamp?".
+ * --------------------------------------------------------------------------- */
+export function relativeTime(value: string | null | undefined, now: Date = new Date()): string {
+  if (!value) return 'never';
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return 'never';
+
+  const seconds = Math.round((at.getTime() - now.getTime()) / 1000);
+  const past = seconds < 0;
+  const abs = Math.abs(seconds);
+
+  const steps: [number, Intl.RelativeTimeFormatUnit][] = [
+    [60, 'second'],
+    [3600, 'minute'],
+    [86_400, 'hour'],
+    [604_800, 'day'],
+  ];
+  if (abs < 45) return past ? 'just now' : 'in a moment';
+
+  let unit: Intl.RelativeTimeFormatUnit = 'day';
+  let amount = Math.round(abs / 86_400);
+  for (const [limit, candidate] of steps) {
+    if (abs < limit) {
+      unit = candidate;
+      const divisor =
+        candidate === 'second'
+          ? 1
+          : candidate === 'minute'
+            ? 60
+            : candidate === 'hour'
+              ? 3600
+              : 86_400;
+      amount = Math.round(abs / divisor);
+      break;
+    }
+  }
+  try {
+    return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+      past ? -amount : amount,
+      unit,
+    );
+  } catch {
+    return past ? `${amount} ${unit}s ago` : `in ${amount} ${unit}s`;
+  }
+}
