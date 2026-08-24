@@ -41,8 +41,11 @@ export function Notice({ automation }: { automation: AutomationStatus | null }) 
     return (
       <p className="notice" role="status">
         <Icon name="warn" size={14} />
-        Slack alerts are off — set <code>SLACK_WEBHOOK_URL</code> to be told about new tenders
-        scoring {slack.min_score ?? 70} or more.
+        {/* min_score is null until Slack is configured; printing a literal 70
+            stated a threshold the system had explicitly said it did not know. */}
+        Slack alerts are off
+        {slack.min_score !== null ? <> for tenders scoring {slack.min_score} or more</> : null}, so
+        new high-scoring notices appear here only.
       </p>
     );
   }

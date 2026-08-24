@@ -13,10 +13,13 @@ export function Masthead({
   automation,
   theme,
   onToggleTheme,
+  onEditSchedule,
 }: {
   automation: AutomationStatus | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  /** Opens the sweep-time editor, the only control that changes anything. */
+  onEditSchedule: () => void;
 }) {
   const last = automation?.last_run ?? null;
 
@@ -42,9 +45,14 @@ export function Masthead({
               <>No sweep yet</>
             )}
             {' · next '}
-            <b title={`${automation.next_run_local_label} Dhaka`}>
+            <button
+              type="button"
+              className="linkish"
+              title={`${automation.next_run_local_label} ${automation.timezone} — click to change the sweep times`}
+              onClick={onEditSchedule}
+            >
               {relativeTime(automation.next_run_at)}
-            </b>
+            </button>
           </>
         ) : (
           'Checking automation…'

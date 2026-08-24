@@ -34,6 +34,15 @@ export function Filters({
   onReset: () => void;
   onClose: () => void;
 }) {
+  /**
+   * Counts are shown only where "how many are stored" is the honest reading.
+   *
+   * The Fit / Hosting / Capability numbers came from unfiltered /api/stats, so
+   * inside a narrowed view they promised results that were not there: on the
+   * default view, clicking "Not fit 274" gave 0 tenders. Those numbers are gone.
+   * The Source counts stay, because the source list is explicitly a stored-total
+   * breakdown — the same figures the summary at the top of the page shows.
+   */
   const count = (buckets: CountBucket[] | undefined, key: string): number | null => {
     if (!buckets) return null;
     return buckets.find((b) => b.key === key)?.count ?? 0;
@@ -94,9 +103,6 @@ export function Filters({
               }
             >
               {fitLabel(value)}
-              {count(stats?.by_fit_status, value) !== null ? (
-                <span className="chip__n">{count(stats?.by_fit_status, value)}</span>
-              ) : null}
             </button>
           ))}
         </div>
@@ -116,9 +122,6 @@ export function Filters({
               }
             >
               {deploymentLabel(value)}
-              {count(stats?.by_deployment, value) !== null ? (
-                <span className="chip__n">{count(stats?.by_deployment, value)}</span>
-              ) : null}
             </button>
           ))}
         </div>
@@ -137,9 +140,6 @@ export function Filters({
                 onClick={() => onChange({ categories: toggle(filters.categories, bucket.key) })}
               >
                 {bucket.label ?? bucket.key.replace(/_/g, ' ')}
-                {count(stats?.by_category, bucket.key) !== null ? (
-                  <span className="chip__n">{count(stats?.by_category, bucket.key)}</span>
-                ) : null}
               </button>
             ))}
           </div>
@@ -151,19 +151,22 @@ export function Filters({
         <div className="fgroup__scroll">
           <div className="checks">
             {sources.map((source) => {
-              const off = Boolean(source.unavailable_reason);
+              const stored = count(stats?.by_source, source.name) ?? 0;
+              // Disabled on "has nothing to show", not on "cannot fetch": SAM.gov
+              // has no API key configured but does have a stored notice, and
+              // greying it out made that notice unreachable through the filter.
+              const off = stored === 0;
               return (
                 <label className={`check${off ? ' is-off' : ''}`} key={source.name}>
                   <input
                     type="checkbox"
                     disabled={off}
+                    title={source.unavailable_reason ?? undefined}
                     checked={filters.sources.includes(source.name)}
                     onChange={() => onChange({ sources: toggle(filters.sources, source.name) })}
                   />
                   {source.display_name}
-                  <span className="check__n">
-                    {(count(stats?.by_source, source.name) ?? 0).toLocaleString('en-GB')}
-                  </span>
+                  <span className="check__n">{stored.toLocaleString('en-GB')}</span>
                 </label>
               );
             })}

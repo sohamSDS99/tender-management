@@ -39,25 +39,29 @@ export function resolveTheme(theme: Theme): 'light' | 'dark' {
 
 export function usePreferences() {
   const [preferences, setPreferences] = useState<Preferences>(readPreferences);
+  // Held in state, not just written to the DOM: the toggle's icon and label are
+  // derived from it, so an OS theme change has to cause a re-render or the
+  // button ends up promising the opposite of what it does.
+  const [systemDark, setSystemDark] = useState(prefersDark);
 
   useEffect(() => {
     const root = document.documentElement;
-    root.dataset.theme = resolveTheme(preferences.theme);
+    root.dataset.theme =
+      preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : preferences.theme;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
     } catch {
       /* storage unavailable: the attributes above still applied */
     }
-  }, [preferences]);
+  }, [preferences, systemDark]);
 
   // Keep following the OS while the reader has chosen 'system'.
   useEffect(() => {
     if (preferences.theme !== 'system') return;
     const query = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!query) return;
-    const apply = () => {
-      document.documentElement.dataset.theme = prefersDark() ? 'dark' : 'light';
-    };
+    const apply = () => setSystemDark(prefersDark());
+    apply();
     query.addEventListener('change', apply);
     return () => query.removeEventListener('change', apply);
   }, [preferences.theme]);
@@ -69,9 +73,16 @@ export function usePreferences() {
   const toggleTheme = useCallback(() => {
     setPreferences((prev) => ({
       ...prev,
-      theme: resolveTheme(prev.theme) === 'dark' ? 'light' : 'dark',
+      theme:
+        (prev.theme === 'system' ? (prefersDark() ? 'dark' : 'light') : prev.theme) === 'dark'
+          ? 'light'
+          : 'dark',
     }));
   }, []);
 
-  return { preferences, update, toggleTheme };
+  // The theme actually in force, which 'system' alone cannot tell the caller.
+  const resolved: 'light' | 'dark' =
+    preferences.theme === 'system' ? (systemDark ? 'dark' : 'light') : preferences.theme;
+
+  return { preferences, resolved, update, toggleTheme };
 }

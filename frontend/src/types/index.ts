@@ -160,6 +160,9 @@ export interface LastRun {
 export interface AutomationStatus {
   timezone: string;
   run_hours_local: number[];
+  run_hours_are_custom: boolean;
+  run_hours_min: number;
+  run_hours_max: number;
   cron_utc: string[];
   observes_dst: boolean;
   next_run_at: string;
@@ -201,4 +204,13 @@ export type Theme = 'light' | 'dark' | 'system';
 
 export interface Preferences {
   theme: Theme;
+}
+
+export interface ScheduleResponse {
+  hours_local: number[];
+  timezone: string;
+  cron_utc: string[];
+  next_run_local_label: string;
+  applied_to_running_scheduler: boolean;
+  detail: string;
 }

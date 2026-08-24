@@ -11,13 +11,20 @@ import type {
 import {
   DEFAULT_FILTERS,
   activeChips,
+  activeFilterCount,
   correctedPage,
   filtersFromSearch,
   searchFromFilters,
 } from '../state/urlFilters';
 import { OWNED, VIEWS, activeView, type ViewContext, type ViewKey } from '../state/views';
-import { resolveTheme, usePreferences } from '../state/preferences';
-import { deploymentLabel, fitLabel } from '../labels';
+import { usePreferences } from '../state/preferences';
+import {
+  FALLBACK_BANDS,
+  countryLabel,
+  deploymentLabel,
+  fitLabel,
+  makeSourceLabel,
+} from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
 import { Filters } from '../components/Filters';
 import { Masthead } from '../components/Masthead';
@@ -28,6 +35,8 @@ import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
 import { Views } from '../components/Views';
 import { Icon } from '../components/Icon';
+import { ScheduleEditor } from '../components/ScheduleEditor';
+import { SourceSummary } from '../components/SourceSummary';
 
 /**
  * The whole filter set lives in the URL, so any view is shareable and survives a
@@ -52,9 +61,11 @@ export function Dashboard() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [systemOpen, setSystemOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const { preferences, toggleTheme } = usePreferences();
+  const { resolved: theme, toggleTheme } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
@@ -90,6 +101,7 @@ export function Dashboard() {
       if (id !== requestId.current) return;
       setPage(result);
       setError(null);
+      setUnreachable(false);
       // A shared or stale link can name a page past the end of the result set —
       // which showed zero rows under a count that said there were six, with no
       // pager to escape by. Correct the URL instead of stranding the reader.
@@ -100,6 +112,10 @@ export function Dashboard() {
     } catch (err) {
       if (id !== requestId.current) return;
       setError(err instanceof ApiError ? err.message : String(err));
+      // Only status 0 means the API could not be reached; anything else is a
+      // rejected request or a fault in this app, and blaming the backend for it
+      // sends the reader after the wrong problem.
+      setUnreachable(err instanceof ApiError && err.status === 0);
     } finally {
       if (id === requestId.current) setLoading(false);
     }
@@ -136,9 +152,25 @@ export function Dashboard() {
   const viewContext: ViewContext = useMemo(
     () => ({
       lastRunAt: automation?.last_run?.started_at ?? null,
-      goodFitBand: stats?.score_bands?.good_fit ?? 70,
+      goodFitBand: stats?.score_bands?.good_fit ?? FALLBACK_BANDS.good_fit,
+      possibleFitBand: stats?.score_bands?.possible_fit ?? FALLBACK_BANDS.possible_fit,
     }),
     [automation, stats],
+  );
+
+  // The engine's own bands, so the score colour and the fit badge never disagree.
+  const bands = useMemo(
+    () => ({
+      good_fit: stats?.score_bands?.good_fit ?? FALLBACK_BANDS.good_fit,
+      possible_fit: stats?.score_bands?.possible_fit ?? FALLBACK_BANDS.possible_fit,
+    }),
+    [stats],
+  );
+
+  // Machine keys like "world_bank" have no business on screen.
+  const sourceLabel = useMemo(
+    () => makeSourceLabel(Object.fromEntries(sources.map((s) => [s.name, s.display_name]))),
+    [sources],
   );
 
   const selectView = useCallback(
@@ -155,11 +187,12 @@ export function Dashboard() {
       activeChips(filters, {
         fit: fitLabel,
         deployment: deploymentLabel,
-        source: (name) => sources.find((s) => s.name === name)?.display_name ?? name,
+        source: sourceLabel,
         category: (key) =>
           stats?.categories.find((c) => c.key === key)?.label ?? key.replace(/_/g, ' '),
+        country: countryLabel,
       }),
-    [filters, sources, stats],
+    [filters, sourceLabel, stats],
   );
 
   // --- detail navigation --------------------------------------------------
@@ -179,7 +212,6 @@ export function Dashboard() {
     [items, selectedIndex],
   );
 
-  const theme = resolveTheme(preferences.theme);
   // While a view tab is lit it already says what is being filtered, so neither
   // the chip row nor the Filters badge should repeat it. What they must still
   // show is anything the user narrowed *beyond* the view — a source, a country —
@@ -193,9 +225,33 @@ export function Dashboard() {
   return (
     <>
       <div className="page">
-        <Masthead automation={automation} theme={theme} onToggleTheme={toggleTheme} />
+        <Masthead
+          automation={automation}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onEditSchedule={() => {
+            setSystemOpen(true);
+            // After the disclosure has actually opened, not before.
+            window.requestAnimationFrame(() =>
+              document.getElementById('system-details')?.scrollIntoView({ block: 'center' }),
+            );
+          }}
+        />
 
-        <Views filters={filters} stats={stats} context={viewContext} onSelect={selectView} />
+        <SourceSummary
+          sources={sources}
+          filters={filters}
+          loading={loading && sources.length === 0}
+          onToggleSource={(name) =>
+            onChange({
+              sources: filters.sources.includes(name)
+                ? filters.sources.filter((s) => s !== name)
+                : [...filters.sources, name],
+            })
+          }
+        />
+
+        <Views filters={filters} context={viewContext} onSelect={selectView} />
 
         <Toolbar
           filters={filters}
@@ -248,14 +304,19 @@ export function Dashboard() {
             tenders={items}
             loading={loading}
             error={error}
+            unreachable={unreachable}
             selectedId={selectedId}
             newSince={viewContext.lastRunAt}
-            filterCount={extraChips.length}
+            filterCount={activeFilterCount(filters)}
             total={page?.total ?? 0}
+            storedTotal={stats?.total_tenders ?? 0}
+            bands={bands}
+            sourceLabel={sourceLabel}
             onSelect={setSelectedId}
             onRetry={() => setReloadToken((v) => v + 1)}
             onClearFilters={clearAll}
             onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
+            onShowAll={() => selectView('all')}
           />
 
           {page && !error ? (
@@ -263,7 +324,14 @@ export function Dashboard() {
           ) : null}
         </main>
 
-        <SystemSection automation={automation} sources={sources} runs={runs} />
+        <SystemSection
+          open={systemOpen}
+          onToggle={setSystemOpen}
+          automation={automation}
+          sources={sources}
+          runs={runs}
+          schedule={<ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />}
+        />
       </div>
 
       <div
@@ -272,6 +340,8 @@ export function Dashboard() {
       />
 
       <DetailPanel
+        bands={bands}
+        sourceLabel={sourceLabel}
         tenderId={selectedId}
         position={position}
         onClose={() => setSelectedId(null)}

@@ -207,6 +207,9 @@ class AutomationStatus(UtcModel):
 
     timezone: str
     run_hours_local: list[int]
+    run_hours_are_custom: bool
+    run_hours_min: int
+    run_hours_max: int
     cron_utc: list[str]
     observes_dst: bool
     next_run_at: datetime
@@ -216,3 +219,21 @@ class AutomationStatus(UtcModel):
     scheduler_jobs: list[ScheduledJob] = Field(default_factory=list)
     last_run: LastRun | None
     slack: SlackState
+
+
+class ScheduleUpdate(BaseModel):
+    """A new sweep schedule, as local hours in the configured timezone."""
+
+    hours_local: list[int] = Field(
+        description="Local hours of day, 0-23. e.g. [0, 12] for midnight and midday.",
+        examples=[[0, 12]],
+    )
+
+
+class ScheduleResponse(BaseModel):
+    hours_local: list[int]
+    timezone: str
+    cron_utc: list[str]
+    next_run_local_label: str
+    applied_to_running_scheduler: bool
+    detail: str

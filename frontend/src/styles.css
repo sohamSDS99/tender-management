@@ -19,9 +19,9 @@
 
   --ink: #17191d;
   --ink-2: #4c5259;
-  /* 4.77:1 on --paper. #7b8189 looked right but measured 3.80:1, which fails
-     the 4.5 floor for the meta text, result count and placeholders. */
-  --ink-3: #6b7178;
+  /* Clears 4.5:1 on all three grounds it actually sits on: 5.06 on --paper,
+     4.76 on --paper-2, 4.56 on --accent-soft (a selected row). */
+  --ink-3: #676d74;
 
   --accent: #3d4f9b;
   --accent-hover: #33427f;
@@ -42,6 +42,7 @@
   --radius: 6px;
   --radius-lg: 10px;
 
+  --scrim: rgba(20, 22, 26, 0.32);
   --shadow-panel: -8px 0 32px -12px rgba(20, 22, 26, 0.18);
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -74,6 +75,8 @@
   --bad-ink: #eb9491;
   --bad-tint: #2e1817;
 
+  /* The dark page IS rgb(20,22,26), so the light scrim dimmed it by nothing. */
+  --scrim: rgba(0, 0, 0, 0.6);
   --shadow-panel: -8px 0 32px -12px rgba(0, 0, 0, 0.6);
 }
 
@@ -245,6 +248,20 @@ a {
 }
 .view.is-on {
   color: var(--ink);
+}
+.view:disabled {
+  color: var(--ink-3);
+  opacity: 0.5;
+  cursor: default;
+}
+.view:disabled:hover {
+  color: var(--ink-3);
+}
+.view__note {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  font-style: normal;
 }
 .view.is-on::after {
   content: '';
@@ -468,8 +485,19 @@ a {
   margin-bottom: 9px;
 }
 .fgroup__scroll {
-  max-height: 168px;
+  /* Tall enough for the eight sources without scrolling; the country list still
+     clamps, so its scrollbar has to be visible rather than implied. */
+  max-height: 300px;
   overflow-y: auto;
+  scrollbar-width: thin;
+}
+.fgroup__scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.fgroup__scroll::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 2px solid var(--paper);
+  border-radius: 4px;
 }
 .chips {
   display: flex;
@@ -500,10 +528,14 @@ a {
   color: var(--accent-ink);
 }
 .chip__n {
+  /* Never carry text colour with opacity: at 0.65 this measured 3.22:1. */
   margin-left: 5px;
-  opacity: 0.65;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.chip.is-on .chip__n {
+  color: var(--accent-ink);
 }
 .checks {
   display: grid;
@@ -669,7 +701,9 @@ a {
 }
 .score__n {
   display: block;
-  font-size: 1.0625rem;
+  /* Below the title on purpose: exactly one element per row may be loud, and it
+     is the title. */
+  font-size: 0.875rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -708,7 +742,7 @@ a {
 }
 
 .row__title {
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.008em;
   display: -webkit-box;
@@ -728,6 +762,7 @@ a {
   align-items: center;
   gap: 3px 8px;
   margin-top: 6px;
+  font-variant-numeric: tabular-nums;
   font-size: 0.8125rem;
   color: var(--ink-3);
 }
@@ -773,6 +808,7 @@ a {
 .row__left {
   display: block;
   margin-top: 1px;
+  font-variant-numeric: tabular-nums;
 }
 .row__left--soon {
   color: var(--warn-ink);
@@ -1034,7 +1070,7 @@ a {
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 26, 0.32);
+  background: var(--scrim);
   z-index: 30;
   opacity: 0;
   pointer-events: none;
@@ -1359,4 +1395,175 @@ a {
   .panel {
     transition: none;
   }
+}
+
+/* ============================================================
+   SOURCE SUMMARY  —  where the tenders come from, and how many
+   Stored totals across everything ever ingested, which is a different
+   question from the filtered list below; the label says so. Clicking one
+   filters to it, so the number acts on the thing it describes.
+   ============================================================ */
+.srcbar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 0 0 18px;
+}
+.srcbar__label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink-3);
+  margin: 0;
+  flex: none;
+}
+.srcbar__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.srcpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-2);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.srcpill:hover {
+  border-color: var(--rule-strong);
+  color: var(--ink);
+  background: var(--paper-2);
+}
+.srcpill.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.srcpill b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.srcpill.is-on b {
+  color: var(--accent-ink);
+}
+.srcpill .pip {
+  width: 6px;
+  height: 6px;
+}
+.srcpill.is-on .pip {
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.6);
+}
+
+/* ============================================================
+   SCHEDULE EDITOR  —  the one control that changes anything
+   ============================================================ */
+.schedule {
+  padding-bottom: 8px;
+}
+.schedule > h3 {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.schedule__hint {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+  max-width: 60ch;
+}
+.schedule__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 4px;
+  max-width: 560px;
+}
+.hour {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-2);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 0;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.hour:hover {
+  border-color: var(--rule-strong);
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.hour.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.schedule__utc {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  margin: 12px 0 0;
+  max-width: 70ch;
+}
+.schedule__msg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8125rem;
+  margin: 10px 0 0;
+}
+.schedule__msg--ok {
+  color: var(--good-ink);
+}
+.schedule__msg--bad {
+  color: var(--bad-ink);
+}
+.schedule__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.schedule__note {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+@media (max-width: 860px) {
+  .schedule__grid {
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  }
+}
+
+/* A button that reads as part of the sentence it sits in. */
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+.linkish:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
 }

@@ -19,10 +19,11 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.db import SessionLocal
 from app.jobs.schedule import next_run_local
-from app.jobs.scheduled_fetch import run_once
 from app.logging_config import log_ctx
-from app.settings import Settings
+from app.services.schedule_settings import default_hours, get_run_hours
+from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,31 +36,11 @@ def job_id(hour_local: int) -> str:
     return f"{JOB_PREFIX}-{hour_local:02d}"
 
 
-async def _job() -> None:
-    """One complete run. Records trigger='cron' on every FetchRun row it creates."""
-    report = await run_once(trigger=TRIGGER_NAME)
-    log_ctx(
-        logger,
-        logging.INFO if report.exit_code == 0 else logging.ERROR,
-        "scheduled fetch finished",
-        batch=report.batch_id,
-        created=report.created,
-        slack=report.notification.get("status"),
-        exit=report.exit_code,
-    )
-
-
-def start_scheduler(settings: Settings) -> AsyncIOScheduler | None:
-    """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding."""
-    global _scheduler
-    if not settings.enable_scheduler:
-        log_ctx(logger, logging.INFO, "scheduler disabled", reason="ENABLE_SCHEDULER=false")
-        return None
-    if _scheduler is not None:
-        return _scheduler
-
-    hours = settings.scheduler_hour_list or [0, 12]
-    scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+def _install_jobs(scheduler: AsyncIOScheduler, hours: list[int], settings: Settings) -> None:
+    """Replace the scheduler's jobs with exactly one per given local hour."""
+    for job in scheduler.get_jobs():
+        if job.id.startswith(JOB_PREFIX):
+            job.remove()
     for hour in hours:
         scheduler.add_job(
             _job,
@@ -73,6 +54,60 @@ def start_scheduler(settings: Settings) -> AsyncIOScheduler | None:
             # strictly better than skipping.
             misfire_grace_time=3600,
         )
+
+
+async def _job() -> None:
+    """One complete run. Records trigger='cron' on every FetchRun row it creates."""
+    # Imported here, not at module scope: app.jobs.scheduled_fetch imports
+    # app.services.automation, which imports this module for scheduler_state().
+    # At module scope that closes a cycle whose resolution depends on which file
+    # a test happens to import first. The job only needs it when it fires.
+    from app.jobs.scheduled_fetch import run_once
+
+    report = await run_once(trigger=TRIGGER_NAME)
+    log_ctx(
+        logger,
+        logging.INFO if report.exit_code == 0 else logging.ERROR,
+        "scheduled fetch finished",
+        batch=report.batch_id,
+        created=report.created,
+        slack=report.notification.get("status"),
+        exit=report.exit_code,
+    )
+
+
+def start_scheduler(settings: Settings, hours: list[int] | None = None) -> AsyncIOScheduler | None:
+    """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding."""
+    global _scheduler
+    if not settings.enable_scheduler:
+        log_ctx(logger, logging.INFO, "scheduler disabled", reason="ENABLE_SCHEDULER=false")
+        return None
+    if _scheduler is not None:
+        return _scheduler
+
+    # The stored schedule wins over the environment default, so a change an
+    # operator made from the dashboard survives a restart. A database that cannot
+    # be read must not stop the scheduler starting - falling back to the
+    # environment default keeps sweeps happening, which is the safer failure.
+    if hours is None:
+        db = SessionLocal()
+        try:
+            hours = get_run_hours(db, settings)
+        except Exception as exc:
+            # log_ctx forwards kwargs as structured context, not to the logger, so
+            # the exception type goes in explicitly rather than via exc_info.
+            log_ctx(
+                logger,
+                logging.WARNING,
+                "could not read the stored schedule, using the environment default",
+                error=type(exc).__name__,
+            )
+            hours = default_hours(settings)
+        finally:
+            db.close()
+
+    scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+    _install_jobs(scheduler, hours, settings)
     scheduler.start()
     _scheduler = scheduler
     log_ctx(
@@ -84,6 +119,28 @@ def start_scheduler(settings: Settings) -> AsyncIOScheduler | None:
         next_run=next_run_local(None, tuple(hours), settings.scheduler_timezone).isoformat(),
     )
     return scheduler
+
+
+def reschedule(hours: list[int], settings: Settings | None = None) -> bool:
+    """Apply a new schedule to the running scheduler, without a restart.
+
+    Returns False when no scheduler is running in this process - which is not an
+    error: the operator's change is still persisted, and whichever process owns
+    the schedule picks it up when it next starts.
+    """
+    settings = settings or get_settings()
+    if _scheduler is None:
+        log_ctx(logger, logging.INFO, "schedule stored but no scheduler runs here", hours=hours)
+        return False
+    _install_jobs(_scheduler, hours, settings)
+    log_ctx(
+        logger,
+        logging.INFO,
+        "scheduler rescheduled",
+        hours=",".join(str(h) for h in hours),
+        next_run=next_run_local(None, tuple(hours), settings.scheduler_timezone).isoformat(),
+    )
+    return True
 
 
 def scheduler_state() -> dict[str, object]:

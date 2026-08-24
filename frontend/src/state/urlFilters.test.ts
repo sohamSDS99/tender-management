@@ -24,6 +24,7 @@ const LABELS = {
   deployment: (v: string) => v,
   source: (v: string) => v,
   category: (v: string) => v,
+  country: (v: string) => v,
 };
 
 describe('the contract with the Slack digest', () => {

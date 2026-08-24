@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import type { TenderDetail } from '../types';
+import type { ScoreBands } from '../labels';
 import {
   countryLabel,
   deadlineUrgency,
@@ -36,6 +37,8 @@ const WEIGHTS = [
 const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
 
 export function DetailPanel({
+  bands,
+  sourceLabel,
   tenderId,
   position,
   onClose,
@@ -44,6 +47,8 @@ export function DetailPanel({
   hasPrev,
   hasNext,
 }: {
+  bands: ScoreBands;
+  sourceLabel: (key: string) => string;
   tenderId: number | null;
   position: { index: number; total: number } | null;
   onClose: () => void;
@@ -82,7 +87,14 @@ export function DetailPanel({
     window.setTimeout(() => setCopied(null), 1600);
   }, []);
 
-  // Keyboard: Escape closes, Tab is trapped, j/k walk the list.
+  // Split deliberately into two effects.
+  //
+  // Opener capture, initial focus, the scroll lock and focus restoration depend
+  // only on whether the panel is open. Keyed on the callbacks too — which
+  // Dashboard recreates as inline arrows on every render — this effect tore down
+  // and re-ran constantly: focus was yanked back to the first control while the
+  // reader was tabbing, and `opener` was overwritten with something inside the
+  // panel, so closing restored focus to a node that no longer existed.
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
@@ -90,10 +102,30 @@ export function DetailPanel({
     panel?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      opener?.focus?.();
+    };
+  }, [open]);
 
+  // The handler reads its callbacks through a ref, so it is installed once per
+  // open and still always calls the current ones.
+  const handlers = useRef({ onClose, onNext, onPrev, hasNext, hasPrev });
+  handlers.current = { onClose, onNext, onPrev, hasNext, hasPrev };
+
+  useEffect(() => {
+    if (!open) return;
+    const panel = document.getElementById('detail-panel');
     const handle = (event: KeyboardEvent) => {
+      const {
+        onClose: close,
+        onNext: next,
+        onPrev: prev,
+        hasNext: canNext,
+        hasPrev: canPrev,
+      } = handlers.current;
       if (event.key === 'Escape') {
-        onClose();
+        close();
         return;
       }
       const target = event.target as HTMLElement | null;
@@ -115,21 +147,17 @@ export function DetailPanel({
         return;
       }
       if (typing) return;
-      if (event.key === 'j' && hasNext) {
+      if (event.key === 'j' && canNext) {
         event.preventDefault();
-        onNext();
-      } else if (event.key === 'k' && hasPrev) {
+        next();
+      } else if (event.key === 'k' && canPrev) {
         event.preventDefault();
-        onPrev();
+        prev();
       }
     };
     document.addEventListener('keydown', handle);
-    return () => {
-      document.removeEventListener('keydown', handle);
-      document.body.style.overflow = previousOverflow;
-      opener?.focus?.();
-    };
-  }, [open, onClose, onNext, onPrev, hasNext, hasPrev]);
+    return () => document.removeEventListener('keydown', handle);
+  }, [open]);
 
   const sub = tender
     ? {
@@ -138,9 +166,19 @@ export function DetailPanel({
         intent: tender.procurement_intent_score,
       }
     : { topic: 0, product: 0, intent: 0 };
+  // The weighted sum is reproducible here; the final score is not. The engine
+  // applies caps and non-actionable multipliers and *then* rounds with Python's
+  // round(), which is half-to-even where JS Math.round is half-up. Inferring a
+  // cap from the difference invented one on every notice whose weighted score
+  // landed on .5 — 64 of 283 stored notices claimed a cap that did not exist.
+  // The claim is now made only where there is evidence for it.
   const weighted = 0.55 * sub.topic + 0.3 * sub.product + 0.15 * sub.intent;
-  const rounded = Math.round(weighted);
-  const capped = tender ? rounded !== tender.relevance_score : false;
+  const cappedByDisqualifier = Boolean(tender && tender.disqualifiers.length > 0);
+  const scaledByStatus = Boolean(tender && !tender.is_actionable);
+  const reduced = cappedByDisqualifier || scaledByStatus;
+  // Within half a point is rounding, not a cap. Beyond that with no disqualifier
+  // and no status reason, say nothing rather than guess.
+  const unexplainedGap = tender ? Math.abs(weighted - tender.relevance_score) > 0.5 : false;
   const noticeHref = safeHref(tender?.source_url);
   const urgency = tender ? deadlineUrgency(tender.deadline) : null;
 
@@ -157,7 +195,7 @@ export function DetailPanel({
       <header className="panel__head">
         {tender ? (
           <span
-            className={`score score--${TONE_CLASS[scoreTone(tender.relevance_score)]}`}
+            className={`score score--${TONE_CLASS[scoreTone(tender.relevance_score, bands)]}`}
             style={{ flex: 'none', width: 40 }}
           >
             <span className="score__n">{tender.relevance_score}</span>
@@ -170,7 +208,7 @@ export function DetailPanel({
           <h2>{tender?.title ?? (error ? 'Could not load this tender' : 'Loading…')}</h2>
           {tender ? (
             <p>
-              {tender.buyer_name ?? 'Buyer not published'} · {tender.source} ·{' '}
+              {tender.buyer_name ?? 'Buyer not published'} · {sourceLabel(tender.source)} ·{' '}
               <span className="mono">{tender.reference_number ?? tender.source_notice_id}</span>
             </p>
           ) : null}
@@ -232,13 +270,18 @@ export function DetailPanel({
               <p className="formula">
                 <b>0.55</b> × topic <b>{sub.topic}</b> &nbsp;+&nbsp; <b>0.30</b> × product and
                 hosting <b>{sub.product}</b> &nbsp;+&nbsp; <b>0.15</b> × intent <b>{sub.intent}</b>
-                &nbsp;=&nbsp; <b>{weighted.toFixed(2)}</b> &nbsp;→&nbsp; <b>{rounded}</b>
-                {capped ? (
+                &nbsp;=&nbsp; <b>{weighted.toFixed(2)}</b> &nbsp;→&nbsp;{' '}
+                <b>{tender.relevance_score}</b>
+                {reduced ? (
                   <>
-                    , then capped to <b>{tender.relevance_score}</b>
-                    {tender.disqualifiers.length ? ' by the disqualifier below' : ''}
-                    {!tender.is_actionable ? ' (no longer open)' : ''}.
+                    , reduced{' '}
+                    {cappedByDisqualifier
+                      ? 'by the disqualifier below'
+                      : 'because this notice is no longer open'}
+                    .
                   </>
+                ) : unexplainedGap ? (
+                  '.'
                 ) : (
                   '. Nothing capped it.'
                 )}
@@ -353,7 +396,7 @@ export function DetailPanel({
                 </div>
                 <div>
                   <dt>Source</dt>
-                  <dd className="mono">{tender.source}</dd>
+                  <dd>{sourceLabel(tender.source)}</dd>
                 </div>
               </dl>
             </section>

@@ -19,6 +19,12 @@ from app.jobs.schedule import next_run_local, next_run_utc, observes_dst, utc_cr
 from app.logging_config import log_ctx
 from app.models import SENT, UNCONFIRMED, FetchRun, SlackNotification, utcnow
 from app.services.dhaka import format_dhaka
+from app.services.schedule_settings import (
+    MAX_RUNS_PER_DAY,
+    MIN_RUNS_PER_DAY,
+    get_run_hours,
+    is_customised,
+)
 from app.services.scheduler import scheduler_state
 from app.settings import Settings, get_settings, redact
 
@@ -190,7 +196,9 @@ def automation_status(
     """The full read-only automation picture for GET /api/automation."""
     settings = settings or get_settings()
     now = now or utcnow()
-    hours = tuple(settings.scheduler_hour_list)
+    # What is actually in force, which may be an operator's choice rather than
+    # the environment default.
+    hours = tuple(get_run_hours(db, settings))
     tz = settings.scheduler_timezone
 
     state = scheduler_state()
@@ -202,6 +210,9 @@ def automation_status(
     return {
         "timezone": tz,
         "run_hours_local": list(hours),
+        "run_hours_are_custom": is_customised(db),
+        "run_hours_min": MIN_RUNS_PER_DAY,
+        "run_hours_max": MAX_RUNS_PER_DAY,
         "cron_utc": utc_cron_expressions(hours, tz),
         "observes_dst": observes_dst(tz, now.year),
         "next_run_at": next_run_utc(None, hours, tz),

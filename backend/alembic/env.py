@@ -8,7 +8,12 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.db import Base
-from app.models import FetchRun, SlackNotification, Tender  # noqa: F401  (register tables)
+from app.models import (  # noqa: F401  (register tables)
+    AppSetting,
+    FetchRun,
+    SlackNotification,
+    Tender,
+)
 from app.settings import get_settings
 
 config = context.config

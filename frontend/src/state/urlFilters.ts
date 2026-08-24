@@ -217,6 +217,7 @@ export function activeChips(
     deployment: (v: DeploymentFit) => string;
     source: (v: string) => string;
     category: (v: string) => string;
+    country: (v: string) => string;
   },
 ): FilterChip[] {
   const chips: FilterChip[] = [];
@@ -324,6 +325,7 @@ export function activeFilterCount(filters: TenderFilters): number {
     deployment: (v) => v,
     source: (v) => v,
     category: (v) => v,
+    country: (v) => v,
   }).length;
 }
 

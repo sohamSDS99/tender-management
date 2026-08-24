@@ -72,7 +72,9 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      // Fixed in user units, a single value renders a different optical weight at
+      // every call size (0.73px at 11, 1.07px at 16). Scaling keeps it at 1.5px.
+      strokeWidth={(1.5 * 24) / size}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

@@ -3,8 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Monitor public tenders for SDS and EHS software opportunities" />
+    <meta
+      name="description"
+      content="Monitor public tenders for SDS and EHS software opportunities"
+    />
     <title>Tender Monitor · SDS & EHS software opportunities</title>
+    <script>
+      // Stamp the theme before first paint. Without this the light palette is
+      // painted and then replaced once React mounts and writes data-theme, which
+      // a dark-theme reader sees as a white flash on every load.
+      (function () {
+        try {
+          var raw = localStorage.getItem('tender-monitor:preferences');
+          var theme = raw ? JSON.parse(raw).theme : 'system';
+          if (theme !== 'light' && theme !== 'dark') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          /* a private-mode browser still gets a correct light default */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

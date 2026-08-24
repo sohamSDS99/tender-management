@@ -3,7 +3,11 @@ import { VIEWS, activeView, type ViewContext } from './views';
 import { DEFAULT_FILTERS } from './urlFilters';
 import type { TenderFilters } from '../types';
 
-const ctx: ViewContext = { lastRunAt: '2026-08-21T06:00:00Z', goodFitBand: 70 };
+const ctx: ViewContext = {
+  lastRunAt: '2026-08-21T06:00:00Z',
+  goodFitBand: 70,
+  possibleFitBand: 50,
+};
 
 const apply = (key: string, context: ViewContext = ctx): TenderFilters => {
   const view = VIEWS.find((v) => v.key === key)!;
@@ -28,6 +32,11 @@ describe('views', () => {
 
   it('new degrades to no filter when nothing has swept yet', () => {
     expect(apply('new', { ...ctx, lastRunAt: null }).first_seen_from).toBe('');
+  });
+
+  it("closing-soon uses the engine's possible-fit band, not a literal", () => {
+    expect(apply('closing').minimum_score).toBe(50);
+    expect(apply('closing', { ...ctx, possibleFitBand: 45 }).minimum_score).toBe(45);
   });
 
   it('closing-soon is a two-week window sorted by deadline', () => {
@@ -64,8 +73,10 @@ describe('activeView', () => {
     expect(activeView(searched, ctx)).toBe('attention');
   });
 
-  it('does not confuse two views that differ only by sort', () => {
+  it('keeps the tab lit when only the sort changes', () => {
+    // Ordering belongs to the reader. Treating it as owned by the view unlit the
+    // tab and conjured chips for filters nobody set.
     const attention = apply('attention');
-    expect(activeView({ ...attention, sort: 'deadline_asc' }, ctx)).not.toBe('attention');
+    expect(activeView({ ...attention, sort: 'deadline_asc' }, ctx)).toBe('attention');
   });
 });

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AutomationStatus, FetchRun, SourceStatus } from '../types';
 import { formatDateTime, formatTime, runTone } from '../labels';
 import { Icon } from './Icon';
@@ -11,13 +12,21 @@ import { Icon } from './Icon';
 const PIP = { good: '', warning: ' pip--warn', critical: ' pip--bad', idle: ' pip--idle' } as const;
 
 export function SystemSection({
+  open,
+  onToggle,
   automation,
   sources,
   runs,
+  schedule,
 }: {
+  open: boolean;
+  onToggle: (open: boolean) => void;
   automation: AutomationStatus | null;
   sources: SourceStatus[];
   runs: FetchRun[];
+  /** The sweep-time editor. Lives here because it is an operating control,
+   *  not part of the daily hunt. */
+  schedule?: ReactNode;
 }) {
   if (sources.length === 0) return null;
 
@@ -29,7 +38,11 @@ export function SystemSection({
   const healthy = sources.filter((s) => tone(s) === 'good').length;
 
   return (
-    <details className="system">
+    <details
+      className="system"
+      open={open}
+      onToggle={(event) => onToggle((event.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary>
         <Icon name="chevronRight" size={12} />
         {healthy} of {sources.length} sources healthy
@@ -39,6 +52,8 @@ export function SystemSection({
       </summary>
 
       <div className="system__body">
+        {schedule}
+
         <div>
           <div className="srcs">
             {sources.map((source) => (

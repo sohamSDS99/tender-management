@@ -87,11 +87,23 @@ describe('safeHref refuses anything that is not http(s)', () => {
 });
 
 describe('score and label mapping', () => {
-  it('bands the score colour', () => {
+  it("bands the score colour on the engine's own thresholds", () => {
+    // Previously hardcoded 70/40, which put a score of 40 in an amber pill next
+    // to a red "Not fit" badge — two verdicts on one notice. The engine's
+    // possible-fit band is 50.
     expect(scoreTone(70)).toBe('green');
     expect(scoreTone(69)).toBe('amber');
-    expect(scoreTone(40)).toBe('amber');
-    expect(scoreTone(39)).toBe('red');
+    expect(scoreTone(50)).toBe('amber');
+    expect(scoreTone(49)).toBe('red');
+    expect(scoreTone(40)).toBe('red');
+  });
+
+  it('takes the bands from the caller so it never drifts from the backend', () => {
+    const bands = { good_fit: 80, possible_fit: 45 };
+    expect(scoreTone(80, bands)).toBe('green');
+    expect(scoreTone(79, bands)).toBe('amber');
+    expect(scoreTone(45, bands)).toBe('amber');
+    expect(scoreTone(44, bands)).toBe('red');
   });
 
   it('renders every known enum and passes through an unknown one', () => {

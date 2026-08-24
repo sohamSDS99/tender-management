@@ -314,3 +314,68 @@ def test_a_skipped_source_does_not_degrade_a_clean_sweep(db_session, settings) -
     last = automation.automation_status(db_session, settings)["last_run"]
     assert last["status"] == "skipped"
     assert last["sources_failed"] == 0
+
+
+# --- the operator-editable schedule (docs/DECISIONS.md D14) ----------------
+
+
+def test_schedule_endpoint_changes_the_times_and_reports_the_new_cron(client) -> None:
+    response = client.put("/api/automation/schedule", json={"hours_local": [7, 19]})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hours_local"] == [7, 19]
+    assert body["timezone"] == "Asia/Dhaka"
+    # 07:00 Dhaka is 01:00 UTC, 19:00 Dhaka is 13:00 UTC.
+    assert body["cron_utc"] == ["0 1 * * *", "0 13 * * *"]
+    assert body["next_run_local_label"]
+
+
+def test_the_new_schedule_is_what_the_dashboard_then_reports(client) -> None:
+    client.put("/api/automation/schedule", json={"hours_local": [5]})
+    status = client.get("/api/automation").json()
+    assert status["run_hours_local"] == [5]
+    assert status["run_hours_are_custom"] is True
+    assert status["cron_utc"] == ["0 23 * * *"]  # 05:00 Dhaka = 23:00 UTC previous day
+
+
+def test_the_default_schedule_is_not_reported_as_custom(client) -> None:
+    status = client.get("/api/automation").json()
+    assert status["run_hours_local"] == [0, 12]
+    assert status["run_hours_are_custom"] is False
+    assert (status["run_hours_min"], status["run_hours_max"]) == (1, 6)
+
+
+def test_a_nonsense_schedule_is_refused_with_a_message_a_person_can_act_on(client) -> None:
+    response = client.put("/api/automation/schedule", json={"hours_local": [25]})
+    assert response.status_code == 422
+    assert "between 0 and 23" in response.json()["detail"]
+
+
+def test_too_many_sweeps_a_day_are_refused(client) -> None:
+    response = client.put("/api/automation/schedule", json={"hours_local": [0, 2, 4, 6, 8, 10, 12]})
+    assert response.status_code == 422
+    assert "at most 6" in response.json()["detail"]
+
+
+def test_an_empty_schedule_is_refused_rather_than_silently_disabling_sweeps(client) -> None:
+    response = client.put("/api/automation/schedule", json={"hours_local": []})
+    assert response.status_code == 422
+    assert "at least one" in response.json()["detail"]
+
+
+def test_a_refused_change_leaves_the_previous_schedule_running(client) -> None:
+    client.put("/api/automation/schedule", json={"hours_local": [9, 21]})
+    client.put("/api/automation/schedule", json={"hours_local": [99]})
+    assert client.get("/api/automation").json()["run_hours_local"] == [9, 21]
+
+
+def test_the_schedule_endpoint_needs_no_shared_secret(anon_client) -> None:
+    """A member of staff setting the time in the dashboard *is* the authorisation.
+
+    The write endpoints that stay gated are the ones a browser has no business
+    triggering: POST /api/fetch spends outbound requests against eight public
+    services, and /rescore rewrites every stored row.
+    """
+    assert anon_client.put("/api/automation/schedule", json={"hours_local": [8, 20]}).status_code == 200
+    assert anon_client.post("/api/fetch").status_code == 401
+    assert anon_client.post("/api/tenders/rescore").status_code == 401

@@ -52,10 +52,35 @@ export function deploymentLabel(value: string): string {
   return DEPLOYMENT_LABELS[value as DeploymentFit] ?? value;
 }
 
-export function scoreTone(score: number): 'green' | 'amber' | 'red' {
-  if (score >= 70) return 'green';
-  if (score >= 40) return 'amber';
+/**
+ * Score bands come from the engine, not from guessed numbers.
+ *
+ * Hardcoding 70/40 put a score of 40 in an amber pill next to a red "Not fit"
+ * badge — two different verdicts on the same notice in the same row. The engine's
+ * own possible-fit band is 50, so the bands are passed in from /api/stats.
+ */
+export interface ScoreBands {
+  good_fit: number;
+  possible_fit: number;
+}
+
+export const FALLBACK_BANDS: ScoreBands = { good_fit: 70, possible_fit: 50 };
+
+export function scoreTone(
+  score: number,
+  bands: ScoreBands = FALLBACK_BANDS,
+): 'green' | 'amber' | 'red' {
+  if (score >= bands.good_fit) return 'green';
+  if (score >= bands.possible_fit) return 'amber';
   return 'red';
+}
+
+/** Turn a machine source key into the display name /api/sources already gives. */
+export function makeSourceLabel(names: Record<string, string>) {
+  return (key: string | null | undefined): string => {
+    if (!key) return '—';
+    return names[key] ?? key.replace(/_/g, ' ');
+  };
 }
 
 /** Dates are naive UTC from the API; readers think in Dhaka time. */

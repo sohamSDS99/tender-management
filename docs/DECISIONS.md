@@ -687,6 +687,83 @@ colleagues could not open the links at all).
 
 ---
 
+## D14 — The sweep schedule is editable from the dashboard, and the person editing it is the authorisation
+
+**Decision.** `PUT /api/automation/schedule` takes local hours (1-6 of them, 0-23)
+and is **not** behind `CRON_SECRET`, unlike every other write endpoint. The value is
+stored in `app_settings` (migration `b4efd5d106b6`), so it survives a container
+restart, and `scheduler.reschedule()` applies it to the running APScheduler
+immediately - no restart, no redeploy. The environment variable
+`SCHEDULER_HOURS_LOCAL` remains the default until someone changes it.
+
+**Why.** Requested directly: the sweep should stay automated, but *when* it runs is
+a human decision made from the UI. That framing settles the authorisation question
+rather than dodging it - on an internal network tool with no accounts (D13), the
+member of staff choosing the time in the dashboard *is* the authorisation. Putting a
+shared secret in front of it would either mean the browser holds the secret, which
+D5 forbids, or nobody can use the feature.
+
+The environment variable could not stay the source of truth. Editing it means
+recreating the container, and the value a reader sees would be whatever the image
+was started with rather than what is running.
+
+**What stays gated.** `POST /api/fetch` and `POST /api/tenders/rescore` still require
+`X-Cron-Secret`, and the distinction is deliberate: those spend outbound requests
+against eight public services and rewrite every stored row respectively. Choosing a
+time of day does neither. Verified by test: the schedule endpoint returns 200 without
+a secret while both of those return 401.
+
+**Alternatives rejected.** Prompting for the secret in the UI (puts a shared secret
+in a browser, and gives a non-technical user a password prompt for a scheduling
+decision). Leaving it env-only (needs a container recreate, and the brief asked for
+the opposite). Letting the timezone be edited too (every stored datetime is naive
+UTC and Dhaka is a presentation concern; a web form that can move the zone invites a
+class of confusion this product has no need for).
+
+**Consequences / accepted risk.**
+
+* **Anyone on the company network can change the sweep times.** That is the same
+  trust boundary as D13 and the same accepted risk: the network is the perimeter.
+  The blast radius is bounded - validation refuses anything outside 1-6 distinct
+  hours in 0-23, with a message written for the person who typed it, and every
+  change is logged with the old and new values.
+* **A bad value cannot disable sweeps.** An empty list is refused rather than
+  accepted as "never run", and a hand-edited or corrupt stored row falls back to
+  the environment default instead of stopping the scheduler from starting.
+* **The GitHub Actions cron does not follow.** That schedule is static YAML in git
+  and this setting cannot rewrite it. It does not matter today, because the local
+  APScheduler owns the schedule (D2) and the Actions runs are an ephemeral
+  self-test (D10) - but if Actions ever becomes the trigger owner, the two would
+  diverge silently. `tests/test_jobs_schedule.py` asserts the YAML matches the
+  *default* constant, which is what it tracks; it deliberately does not assert
+  against the live database value.
+* Six sweeps a day is the ceiling because one full sweep measured ~13 minutes
+  against eight public services; the limit exists to stop a mis-click hammering
+  them around the clock.
+
+---
+
+## D15 — Tender counts by source sit at the top of the page
+
+**Decision.** A single strip under the masthead lists every source with the number
+of notices stored from it, ordered by volume, each with a health pip and each
+clickable to filter to that source.
+
+**Why.** Requested directly. It also answers a question the redesign had otherwise
+buried: the previous version moved source health to a collapsed section at the
+bottom, which is right for *health* but wrong for *coverage* - "where is this data
+coming from?" is a question a reader has on arrival, not one they go looking for.
+
+**Consequences.** These are **stored totals** across everything ever ingested, which
+is a different number from the filtered list below, so the label says "N stored,
+from" rather than implying it describes the current view. A source whose fetcher
+cannot run (SAM.gov without an API key) still shows its stored count, because
+"1 notice, currently unavailable" is truer than hiding it. The same reasoning
+removed the counts from the Fit / Hosting / Capability filter chips, where a global
+total sitting beside a narrowed list promised results that were not there.
+
+---
+
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their

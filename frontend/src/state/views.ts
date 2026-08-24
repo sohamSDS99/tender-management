@@ -19,10 +19,24 @@ export interface ViewContext {
   lastRunAt: string | null;
   /** The engine's own "good fit" band, from /api/stats. */
   goodFitBand: number;
+  /** The engine's own "possible fit" band, from /api/stats. */
+  possibleFitBand: number;
 }
 
+/**
+ * A day boundary in Dhaka, not in UTC.
+ *
+ * Built from toISOString() this rolled over at 06:00 Dhaka — mid-morning for the
+ * bid team — which silently unlit the Closing-soon tab on a page they had left
+ * open, because activeView recomputes the preset on every render.
+ */
 const day = (offset: number): string =>
-  new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(Date.now() + offset * 86_400_000));
 
 export interface ViewSpec {
   key: ViewKey;
@@ -58,9 +72,12 @@ export const VIEWS: ViewSpec[] = [
   {
     key: 'closing',
     label: 'Closing soon',
-    patch: () => ({
+    patch: (ctx) => ({
       ...DEFAULT_FILTERS,
-      minimum_score: 40,
+      // The band the engine uses, not a literal: the tab's own count is computed
+      // from possible_fit server-side, so a different number here made the tab
+      // and the list it opened disagree.
+      minimum_score: ctx.possibleFitBand,
       active_only: true,
       deadline_from: day(0),
       deadline_to: day(14),
@@ -80,14 +97,16 @@ export const VIEWS: ViewSpec[] = [
 ];
 
 /** Fields a view controls. Anything else the user set is theirs to keep. */
-export const OWNED: (keyof TenderFilters)[] = [
+export // Note the absence of 'sort'. Ordering belongs to the reader and is orthogonal
+// to which question they are asking, so changing it must not silently unlight the
+// tab and conjure chips for filters they never set.
+const OWNED: (keyof TenderFilters)[] = [
   'minimum_score',
   'maximum_score',
   'active_only',
   'first_seen_from',
   'deadline_from',
   'deadline_to',
-  'sort',
   'fit_statuses',
   'deployment_fits',
 ];

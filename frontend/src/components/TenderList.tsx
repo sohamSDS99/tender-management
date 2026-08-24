@@ -1,4 +1,5 @@
 import type { Tender } from '../types';
+import type { ScoreBands } from '../labels';
 import {
   deadlineUrgency,
   deploymentLabel,
@@ -24,16 +25,24 @@ export interface TenderListProps {
   tenders: Tender[];
   loading: boolean;
   error: string | null;
+  /** True only when the API could not be reached at all (status 0). */
+  unreachable: boolean;
   selectedId: number | null;
   /** Anything first seen at or after this is marked New. */
   newSince: string | null;
+  /** Filters the reader has set, counted against an unconstrained baseline. */
   filterCount: number;
   /** Total matching the current query, which may exceed what this page holds. */
   total: number;
+  /** Everything ever stored, so "nothing here" is never confused with "nothing exists". */
+  storedTotal: number;
+  bands: ScoreBands;
+  sourceLabel: (key: string) => string;
   onSelect: (id: number) => void;
   onRetry: () => void;
   onClearFilters: () => void;
   onFirstPage: () => void;
+  onShowAll: () => void;
 }
 
 const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
@@ -42,15 +51,19 @@ function Row({
   tender,
   selected,
   isNew,
+  bands,
+  sourceLabel,
   onSelect,
 }: {
   tender: Tender;
   selected: boolean;
   isNew: boolean;
+  bands: ScoreBands;
+  sourceLabel: (key: string) => string;
   onSelect: (id: number) => void;
 }) {
   const { urgency, label } = deadlineUrgency(tender.deadline);
-  const band = scoreTone(tender.relevance_score);
+  const band = scoreTone(tender.relevance_score, bands);
   const disqualifier = tender.disqualifiers[0];
   const flag = tender.review_flags[0];
   const reason = tender.relevance_reasons[0];
@@ -58,7 +71,7 @@ function Row({
   const meta = [
     tender.buyer_name,
     countryLabel(tender.buyer_country),
-    tender.source,
+    sourceLabel(tender.source),
     tender.publication_date ? `published ${formatDate(tender.publication_date)}` : null,
   ].filter(Boolean) as string[];
 
@@ -67,10 +80,11 @@ function Row({
       type="button"
       className={`row${selected ? ' is-on' : ''}`}
       onClick={() => onSelect(tender.id)}
-      aria-label={`${tender.title}. Score ${tender.relevance_score} of 100. ${fitLabel(
-        tender.fit_status,
-      )}.`}
     >
+      {/* No aria-label: button takes its name from its content, so an explicit
+          label would replace the deadline, urgency, value and reason a
+          screen-reader user needs in order to reject the notice. */}
+      <span className="sr">Score {tender.relevance_score} of 100.</span>
       <span className={`score score--${TONE_CLASS[band]}`}>
         <span className="score__n">{tender.relevance_score}</span>
         <span className="score__bar">
@@ -168,23 +182,35 @@ export function TenderList({
   tenders,
   loading,
   error,
+  unreachable,
   selectedId,
   newSince,
   filterCount,
   total,
+  storedTotal,
+  bands,
+  sourceLabel,
   onSelect,
   onRetry,
   onClearFilters,
   onFirstPage,
+  onShowAll,
 }: TenderListProps) {
   if (error) {
     return (
       <div className="state state--error" role="alert">
-        {/* The heading names the consequence, the body names the cause and the
-            remedy. Repeating the error text in both just reads as a stutter. */}
+        {/* Only an unreachable API deserves the docker sentence. A rejected
+            request or a frontend fault used to be reported as "start the
+            backend", which sent the reader after the wrong problem. */}
         <h3>Could not load tenders</h3>
         <p>
-          {error} Start it with <code>docker compose up -d</code>, then retry.
+          {error}
+          {unreachable ? (
+            <>
+              {' '}
+              Start it with <code>docker compose up -d</code>, then retry.
+            </>
+          ) : null}
         </p>
         <div className="state__actions">
           <button type="button" className="btn btn--primary" onClick={onRetry}>
@@ -209,10 +235,12 @@ export function TenderList({
           {pastEnd
             ? `There ${total === 1 ? 'is 1 tender' : `are ${total.toLocaleString('en-GB')} tenders`} in this view, but none on this page.`
             : filterCount > 0
-              ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them shows everything stored.`
-              : 'Nothing has been stored yet. The next sweep is shown at the top of the page.'}
+              ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them returns you to the default view.`
+              : storedTotal > 0
+                ? `Nothing in this view matches. ${storedTotal.toLocaleString('en-GB')} tenders are stored — the All tab shows every one.`
+                : 'Nothing has been stored yet. The next sweep is shown at the top of the page.'}
         </p>
-        {pastEnd || filterCount > 0 ? (
+        {pastEnd || filterCount > 0 || storedTotal > 0 ? (
           <div className="state__actions">
             {pastEnd ? (
               <button type="button" className="btn btn--primary" onClick={onFirstPage}>
@@ -226,6 +254,10 @@ export function TenderList({
                 onClick={onClearFilters}
               >
                 Clear filters
+              </button>
+            ) : !pastEnd && storedTotal > 0 ? (
+              <button type="button" className="btn btn--primary" onClick={onShowAll}>
+                Show all {storedTotal.toLocaleString('en-GB')}
               </button>
             ) : null}
           </div>
@@ -245,6 +277,8 @@ export function TenderList({
           tender={tender}
           selected={tender.id === selectedId}
           isNew={isNew(tender)}
+          bands={bands}
+          sourceLabel={sourceLabel}
           onSelect={onSelect}
         />
       ))}

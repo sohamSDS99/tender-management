@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.connectors.registry import SOURCE_NAMES, source_catalog
 from app.db import get_db
+from app.jobs.schedule import next_run_local, utc_cron_expressions
 from app.models import FetchRun, Tender, utcnow
 from app.schemas import (
     AutomationStatus,
@@ -19,6 +20,8 @@ from app.schemas import (
     FetchResponse,
     FetchRunSchema,
     RescoreResponse,
+    ScheduleResponse,
+    ScheduleUpdate,
     SortOption,
     SourceStatus,
     StatsResponse,
@@ -26,7 +29,7 @@ from app.schemas import (
     TenderPage,
 )
 from app.security import require_cron_secret
-from app.services import automation, ingest
+from app.services import automation, ingest, schedule_settings, scheduler
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -60,6 +63,53 @@ def automation_status(
     automation without being able to start it.
     """
     return automation.automation_status(db, settings)
+
+
+@router.put(
+    "/api/automation/schedule",
+    response_model=ScheduleResponse,
+    tags=["system"],
+    summary="Set the times of day the sweep runs",
+)
+def set_schedule(
+    payload: ScheduleUpdate,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> ScheduleResponse:
+    """Change when the automated sweep runs.
+
+    Deliberately *not* behind CRON_SECRET, unlike the other write endpoints. The
+    reasoning is written up in docs/DECISIONS.md D14, and it turns on what this
+    endpoint is: the schedule is an operating decision that a member of staff
+    makes, and the person making it in the dashboard *is* the authorisation. The
+    endpoints that stay gated are the ones a browser has no business triggering -
+    POST /api/fetch spends outbound requests against eight public services, and
+    /rescore rewrites every stored row.
+
+    What this cannot do is bound the damage of a bad value, so the validation in
+    schedule_settings.parse_hours is strict: 1-6 distinct hours in 0-23, rejected
+    with a readable message rather than silently repaired.
+    """
+    try:
+        hours = schedule_settings.set_run_hours(db, payload.hours_local, settings)
+    except schedule_settings.InvalidSchedule as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    applied = scheduler.reschedule(hours, settings)
+    tz = settings.scheduler_timezone
+    return ScheduleResponse(
+        hours_local=hours,
+        timezone=tz,
+        cron_utc=utc_cron_expressions(tuple(hours), tz),
+        next_run_local_label=next_run_local(None, tuple(hours), tz).strftime("%d %b %Y, %H:%M"),
+        applied_to_running_scheduler=applied,
+        detail=(
+            "The running scheduler was updated."
+            if applied
+            else "Saved. No scheduler runs in this process, so it takes effect wherever the "
+            "sweep is triggered from."
+        ),
+    )
 
 
 @router.get("/api/sources", response_model=list[SourceStatus], tags=["sources"])

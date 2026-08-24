@@ -370,6 +370,58 @@ re-read `docs/DECISIONS.md` D5.
 
 ---
 
+## 5b. Change the sweep times
+
+Anyone using the dashboard can do this; it needs no secret and no restart.
+
+1. Open **Sweep times and source health** at the bottom of the page (or click the
+   "next in …" text in the header, which jumps straight to it).
+2. Click the hours you want. Between 1 and 6 a day, in `SCHEDULER_TIMEZONE`
+   (Asia/Dhaka). The UTC cron equivalents are shown as you pick, so
+   "00:00 Dhaka = `0 18 * * *`" is visible rather than assumed.
+3. **Save sweep times.**
+
+The change is stored in the database and applied to the running scheduler
+immediately. It survives a container restart, and from then on
+`SCHEDULER_HOURS_LOCAL` in `.env` is ignored.
+
+Same thing from the command line:
+
+```bash
+curl -X PUT http://localhost:8000/api/automation/schedule \
+  -H 'Content-Type: application/json' -d '{"hours_local":[7,19]}'
+```
+
+Confirm it took effect — `scheduler_jobs` is read from the live scheduler, not
+from config:
+
+```bash
+curl -s http://localhost:8000/api/automation | python3 -m json.tool
+docker compose logs backend | grep -E "schedule changed|rescheduled"
+```
+
+To hand the schedule back to the environment default:
+
+```bash
+docker compose exec -T db psql -U tender -d tenders -c \
+  "delete from app_settings where key = 'scheduler.run_hours_local';"
+docker compose restart backend
+```
+
+Bad values are refused, not repaired: an empty list, an hour outside 0-23, or
+more than six a day all return 422 with a message naming the problem, and the
+previous schedule keeps running. See `docs/DECISIONS.md` D14 for why this
+endpoint needs no shared secret when the others do.
+
+**One caveat.** This does not rewrite `.github/workflows/scheduled-fetch.yml`,
+whose cron is static YAML in git. It does not matter while the local scheduler
+owns the schedule (D2), but if Actions ever becomes the trigger owner the two
+would diverge — change the workflow file too, and run
+`cd backend && ./.venv/bin/python -m pytest tests/test_jobs_schedule.py` which
+checks the file against the code.
+
+---
+
 ## 6. GitHub Actions
 
 Two workflows, both registered and visible in the Actions tab:
