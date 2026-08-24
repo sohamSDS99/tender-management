@@ -43,7 +43,6 @@
   --radius-lg: 10px;
 
   --shadow-panel: -8px 0 32px -12px rgba(20, 22, 26, 0.18);
-  --shadow-sticky: 0 1px 0 var(--rule), 0 6px 16px -14px rgba(20, 22, 26, 0.22);
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --page-w: 1080px;
@@ -76,7 +75,6 @@
   --bad-tint: #2e1817;
 
   --shadow-panel: -8px 0 32px -12px rgba(0, 0, 0, 0.6);
-  --shadow-sticky: 0 1px 0 var(--rule), 0 6px 16px -14px rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================================
@@ -1273,6 +1271,20 @@ a {
 }
 .raw[open] > summary svg {
   transform: rotate(90deg);
+}
+.raw__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px 2px;
+}
+.sublabel {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+.sublabel--gap {
+  margin-top: 8px;
 }
 .raw pre {
   margin: 0;

@@ -411,30 +411,21 @@ export function DetailPanel({
                   <summary>
                     <Icon name="chevronRight" size={12} />
                     Raw source data
-                    <span className="toolbar__spacer" />
-                    <span
+                  </summary>
+                  <div className="raw__actions">
+                    <button
+                      type="button"
                       className="btn btn--quiet"
-                      role="button"
-                      tabIndex={0}
-                      onClick={(event) => {
-                        event.preventDefault();
+                      onClick={() =>
                         void navigator.clipboard
                           ?.writeText(JSON.stringify(tender.raw_payload, null, 2))
-                          .then(() => flash('json'));
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          void navigator.clipboard
-                            ?.writeText(JSON.stringify(tender.raw_payload, null, 2))
-                            .then(() => flash('json'));
-                        }
-                      }}
+                          .then(() => flash('json'))
+                      }
                     >
                       <Icon name="copy" size={12} />
-                      {copied === 'json' ? 'Copied' : 'Copy'}
-                    </span>
-                  </summary>
+                      {copied === 'json' ? 'Copied' : 'Copy JSON'}
+                    </button>
+                  </div>
                   <pre>{JSON.stringify(tender.raw_payload, null, 2)}</pre>
                 </details>
               </section>

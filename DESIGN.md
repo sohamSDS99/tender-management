@@ -103,13 +103,12 @@ Structure, top to bottom:
 
 ## Elevation
 
-Declared once, and almost never. Rows and regions use a hairline. Only the two
-things that genuinely float — the detail panel and the sticky toolbar's shadow on
-scroll — carry a shadow, and it has both offset and blur:
+Declared once, and almost never. Rows and regions use a hairline. Exactly one
+thing genuinely floats — the detail panel — and its shadow carries both an offset
+and a blur:
 
 ```
 --shadow-panel  -8px 0 32px -12px rgba(20,22,26,.18)
---shadow-sticky  0 1px 0 var(--rule), 0 6px 16px -14px rgba(20,22,26,.22)
 ```
 
 No element ever has both a visible border and a shadow.

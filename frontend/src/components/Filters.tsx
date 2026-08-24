@@ -193,9 +193,7 @@ export function Filters({
 
       <div className="fgroup">
         <h3>Deadline</h3>
-        <label className="rangerow" style={{ marginBottom: 4 }}>
-          <span>From</span>
-        </label>
+        <span className="sublabel">From</span>
         <input
           className="field"
           type="date"
@@ -203,9 +201,7 @@ export function Filters({
           aria-label="Deadline from"
           onChange={(event) => onChange({ deadline_from: event.target.value })}
         />
-        <label className="rangerow" style={{ margin: '8px 0 4px' }}>
-          <span>To</span>
-        </label>
+        <span className="sublabel sublabel--gap">To</span>
         <input
           className="field"
           type="date"
