@@ -16,6 +16,11 @@ but a sweep, a re-score and the schedule can all be driven from the dashboard
 Runs as three containers on one machine: `docker compose up -d --build` →
 dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL internal.
 
+**On this machine the dashboard is on 8081, not 8080** — `.env` sets `WEB_PORT=8081`
+because another container holds 8080. Read the port off `.env` or `docker ps` rather
+than the compose default, and remember `PUBLIC_APP_URL` must match it or every Slack
+link points at the wrong port.
+
 ## Commands
 
 ```bash
@@ -145,6 +150,13 @@ verification token and OAuth client id/secret are for *receiving* from Slack
 (slash commands, events, interactivity), which this product does not do and which
 would mean exposing an endpoint against D5/D18. D22.
 
+**The Slack digest threshold and the real data disagree.** `SLACK_MIN_SCORE` is 70
+and no *real* ingested notice has ever cleared it — the highest genuine score is 66,
+and every 70+ notice in the database is a `SEED-*` demo fixture. So a clean sweep
+legitimately sends nothing, and the top of the dashboard is showing fixtures. Do not
+read "no digest" as a broken notifier, and do not present those top cards as live
+finds.
+
 **`PUBLIC_APP_URL` must not be a bare IP.** The host's address moved from
 `192.168.1.5` to `192.168.0.133` mid-project, which would have killed every Slack
 link already sent. Use the mDNS hostname. The dashboard shows this value and warns
@@ -153,10 +165,11 @@ when it looks fragile.
 ## Auth boundary
 
 Reads are open by design — the data is public procurement notices, the tool is
-internal-network only, and there are no accounts (D5, D18). Writes split:
+internal-network only, and there are no accounts (D5, D18).
 
 **Nothing is gated on the shared secret any more (D23).** The secret is now a
-*bypass* of the cost limits, not a key. Every write is callable from the browser:
+*bypass* of the cost limits, not a key. Every write is callable from the browser,
+and what constrains each one is a limit rather than a credential:
 
 | Endpoint | Limit | Why that limit |
 |---|---|---|
@@ -179,11 +192,17 @@ the dashboard once the limits existed. `tests/test_operator_guards.py` and
 ## Frontend
 
 `PRODUCT.md` owns product truth, `DESIGN.md` owns the visual world and carries an
-explicit "refused" list. The previous UI was rejected outright; it is
-anti-reference, not a starting point.
+explicit "refused" list. **DESIGN.md has been replaced twice, not edited** — first a
+"quiet document" world, then the current dark instrument panel built from a supplied
+mockup. Each predecessor became the anti-reference. If a new direction contradicts
+DESIGN.md's refusals, replace the file rather than patching it, or it ends up
+contradicting the code.
 
-Dependencies are **`react` + `react-dom` only**. `vitest` is a devDependency.
-Adding anything else needs a record in `docs/DECISIONS.md`.
+**Runtime dependencies are `react` + `react-dom` only** — nothing else ships to the
+browser. The devDependencies are build and test tooling (`vite`, `typescript`,
+`vitest`, `jsdom`, `prettier`, the React plugin and types). Adding a *runtime*
+dependency needs a record in `docs/DECISIONS.md`. Inter is loaded from Google Fonts
+with a full system fallback stack, because this host may have no route out.
 
 - Desktop only, confirmed. A narrow window must degrade, not break; no phone polish.
 - **Settings lives in the permanent left rail, pinned to its bottom**, and slides
@@ -216,13 +235,33 @@ Adding anything else needs a record in `docs/DECISIONS.md`.
 ## Verification habits that caught real bugs
 
 - Run the thing, do not reason about it. The stdout/stderr bug, the false score
-  cap, the dead Slack links and the empty-page trap were all found by executing.
-- Browser-pane screenshots go blank once the page is scrolled. Assert against the
-  DOM (`getComputedStyle`, `getBoundingClientRect`) instead.
+  cap, the dead Slack links, the empty-page trap and the light-theme default all
+  came out of executing, not reading.
+- **Hard-reload before trusting any computed style.** Vite's HMR leaves the
+  previous version's CSS injected, so `getComputedStyle` can return values from a
+  stylesheet you already replaced. This produced a completely fictional contrast
+  failure — dark tokens resolving under `data-theme="light"` — that vanished on
+  reload. If a measurement contradicts the CSS you just wrote, reload first.
+- **The theme attribute is written in an effect**, so two separate tool calls are
+  not always enough: the first read after a theme click can still see the old
+  value. Confirm `document.documentElement.dataset.theme` is what you expect
+  *before* reading colours off it.
+- Browser-pane screenshots go blank once the page is scrolled, and fail outright
+  with "not compositing frames" unless the pane is fronted. Assert against the DOM
+  (`getComputedStyle`, `getBoundingClientRect`) instead — that is the primary
+  method here, not the fallback.
 - React state is asynchronous: dispatch an event and read the DOM in a *separate*
   tool call, or you read the pre-render value.
 - Compute contrast ratios from the hex values rather than judging by eye. Two
   colours that looked fine measured 3.80:1 and 3.22:1.
+- **Do not exercise `POST /api/fetch` casually.** A full sweep is ~13 minutes
+  against eight public services. To prove the endpoint path works, fetch one cheap
+  source instead — `austender` returns in about a second — which runs the identical
+  guard and ingest code. `/api/tenders/rescore` is free and local, so prove the
+  auth path with that.
+- **Verify a browser-triggered write reached the database**, not just that the UI
+  said so. `select source, status, trigger from fetch_runs order by started_at desc`
+  showing `trigger=manual` is the proof; a green toast is not.
 - `node <impeccable>/scripts/detect.mjs --json frontend/src` after UI work.
 - Review agents sometimes leave scratch test files in `src/` — check for stray
   `*probe*` files before committing, and harvest their findings first.
