@@ -180,7 +180,9 @@ export function TenderList({
   if (error) {
     return (
       <div className="state state--error" role="alert">
-        <h3>Cannot reach the API</h3>
+        {/* The heading names the consequence, the body names the cause and the
+            remedy. Repeating the error text in both just reads as a stutter. */}
+        <h3>Could not load tenders</h3>
         <p>
           {error} Start it with <code>docker compose up -d</code>, then retry.
         </p>

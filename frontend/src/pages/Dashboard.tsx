@@ -236,7 +236,10 @@ export function Dashboard() {
 
         <main>
           <p className="count" aria-live="polite">
-            {page
+            {/* Suppressed while erroring: the last successful count is stale, and
+                showing "6 tenders" above "cannot reach the API" contradicts
+                itself. */}
+            {page && !error
               ? `${page.total.toLocaleString('en-GB')} ${page.total === 1 ? 'tender' : 'tenders'}`
               : ' '}
           </p>
