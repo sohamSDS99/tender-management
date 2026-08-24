@@ -432,6 +432,63 @@ checks the file against the code.
 
 ---
 
+## 5c. Pause and resume the sweep
+
+Use this when a source is rate-limiting the system, during a maintenance window,
+or after a bad deploy. It needs no secret and no restart, and it takes effect on
+the running process immediately.
+
+1. Open **Sweep times and source health** at the bottom of the page.
+2. **Automated sweeps** is the first control. Click **Pause sweeps**, then confirm
+   with **Yes, pause sweeps** — pausing asks twice on purpose.
+3. To restart: **Switch sweeps on**. One click, no confirmation.
+
+While paused, three places say so, because a paused system otherwise looks like a
+healthy one that has simply found nothing: a banner at the top of the dashboard,
+` · sweeps paused` on the collapsed system summary, and the control itself showing
+the time it was paused.
+
+Same thing from the command line:
+
+```bash
+curl -X PUT http://localhost:8000/api/automation/trigger \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+```
+
+Confirm the scheduler actually stopped — `scheduler_jobs` is read from the live
+scheduler, so an empty list is proof rather than a claim:
+
+```bash
+curl -s http://localhost:8000/api/automation | python3 -m json.tool
+docker compose logs backend | grep -E "sweeps paused|sweeps resumed|scheduler started"
+```
+
+Pausing logs at **WARNING**, not INFO. The failure mode this guards against is a
+pause nobody remembers making.
+
+The decision is stored in the database and **overrides `ENABLE_SCHEDULER`**, so it
+survives a container restart. To hand the decision back to the environment:
+
+```bash
+docker compose exec -T db psql -U tender -d tenders -c \
+  "delete from app_settings where key = 'scheduler.enabled';"
+docker compose restart backend
+```
+
+Pausing does not disturb the sweep times, so resuming restores whatever hours were
+chosen. Notices published while paused are picked up on the next sweep only as far
+back as `FETCH_LOOKBACK_DAYS` reaches — a long pause loses the notices that fall
+outside that window, so use section 3 to re-run a missed window if it matters.
+
+**One caveat**, the same one as section 5b: this does not touch
+`.github/workflows/scheduled-fetch.yml`. If Actions owns the trigger against this
+database, pausing here does not stop it — disable the workflow in GitHub instead.
+And switching sweeps *on* here while Actions also runs makes two trigger owners
+(D2): survivable, since ingest upserts and the Slack ledger de-duplicates, but it
+wastes a full sweep's worth of requests. See `docs/DECISIONS.md` D21.
+
+---
+
 ## 6. GitHub Actions
 
 Two workflows, both registered and visible in the Actions tab:

@@ -1,9 +1,13 @@
-"""The sweep schedule, as a value a human can change.
+"""The sweep trigger, as values a human can change.
 
-The business rule stays "N times a day at these local hours in
-``SCHEDULER_TIMEZONE``". What changes here is *who* decides the hours: the
-environment variable is now only the default, and an operator can set them from
-the dashboard.
+Two decisions live here, both operator-editable from the dashboard with the
+environment variable kept as the default:
+
+* **when** the sweep runs - N times a day at these local hours in
+  ``SCHEDULER_TIMEZONE`` (``SCHEDULER_HOURS_LOCAL``).
+* **whether** it runs at all (``ENABLE_SCHEDULER``). Turning this off pauses
+  every sweep, which is why nothing here hides a paused state: see
+  ``docs/DECISIONS.md`` D21.
 
 Two things this deliberately does not do:
 
@@ -18,11 +22,12 @@ Two things this deliberately does not do:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
-from app.models import KEY_RUN_HOURS, AppSetting, utcnow
+from app.models import KEY_RUN_HOURS, KEY_SCHEDULER_ENABLED, AppSetting, utcnow
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -119,3 +124,102 @@ def reset_run_hours(db: Session) -> None:
         db.delete(row)
         db.commit()
         log_ctx(logger, logging.INFO, "sweep schedule reset to the environment default")
+
+
+# --- whether the sweep runs at all -----------------------------------------
+
+#: Accepted spellings, so a hand-edited row or a form post both parse.
+_TRUE = frozenset({"true", "1", "yes", "on", "enabled"})
+_FALSE = frozenset({"false", "0", "no", "off", "disabled"})
+
+
+class InvalidTriggerState(ValueError):
+    """Raised with a message written for the person who clicked it."""
+
+
+def parse_enabled(raw: object) -> bool:
+    """Validate an incoming on/off value.
+
+    Strict for the same reason ``parse_hours`` is: coercing an unrecognised value
+    to False would pause every sweep while telling the operator it had worked.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in _TRUE:
+            return True
+        if token in _FALSE:
+            return False
+    raise InvalidTriggerState("Provide true to run sweeps automatically, or false to pause them.")
+
+
+def default_enabled(settings: Settings | None = None) -> bool:
+    settings = settings or get_settings()
+    return settings.enable_scheduler
+
+
+def get_enabled(db: Session, settings: Settings | None = None) -> bool:
+    """The decision in force: the stored value, or the environment default."""
+    settings = settings or get_settings()
+    row = db.get(AppSetting, KEY_SCHEDULER_ENABLED)
+    if row is None:
+        return default_enabled(settings)
+    try:
+        return parse_enabled(row.value)
+    except InvalidTriggerState:
+        # A hand-edited row must not decide, either way, whether sweeps happen.
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "stored trigger state is invalid, using the environment default",
+            value=row.value,
+        )
+        return default_enabled(settings)
+
+
+def set_enabled(db: Session, raw: object, settings: Settings | None = None) -> bool:
+    """Persist the on/off decision. Returns the value actually stored."""
+    settings = settings or get_settings()
+    enabled = parse_enabled(raw)
+    value = "true" if enabled else "false"
+    row = db.get(AppSetting, KEY_SCHEDULER_ENABLED)
+    if row is None:
+        db.add(AppSetting(key=KEY_SCHEDULER_ENABLED, value=value, updated_at=utcnow()))
+    else:
+        row.value = value
+        row.updated_at = utcnow()
+    db.commit()
+    # WARNING, not INFO, when pausing: an operator who forgets they did this has
+    # a system that looks healthy and silently finds nothing.
+    log_ctx(
+        logger,
+        logging.INFO if enabled else logging.WARNING,
+        "automated sweeps resumed" if enabled else "automated sweeps paused",
+        env_default=default_enabled(settings),
+    )
+    return enabled
+
+
+def enabled_is_customised(db: Session) -> bool:
+    """True when an operator has decided, rather than inheriting the env."""
+    return db.get(AppSetting, KEY_SCHEDULER_ENABLED) is not None
+
+
+def enabled_changed_at(db: Session) -> datetime | None:
+    """When the on/off decision was last made here, or None if never.
+
+    The dashboard says "paused since ..." with this. There is no *who* to record:
+    the product has no user accounts (D18).
+    """
+    row = db.get(AppSetting, KEY_SCHEDULER_ENABLED)
+    return row.updated_at if row is not None else None
+
+
+def reset_enabled(db: Session) -> None:
+    """Hand the decision back to the environment default."""
+    row = db.get(AppSetting, KEY_SCHEDULER_ENABLED)
+    if row is not None:
+        db.delete(row)
+        db.commit()
+        log_ctx(logger, logging.INFO, "trigger state reset to the environment default")

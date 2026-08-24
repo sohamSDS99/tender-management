@@ -5,10 +5,12 @@ Two cron triggers a day at the local hours in ``SCHEDULER_HOURS_LOCAL``, in the
 APScheduler is given the zone itself, so "midnight in Dhaka" stays correct
 without any arithmetic here.
 
-Off unless ``ENABLE_SCHEDULER=true``. Exactly one trigger owner may be enabled at
-a time or the same window is fetched twice; see docs/DECISIONS.md (D2). The job
-body is the *same* ``run_once`` the CLI entrypoint and the GitHub Actions
-workflow call, so there is one run implementation, not three.
+Off unless sweeps are switched on. ``ENABLE_SCHEDULER`` is only the default for
+that: an operator can pause or resume from the dashboard and the stored value
+wins, applied to this process immediately (docs/DECISIONS.md D21). Exactly one
+trigger owner may be enabled at a time or the same window is fetched twice; see
+D2. The job body is the *same* ``run_once`` the CLI entrypoint and the GitHub
+Actions workflow call, so there is one run implementation, not three.
 """
 
 from __future__ import annotations
@@ -22,7 +24,12 @@ from apscheduler.triggers.cron import CronTrigger
 from app.db import SessionLocal
 from app.jobs.schedule import next_run_local
 from app.logging_config import log_ctx
-from app.services.schedule_settings import default_hours, get_run_hours
+from app.services.schedule_settings import (
+    default_enabled,
+    default_hours,
+    get_enabled,
+    get_run_hours,
+)
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -76,35 +83,60 @@ async def _job() -> None:
     )
 
 
-def start_scheduler(settings: Settings, hours: list[int] | None = None) -> AsyncIOScheduler | None:
-    """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding."""
+def _decision_in_force(
+    settings: Settings, hours: list[int] | None, enabled: bool | None
+) -> tuple[list[int], bool]:
+    """What an operator has chosen, or the environment default.
+
+    Both stored values win over the environment, so a change made from the
+    dashboard survives a restart. A database that cannot be read must not stop
+    the scheduler starting - falling back to the environment default keeps sweeps
+    happening, which is the safer failure. A caller that already knows a value
+    passes it in, and no session is opened for it.
+    """
+    if hours is not None and enabled is not None:
+        return hours, enabled
+    db = SessionLocal()
+    try:
+        if enabled is None:
+            enabled = get_enabled(db, settings)
+        if hours is None:
+            hours = get_run_hours(db, settings)
+    except Exception as exc:
+        # log_ctx forwards kwargs as structured context, not to the logger, so
+        # the exception type goes in explicitly rather than via exc_info.
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "could not read the stored trigger settings, using the environment default",
+            error=type(exc).__name__,
+        )
+        if enabled is None:
+            enabled = default_enabled(settings)
+        if hours is None:
+            hours = default_hours(settings)
+    finally:
+        db.close()
+    return hours, enabled
+
+
+def start_scheduler(
+    settings: Settings, hours: list[int] | None = None, enabled: bool | None = None
+) -> AsyncIOScheduler | None:
+    """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding.
+
+    Needs a running event loop: ``AsyncIOScheduler.start`` binds to the loop of
+    the calling thread. That is why the API's trigger endpoint is ``async def``
+    and not sync - a sync route runs in a threadpool worker with no loop, and the
+    scheduler would raise instead of starting.
+    """
     global _scheduler
-    if not settings.enable_scheduler:
-        log_ctx(logger, logging.INFO, "scheduler disabled", reason="ENABLE_SCHEDULER=false")
+    hours, enabled = _decision_in_force(settings, hours, enabled)
+    if not enabled:
+        log_ctx(logger, logging.INFO, "scheduler disabled", reason="automated sweeps are switched off")
         return None
     if _scheduler is not None:
         return _scheduler
-
-    # The stored schedule wins over the environment default, so a change an
-    # operator made from the dashboard survives a restart. A database that cannot
-    # be read must not stop the scheduler starting - falling back to the
-    # environment default keeps sweeps happening, which is the safer failure.
-    if hours is None:
-        db = SessionLocal()
-        try:
-            hours = get_run_hours(db, settings)
-        except Exception as exc:
-            # log_ctx forwards kwargs as structured context, not to the logger, so
-            # the exception type goes in explicitly rather than via exc_info.
-            log_ctx(
-                logger,
-                logging.WARNING,
-                "could not read the stored schedule, using the environment default",
-                error=type(exc).__name__,
-            )
-            hours = default_hours(settings)
-        finally:
-            db.close()
 
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
     _install_jobs(scheduler, hours, settings)
@@ -143,12 +175,44 @@ def reschedule(hours: list[int], settings: Settings | None = None) -> bool:
     return True
 
 
-def scheduler_state() -> dict[str, object]:
-    """What is actually scheduled in this process, not what config asked for.
+def set_trigger(enabled: bool, hours: list[int], settings: Settings | None = None) -> bool:
+    """Start or stop this process's scheduler to match a decision just stored.
 
-    ENABLE_SCHEDULER only records an intention. If the scheduler failed to start,
-    or another trigger owns the schedule, the dashboard must be able to say so
-    rather than promising a run that will never fire.
+    Returns whether a scheduler is running here afterwards - which is what the
+    dashboard reports, and is not the same question as what was asked for. A
+    resume genuinely starts one; a pause genuinely stops one, so the next sweep
+    does not happen rather than happening quietly.
+
+    Must be called from the event loop; see ``start_scheduler``.
+    """
+    settings = settings or get_settings()
+    if not enabled:
+        was_running = _scheduler is not None
+        stop_scheduler()
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "sweeps paused",
+            stopped_a_running_scheduler=was_running,
+        )
+        return False
+    # Pass the decision in explicitly: it has just been committed, and re-reading
+    # it here would race with the transaction that wrote it.
+    already_running = _scheduler is not None
+    started = start_scheduler(settings, hours=hours, enabled=True)
+    if started is not None and already_running:
+        # start_scheduler is a no-op on an already-running scheduler, so the hours
+        # have to be applied here. A fresh start installed them itself.
+        _install_jobs(started, hours, settings)
+    return started is not None
+
+
+def scheduler_state() -> dict[str, object]:
+    """What is actually scheduled in this process, not what was asked for.
+
+    The on/off setting only records an intention. If the scheduler failed to
+    start, or another trigger owns the schedule, the dashboard must be able to say
+    so rather than promising a run that will never fire.
     """
     if _scheduler is None:
         return {"running": False, "jobs": []}
@@ -167,7 +231,25 @@ def scheduler_state() -> dict[str, object]:
 
 
 def stop_scheduler() -> None:
+    """Stop the scheduler and always drop the reference.
+
+    The reference is cleared even if the shutdown itself fails. AsyncIOScheduler
+    shuts down *via* the loop it was started on (``call_soon_threadsafe``), so a
+    loop that has already gone raises - and leaving ``_scheduler`` set would have
+    the dashboard report a scheduler that cannot fire, which is the one thing
+    scheduler_state() exists to prevent.
+    """
     global _scheduler
-    if _scheduler is not None:
+    if _scheduler is None:
+        return
+    try:
         _scheduler.shutdown(wait=False)
+    except (RuntimeError, AttributeError) as exc:
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "scheduler could not be shut down cleanly; dropped the reference",
+            error=type(exc).__name__,
+        )
+    finally:
         _scheduler = None

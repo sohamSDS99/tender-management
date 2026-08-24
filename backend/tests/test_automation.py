@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from app.models import SENT, FetchRun, SlackNotification, Tender, utcnow
-from app.services import automation
+from app.services import automation, scheduler
 
 
 def add_run(db, *, source, status, batch="batch-a", started=None, **kwargs) -> FetchRun:
@@ -379,3 +381,112 @@ def test_the_schedule_endpoint_needs_no_shared_secret(anon_client) -> None:
     assert anon_client.put("/api/automation/schedule", json={"hours_local": [8, 20]}).status_code == 200
     assert anon_client.post("/api/fetch").status_code == 401
     assert anon_client.post("/api/tenders/rescore").status_code == 401
+
+
+# --- pausing and resuming the sweep (docs/DECISIONS.md D21) ----------------
+
+
+@pytest.fixture(autouse=True)
+def _no_scheduler_leaks():
+    """Drop any scheduler a test in this file started.
+
+    The trigger endpoint genuinely starts APScheduler, and TestClient closes the
+    event loop it bound to when the request ends - so the module-level reference
+    would survive into the next test and report another test's jobs.
+    stop_scheduler() clears it whether or not the shutdown itself can run.
+    """
+    yield
+    scheduler.stop_scheduler()
+
+
+def test_pausing_switches_the_sweep_off_and_says_what_that_means(client) -> None:
+    response = client.put("/api/automation/trigger", json={"enabled": False})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["scheduler_running"] is False
+    assert body["next_run_local_label"] is None
+    assert "no digest" in body["detail"].lower() or "paused" in body["detail"].lower()
+
+
+def test_resuming_starts_the_scheduler_and_names_the_next_sweep(client) -> None:
+    body = client.put("/api/automation/trigger", json={"enabled": True}).json()
+    assert body["enabled"] is True
+    assert body["scheduler_running"] is True
+    assert body["next_run_local_label"]
+    assert "Asia/Dhaka" in body["detail"]
+
+
+def test_the_dashboard_then_reports_the_paused_state(client) -> None:
+    client.put("/api/automation/trigger", json={"enabled": False})
+    status = client.get("/api/automation").json()
+    assert status["scheduler_in_process"] is False
+    assert status["trigger_is_custom"] is True
+    assert status["trigger_default"] is False
+    assert status["trigger_changed_at"].endswith("Z")
+
+
+def test_pausing_does_not_read_as_the_broken_scheduler_state(client) -> None:
+    """`in_process and not running` is the dashboard's "switched on but dead" alarm.
+
+    A deliberate pause must not trip it, or every pause looks like a fault - which
+    is why the reported intent is the decision in force, not ENABLE_SCHEDULER.
+    """
+    client.put("/api/automation/trigger", json={"enabled": False})
+    status = client.get("/api/automation").json()
+    assert not (status["scheduler_in_process"] and not status["scheduler_running"])
+
+
+def test_resuming_is_reported_as_on_and_running(client) -> None:
+    client.put("/api/automation/trigger", json={"enabled": True})
+    status = client.get("/api/automation").json()
+    assert status["scheduler_in_process"] is True
+    assert status["scheduler_running"] is True
+    assert status["trigger_is_custom"] is True
+
+
+def test_the_default_trigger_state_is_not_reported_as_custom(client) -> None:
+    status = client.get("/api/automation").json()
+    assert status["trigger_is_custom"] is False
+    assert status["trigger_changed_at"] is None
+
+
+def test_pausing_leaves_the_chosen_sweep_times_alone(client) -> None:
+    """Resuming has to restore what the operator picked, not the env default."""
+    client.put("/api/automation/schedule", json={"hours_local": [7, 19]})
+    client.put("/api/automation/trigger", json={"enabled": False})
+    assert client.get("/api/automation").json()["run_hours_local"] == [7, 19]
+
+    body = client.put("/api/automation/trigger", json={"enabled": True}).json()
+    assert body["scheduler_running"] is True
+    status = client.get("/api/automation").json()
+    assert status["run_hours_local"] == [7, 19]
+    assert status["cron_utc"] == ["0 1 * * *", "0 13 * * *"]
+    assert {job["id"] for job in status["scheduler_jobs"]} == {
+        "scheduled-fetch-07",
+        "scheduled-fetch-19",
+    }
+
+
+def test_a_nonsense_trigger_state_is_refused(client) -> None:
+    assert client.put("/api/automation/trigger", json={"enabled": "maybe"}).status_code == 422
+    assert client.put("/api/automation/trigger", json={}).status_code == 422
+
+
+def test_the_trigger_endpoint_needs_no_shared_secret(anon_client) -> None:
+    """Same authorisation as the schedule: the person in the dashboard (D19/D21).
+
+    Pausing spends no outbound requests and rewrites no rows, so the reasoning
+    that keeps /api/fetch gated does not reach it.
+    """
+    assert anon_client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
+    assert anon_client.post("/api/fetch").status_code == 401
+
+
+def test_setting_times_while_paused_says_so_rather_than_blaming_another_process(client) -> None:
+    """ "No scheduler runs here" reads as "Actions owns the trigger", which is wrong."""
+    client.put("/api/automation/trigger", json={"enabled": False})
+    body = client.put("/api/automation/schedule", json={"hours_local": [6, 18]}).json()
+    assert body["applied_to_running_scheduler"] is False
+    assert "paused" in body["detail"]
+    assert "no scheduler runs" not in body["detail"].lower()

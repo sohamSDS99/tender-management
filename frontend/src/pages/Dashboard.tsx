@@ -36,6 +36,7 @@ import { Toolbar } from '../components/Toolbar';
 import { Views } from '../components/Views';
 import { Icon } from '../components/Icon';
 import { ScheduleEditor } from '../components/ScheduleEditor';
+import { TriggerSwitch } from '../components/TriggerSwitch';
 import { SourceSummary } from '../components/SourceSummary';
 
 /**
@@ -330,7 +331,12 @@ export function Dashboard() {
           automation={automation}
           sources={sources}
           runs={runs}
-          schedule={<ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />}
+          schedule={
+            <>
+              <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
+              <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
+            </>
+          }
         />
       </div>
 

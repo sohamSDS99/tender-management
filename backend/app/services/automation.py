@@ -22,6 +22,10 @@ from app.services.dhaka import format_dhaka
 from app.services.schedule_settings import (
     MAX_RUNS_PER_DAY,
     MIN_RUNS_PER_DAY,
+    default_enabled,
+    enabled_changed_at,
+    enabled_is_customised,
+    get_enabled,
     get_run_hours,
     is_customised,
 )
@@ -199,6 +203,7 @@ def automation_status(
     # What is actually in force, which may be an operator's choice rather than
     # the environment default.
     hours = tuple(get_run_hours(db, settings))
+    enabled = get_enabled(db, settings)
     tz = settings.scheduler_timezone
 
     state = scheduler_state()
@@ -221,10 +226,17 @@ def automation_status(
         "next_run_at": next_run_utc(None, hours, tz),
         "next_run_local_label": next_run_local(None, hours, tz).strftime("%d %b %Y, %H:%M"),
         # Intent vs reality: enabled-but-not-running is a real failure mode and
-        # has to be visible, not hidden behind the config flag.
-        "scheduler_in_process": settings.enable_scheduler,
+        # has to be visible, not hidden behind the config flag. The intent is the
+        # decision in force - an operator's pause, or the environment default -
+        # and not ENABLE_SCHEDULER alone, or pausing would read as that failure.
+        "scheduler_in_process": enabled,
         "scheduler_running": bool(state["running"]),
         "scheduler_jobs": state["jobs"],
+        # Enough for the dashboard to say whose decision this is, and to offer
+        # handing it back. There is no *who*: the product has no accounts (D18).
+        "trigger_is_custom": enabled_is_customised(db),
+        "trigger_default": default_enabled(settings),
+        "trigger_changed_at": enabled_changed_at(db),
         "last_run": (
             {
                 "batch_id": batch_id,

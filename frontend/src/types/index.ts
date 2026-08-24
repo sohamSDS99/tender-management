@@ -169,11 +169,18 @@ export interface AutomationStatus {
   observes_dst: boolean;
   next_run_at: string;
   next_run_local_label: string;
-  /** What the config asked for. */
+  /** Whether sweeps are switched on at all: an operator's decision if they made
+   *  one, otherwise ENABLE_SCHEDULER. The intent — `scheduler_running` is reality. */
   scheduler_in_process: boolean;
   /** Whether the API process actually has the schedule registered. */
   scheduler_running: boolean;
   scheduler_jobs: { id: string; next_run_at: string | null }[];
+  /** True once an operator has set the on/off state, rather than inheriting the env. */
+  trigger_is_custom: boolean;
+  /** What the environment says, so the reader can see whose decision is in force. */
+  trigger_default: boolean;
+  /** When the on/off decision was last made. There is no *who*: no accounts (D18). */
+  trigger_changed_at: string | null;
   last_run: LastRun | null;
   slack: SlackState;
 }
@@ -214,5 +221,15 @@ export interface ScheduleResponse {
   cron_utc: string[];
   next_run_local_label: string;
   applied_to_running_scheduler: boolean;
+  detail: string;
+}
+
+export interface TriggerResponse {
+  enabled: boolean;
+  is_custom: boolean;
+  default: boolean;
+  /** Whether the API process actually has a scheduler after the change. */
+  scheduler_running: boolean;
+  next_run_local_label: string | null;
   detail: string;
 }

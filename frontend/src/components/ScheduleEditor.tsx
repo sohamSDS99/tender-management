@@ -123,7 +123,9 @@ export function ScheduleEditor({
       {saved && !changed ? (
         <p className="schedule__msg schedule__msg--ok" role="status">
           <Icon name="check" size={13} />
-          Saved. The next sweep is {automation.next_run_local_label} {automation.timezone}.
+          {automation.scheduler_in_process
+            ? `Saved. The next sweep is ${automation.next_run_local_label} ${automation.timezone}.`
+            : 'Saved. Sweeps are paused, so these times take effect once you switch them on.'}
         </p>
       ) : null}
 

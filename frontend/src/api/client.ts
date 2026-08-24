@@ -7,6 +7,7 @@ import type {
   TenderDetail,
   TenderFilters,
   TenderPage,
+  TriggerResponse,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -94,9 +95,10 @@ export function buildQuery(filters: TenderFilters): string {
  *
  * There is deliberately no startFetch or rescore: fetching is automated and both
  * of those endpoints require the CRON_SECRET header, which a browser must never
- * hold. `setSchedule` is the exception — *when* the sweep runs is an operating
- * decision a member of staff makes, and the person making it in the dashboard is
- * the authorisation. See docs/DECISIONS.md D19.
+ * hold. `setSchedule` and `setTrigger` are the exceptions — *when* the sweep runs,
+ * and *whether* it runs at all, are operating decisions a member of staff makes,
+ * and the person making one in the dashboard is the authorisation. See
+ * docs/DECISIONS.md D19 and D21.
  */
 export const api = {
   tenders: (filters: TenderFilters) => request<TenderPage>(`/api/tenders?${buildQuery(filters)}`),
@@ -109,5 +111,10 @@ export const api = {
     request<ScheduleResponse>('/api/automation/schedule', {
       method: 'PUT',
       body: JSON.stringify({ hours_local: hoursLocal }),
+    }),
+  setTrigger: (enabled: boolean) =>
+    request<TriggerResponse>('/api/automation/trigger', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
 };
