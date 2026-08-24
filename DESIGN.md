@@ -25,8 +25,8 @@ expression. Brand lives in the precision of the details.
 2. A tab's count must equal the list it opens. This is the reason the score buckets
    filter on score alone (D23 notes; `views.ts`).
 3. Colour is meaning. Status colour never appears without a word beside it.
-4. Controls sit beside what they change — Settings is a left column, not a drawer
-   over the results it filters.
+4. One piece of chrome never moves. Everything else may collapse, slide or scroll;
+   the rail does not, which is what makes Settings findable at all.
 5. Nothing is discarded, and the page says so where it could be doubted.
 
 ## Palette
@@ -91,19 +91,28 @@ in a card. Nothing else in a card exceeds 0.875rem.
 ## Space and layout
 
 ```
-shell   max-width 1440px, padding clamp(12px, 2.2vw, 28px)
-grid    [316px sidebar] [1fr results], 14px gap, collapsible
+rail    62px, fixed, full height — permanent
+slideout 340px, fixed beside the rail, slides on translateX
+shell   max-width 1440px, padded past the rail
 radius  12 / 8 / 6px
 rhythm  4 6 8 10 12 14 18 24
 ```
 
-Top to bottom: **topbar** (identity, last fetch, Re-score, Fetch, theme) →
-**tiles**, full width → then the two columns: **Settings** on the left,
-**sources → toolbar → results → pager → runs** on the right.
+A **permanent 62px rail** holds the product mark at the top and, pinned to the
+bottom by a flex gap, the **Settings** tab carrying a badge of how many filters
+are active. Clicking it slides the settings panel out from behind the rail.
 
-The tiles stay full-width above the split because they describe the whole corpus,
-not the filtered view. Settings is sticky and independently scrollable; the toolbar
-is sticky too, because scrolling a long list away from its own controls is what
+Everything else is one column inside the shell: **topbar** → **tiles** →
+**sources** → **toolbar** → **results** → **pager** → **runs**.
+
+The slide-out carries **no blocking scrim** on purpose. It covers the left of the
+page, but the results stay visible and clickable to its right, so a filter can be
+watched taking effect while it is still being set — which is the whole reason to
+open it. Escape closes it, as does the tab it came from. While shut it is
+`visibility: hidden` (delayed to the end of the slide), because a panel merely
+translated off-screen still holds its tab stops.
+
+The toolbar is sticky: scrolling a long list away from its own controls is what
 makes a results page feel like a document instead of a tool.
 
 ## Elevation

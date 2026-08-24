@@ -186,6 +186,11 @@ Dependencies are **`react` + `react-dom` only**. `vitest` is a devDependency.
 Adding anything else needs a record in `docs/DECISIONS.md`.
 
 - Desktop only, confirmed. A narrow window must degrade, not break; no phone polish.
+- **Settings lives in the permanent left rail, pinned to its bottom**, and slides
+  out from there. It is not a right drawer and not an inline column — both were
+  built and both were rejected. The slide-out has no scrim so the results stay
+  live beside it, and it goes `visibility: hidden` when shut, because a panel
+  translated off-screen keeps its tab stops.
 - **Dark is the default**, on bare `:root`; light is the `[data-theme="light"]`
   override. Preferences live under `tender-monitor:preferences:v2` — v1 is ignored
   on purpose, because its default was `system` and reading it back overrode the new

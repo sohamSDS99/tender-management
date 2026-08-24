@@ -40,6 +40,7 @@ import { LinkBase } from '../components/LinkBase';
 import { Masthead } from '../components/Masthead';
 import { Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
+import { Rail } from '../components/Rail';
 import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
@@ -336,6 +337,17 @@ export function Dashboard() {
 
   const settingsOpen = preferences.settingsOpen;
 
+  // Escape closes the slide-out — but not while the detail drawer is up, which
+  // owns Escape for itself and is stacked above it.
+  useEffect(() => {
+    if (!settingsOpen || selectedId !== null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') update({ settingsOpen: false });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [settingsOpen, selectedId, update]);
+
   return (
     <>
       <div className="shell">
@@ -358,128 +370,125 @@ export function Dashboard() {
           onShowSources={() => setSourcesOpen(true)}
         />
 
-        <div className={`layout${settingsOpen ? '' : ' is-collapsed'}`}>
-          {settingsOpen ? (
-            <SettingsPanel
-              filters={filters}
-              stats={stats}
-              sources={sources}
-              total={page?.total ?? 0}
-              theme={preferences.theme}
-              density={preferences.density}
-              pageSize={filters.page_size}
-              onChange={onChange}
-              onReset={clearAll}
-              onClose={() => update({ settingsOpen: false })}
-              onTheme={(next: Theme) => update({ theme: next })}
-              onDensity={(next: Density) => update({ density: next })}
-              onPageSize={(size) => onChange({ page_size: size })}
-              automation={
-                <>
-                  <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
-                  <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
-                  {automation ? <LinkBase url={automation.public_app_url} /> : null}
-                </>
-              }
-            />
+        <div className="col">
+          <SourcesPanel
+            sources={sources}
+            open={sourcesOpen}
+            onToggle={setSourcesOpen}
+            lastSweepAt={automation?.last_run?.started_at ?? null}
+            busySource={busySource}
+            onFetchSource={(name) => void runAction('fetch', name)}
+          />
+
+          <Toolbar
+            filters={filters}
+            stats={stats}
+            viewContext={viewContext}
+            activeView={currentView}
+            bucketCounts={bucketCounts}
+            onSearch={(query) => onChange({ query })}
+            onSort={(sort) => onChange({ sort })}
+            onSelectView={selectView}
+            onClearAll={clearAll}
+            chips={extraChips.map((chip) => ({
+              label: chip.label,
+              onRemove: () => onChange(chip.clear),
+            }))}
+          />
+
+          {actionMessage ? (
+            <p
+              className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
+              role="status"
+            >
+              {actionMessage.text}
+            </p>
           ) : null}
 
-          <div className="col">
-            <SourcesPanel
-              sources={sources}
-              open={sourcesOpen}
-              onToggle={setSourcesOpen}
-              lastSweepAt={automation?.last_run?.started_at ?? null}
-              busySource={busySource}
-              onFetchSource={(name) => void runAction('fetch', name)}
-            />
+          <Notice automation={automation} />
 
-            <Toolbar
-              filters={filters}
-              stats={stats}
-              viewContext={viewContext}
-              activeView={currentView}
-              bucketCounts={bucketCounts}
-              activeFilterCount={activeFilterCount(filters)}
-              settingsOpen={settingsOpen}
-              onSearch={(query) => onChange({ query })}
-              onSort={(sort) => onChange({ sort })}
-              onToggleSettings={() => update({ settingsOpen: !settingsOpen })}
-              onSelectView={selectView}
-              onClearAll={clearAll}
-              chips={extraChips.map((chip) => ({
-                label: chip.label,
-                onRemove: () => onChange(chip.clear),
-              }))}
-            />
+          <main>
+            {bucketNote ? <BucketNote text={bucketNote} /> : null}
 
-            {actionMessage ? (
-              <p
-                className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
-                role="status"
-              >
-                {actionMessage.text}
-              </p>
-            ) : null}
-
-            <Notice automation={automation} />
-
-            <main>
-              {bucketNote ? <BucketNote text={bucketNote} /> : null}
-
-              <div className="results__head">
-                <h2 aria-live="polite">
-                  {/* Suppressed while erroring: the last successful count is stale,
+            <div className="results__head">
+              <h2 aria-live="polite">
+                {/* Suppressed while erroring: the last successful count is stale,
                       and showing "6 tenders" above "cannot reach the API"
                       contradicts itself. */}
-                  {page && !error ? (
-                    <>
-                      {page.total.toLocaleString('en-GB')} {page.total === 1 ? 'tender' : 'tenders'}
-                      {page.pages > 1 ? (
-                        <span className="muted">
-                          {' '}
-                          · page {page.page} of {page.pages}
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    ' '
-                  )}
-                </h2>
-              </div>
+                {page && !error ? (
+                  <>
+                    {page.total.toLocaleString('en-GB')} {page.total === 1 ? 'tender' : 'tenders'}
+                    {page.pages > 1 ? (
+                      <span className="muted">
+                        {' '}
+                        · page {page.page} of {page.pages}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  ' '
+                )}
+              </h2>
+            </div>
 
-              <TenderList
-                tenders={items}
-                loading={loading}
-                error={error}
-                unreachable={unreachable}
-                selectedId={selectedId}
-                newSince={viewContext.lastRunAt}
-                filterCount={activeFilterCount(filters)}
-                total={page?.total ?? 0}
-                storedTotal={stats?.total_tenders ?? 0}
-                bands={bands}
-                sourceLabel={sourceLabel}
-                categoryLabel={categoryLabel}
-                onSelect={setSelectedId}
-                onRetry={() => setReloadToken((v) => v + 1)}
-                onClearFilters={clearAll}
-                onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-                onShowAll={() => selectView('all')}
-              />
+            <TenderList
+              tenders={items}
+              loading={loading}
+              error={error}
+              unreachable={unreachable}
+              selectedId={selectedId}
+              newSince={viewContext.lastRunAt}
+              filterCount={activeFilterCount(filters)}
+              total={page?.total ?? 0}
+              storedTotal={stats?.total_tenders ?? 0}
+              bands={bands}
+              sourceLabel={sourceLabel}
+              categoryLabel={categoryLabel}
+              onSelect={setSelectedId}
+              onRetry={() => setReloadToken((v) => v + 1)}
+              onClearFilters={clearAll}
+              onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
+              onShowAll={() => selectView('all')}
+            />
 
-              {page && !error ? (
-                <Pager
-                  page={page}
-                  onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))}
-                />
-              ) : null}
-            </main>
+            {page && !error ? (
+              <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
+            ) : null}
+          </main>
 
-            <RunsTable runs={runs} sourceLabel={sourceLabel} />
-          </div>
+          <RunsTable runs={runs} sourceLabel={sourceLabel} />
         </div>
       </div>
+
+      <Rail
+        settingsOpen={settingsOpen}
+        activeFilterCount={activeFilterCount(filters)}
+        onToggleSettings={() => update({ settingsOpen: !settingsOpen })}
+      />
+
+      <SettingsPanel
+        open={settingsOpen}
+        filters={filters}
+        stats={stats}
+        sources={sources}
+        total={page?.total ?? 0}
+        theme={preferences.theme}
+        density={preferences.density}
+        pageSize={filters.page_size}
+        onChange={onChange}
+        onReset={clearAll}
+        onClose={() => update({ settingsOpen: false })}
+        onTheme={(next: Theme) => update({ theme: next })}
+        onDensity={(next: Density) => update({ density: next })}
+        onPageSize={(size) => onChange({ page_size: size })}
+        automation={
+          <>
+            <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
+            <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
+            {automation ? <LinkBase url={automation.public_app_url} /> : null}
+          </>
+        }
+      />
 
       <div
         className={`scrim${selectedId !== null ? ' is-on' : ''}`}

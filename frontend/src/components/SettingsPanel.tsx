@@ -66,18 +66,19 @@ const PRESETS: {
 ];
 
 /**
- * Settings: filters, display, and the automation controls, as a persistent left
- * column.
+ * Settings: filters, display, and the automation controls.
  *
- * It is a column and not the mockup's right-hand drawer because a drawer covers
- * the list it filters — you cannot see the effect of a change while making it.
- * That was the specific complaint about the version before this one.
+ * Slides out of the permanent left rail. It carries no blocking scrim on purpose:
+ * it covers the left of the page, but the results stay visible and clickable to
+ * its right, so a filter can be watched taking effect while it is still being set.
+ * Escape closes it, as does the rail tab it came out of.
  *
  * The automation controls are passed in rather than built here: pausing the sweep
  * and setting its times are already-shipped, already-tested components whose
  * behaviour is deliberately unchanged (D19, D21).
  */
 export function SettingsPanel({
+  open,
   filters,
   stats,
   sources,
@@ -93,6 +94,7 @@ export function SettingsPanel({
   onDensity,
   onPageSize,
 }: {
+  open: boolean;
   filters: TenderFilters;
   stats: Stats | null;
   sources: SourceStatus[];
@@ -123,7 +125,15 @@ export function SettingsPanel({
   const isDefault = isDefaultFilters(filters);
 
   return (
-    <aside className="sidebar" aria-label="Settings">
+    <aside
+      id="settings-slideout"
+      className={`slideout${open ? ' is-on' : ''}`}
+      aria-label="Settings"
+      // The stylesheet also sets visibility:hidden once the close transition has
+      // finished, which is what actually removes the shut panel's controls from
+      // tab order — a panel translated off-screen still holds its tab stops.
+      aria-hidden={!open}
+    >
       <header className="panelhead">
         <div>
           <h2>Settings</h2>
@@ -141,7 +151,7 @@ export function SettingsPanel({
         </button>
       </header>
 
-      <div className="panelbody">
+      <div className="slideout__body">
         <div className="presets">
           {PRESETS.map((preset) => (
             <button

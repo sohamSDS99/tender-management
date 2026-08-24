@@ -30,11 +30,8 @@ export function Toolbar({
   viewContext,
   activeView,
   bucketCounts,
-  activeFilterCount,
-  settingsOpen,
   onSearch,
   onSort,
-  onToggleSettings,
   onSelectView,
   onClearAll,
   chips,
@@ -44,11 +41,8 @@ export function Toolbar({
   viewContext: ViewContext;
   activeView: ViewKey | null;
   bucketCounts: Partial<Record<ViewKey, number | null>>;
-  activeFilterCount: number;
-  settingsOpen: boolean;
   onSearch: (query: string) => void;
   onSort: (sort: SortOption) => void;
-  onToggleSettings: () => void;
   onSelectView: (key: ViewKey) => void;
   onClearAll: () => void;
   /** Removable summaries of what is currently narrowing the list. */
@@ -100,19 +94,6 @@ export function Toolbar({
             ))}
           </select>
         </div>
-
-        <div className="toolbar__sep" aria-hidden="true" />
-
-        <button
-          type="button"
-          className={`btn${settingsOpen ? '' : ' btn--primary'}`}
-          aria-expanded={settingsOpen}
-          onClick={onToggleSettings}
-        >
-          <Icon name="settings" size={15} />
-          Settings
-          {activeFilterCount > 0 ? <span className="btn__count">{activeFilterCount}</span> : null}
-        </button>
       </div>
 
       {chips.length > 0 ? (
