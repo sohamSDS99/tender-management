@@ -175,6 +175,8 @@ class SlackState(BaseModel):
     sent_in_last_batch: int = 0
     channel_label: str | None = None
     min_score: int | None = None
+    #: Which delivery path is in force: "bot_token", "webhook" or "none".
+    transport: str = "none"
 
 
 class LastRunError(BaseModel):

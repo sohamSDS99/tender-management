@@ -847,6 +847,86 @@ meant to make safe).
 
 ---
 
+## D22 — Two Slack transports, and the Web API's 200 is not success
+
+**Decision.** The digest can be delivered either by `chat.postMessage` with a bot
+token or by an incoming webhook. Which one is in force is **derived**, not
+configured: `Settings.slack_transport` returns `bot_token` when
+`SLACK_BOT_TOKEN` *and* `SLACK_CHANNEL_ID` are both set, `webhook` when
+`SLACK_WEBHOOK_URL` is, and `none` otherwise. A bot token wins when both are
+available. `post_digest()` is the single call site; `post_webhook()` is unchanged.
+
+Carried by `app/settings/config.py` (`slack_transport`, `slack_configured`,
+`SECRET_FIELDS`), `app/services/notifier.py` (`post_chat_message`,
+`_web_api_result`, `post_digest`), and `app/services/automation.py` (the
+dashboard reports which transport is live).
+
+**Why derived rather than a `SLACK_TRANSPORT` env var.** A third variable makes
+combinations that lie possible — `SLACK_TRANSPORT=bot_token` with no token set,
+or `webhook` with no URL. Deriving it means the configuration cannot claim a
+capability it does not have, and the dashboard reports the transport it resolved
+to rather than the one someone typed.
+
+**Why a bot token wins over a webhook.** It is the revocable one. An incoming
+webhook URL *is* its own credential: it cannot be rotated without re-issuing it,
+and anyone who has ever seen the URL can post to that channel for ever. A bot
+token can be revoked and reissued without touching the channel, and its scopes
+are visible and auditable in Slack.
+
+**The defect this decision exists to prevent.** The Slack Web API answers
+**HTTP 200 with `{"ok": false, "error": "..."}`** for almost every failure —
+`channel_not_found`, `not_in_channel`, `missing_scope`, `invalid_auth`. The
+existing webhook code treats `status_code < 400` as delivered, and reusing that
+test would have been catastrophic rather than merely wrong: the ledger writes
+`sent`, and the unique constraint on `(tender_id, channel_label)` (D6) means the
+tender can then **never be announced again**. A silent, permanent loss of exactly
+the notices the product exists to surface. `_web_api_result()` reads the body and
+treats a non-JSON response as failure too, because that is what an HTML error page
+from a proxy in front of Slack looks like.
+
+**Retry policy is deliberately identical to the webhook's**, including the part
+that looks over-cautious. A transport error is not retried, because
+`chat.postMessage` has no idempotency key either and the request may already have
+been delivered; it returns `(None, error)` so the caller records UNCONFIRMED
+rather than FAILED (D15). Throttling is retried whether it arrives as a 429 or as
+`ok: false, error: ratelimited`. A configuration fault is never retried — a
+`channel_not_found` will not become found, and retrying only delays the report the
+operator needs.
+
+**Posting identity.** `SLACK_BOT_USERNAME` and `SLACK_BOT_ICON_EMOJI` override the
+name a digest arrives under, because a Slack app is often created for something
+else and its bot user is named accordingly. A tender digest arriving under the
+name of whatever the app was originally built for reads as a different system
+misfiring, and that is what happened here before these were set. Requires the `chat:write.customize` scope; both are
+only sent when non-empty, so clearing them falls back to the app's own identity
+rather than posting a blank name.
+
+**Consequences / accepted risk.**
+
+* **`SLACK_CHANNEL_LABEL` is both a display string and the ledger key**, so
+  changing it makes already-announced tenders eligible again. That is right for a
+  genuinely new destination — the new channel has not seen them — and wrong as a
+  rename, where it re-announces everything still inside
+  `SLACK_ANNOUNCE_LOOKBACK_HOURS`. Change the label when the channel changes, not
+  when its name does.
+* **Only the bot token is needed to send.** A Slack app also issues a signing
+  secret, a verification token and an OAuth client id/secret; none of them are
+  used here, because this product only ever *sends*. They matter for receiving
+  requests from Slack — slash commands, events, interactivity — which the product
+  does not do, and adding them would mean exposing an endpoint to the internet
+  against D5 and D18.
+* **A bot token can post where a webhook could not.** `chat:write.public` lets it
+  post to any public channel without being invited, so a mistyped
+  `SLACK_CHANNEL_ID` fails loudly with `channel_not_found` rather than quietly
+  posting somewhere unintended — but the blast radius of a *valid* wrong ID is a
+  digest in the wrong channel. The ID is checked against `conversations.list`
+  during setup; see docs/RUNBOOK.md section 4b.
+* **Half-configured fails closed.** A bot token with no channel resolves to
+  `none`, not to `bot_token`, so it refuses to send rather than guessing a
+  destination.
+
+---
+
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their
@@ -856,8 +936,13 @@ meant to make safe).
   shared secret (D5).
 * **No cloud deployment.** The deployment is the local Compose stack (D1); Railway was
   rejected (D4).
-* **No Neon, Slack or repository-secret provisioning.** Every config file, command and
+* **No Neon or repository-secret provisioning.** Every config file, command and
   secret name is in place (`.env.example`, `docker-compose.yml`,
   `.github/workflows/scheduled-fetch.yml`), and `CRON_SECRET` can be generated locally,
-  but creating a Neon project, a Slack incoming webhook or a GitHub Actions secret
-  requires the user's own credentials.
+  but creating a Neon project or a GitHub Actions secret requires the user's own
+  credentials. *Slack is now provisioned* — a bot token posting to a private
+  channel in the company workspace; the token and channel live in `.env`, which is
+  gitignored, and are not named here because this repository is public (D22).
+* **No inbound Slack.** Slash commands, events and interactivity are not
+  implemented, so the app's signing secret and verification token are unused. The
+  product only sends (D22).
