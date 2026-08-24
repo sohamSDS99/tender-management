@@ -65,6 +65,8 @@ export function buildQuery(filters: TenderFilters): string {
   if (filters.deadline_to) params.set('deadline_to', `${filters.deadline_to}T23:59:59`);
   if (filters.published_from) params.set('published_from', `${filters.published_from}T00:00:00`);
   if (filters.published_to) params.set('published_to', `${filters.published_to}T23:59:59`);
+  // Already a full instant, not a day: it comes from the last run's start.
+  if (filters.first_seen_from) params.set('first_seen_from', filters.first_seen_from);
   if (filters.active_only) params.set('active_only', 'true');
   if (filters.has_deadline !== null) params.set('has_deadline', String(filters.has_deadline));
   params.set('sort', filters.sort);

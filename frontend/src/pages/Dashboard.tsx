@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError } from '../api/client';
+import { ApiError, api } from '../api/client';
 import type {
   AutomationStatus,
   FetchRun,
@@ -14,26 +14,27 @@ import {
   filtersFromSearch,
   searchFromFilters,
 } from '../state/urlFilters';
+import { OWNED, VIEWS, activeView, type ViewContext, type ViewKey } from '../state/views';
 import { resolveTheme, usePreferences } from '../state/preferences';
-import { deploymentLabel, fitLabel, pluralise } from '../labels';
-import { AutomationNote } from '../components/AutomationNote';
-import { DetailDrawer } from '../components/DetailDrawer';
+import { deploymentLabel, fitLabel } from '../labels';
+import { DetailPanel } from '../components/DetailPanel';
+import { Filters } from '../components/Filters';
+import { Masthead } from '../components/Masthead';
+import { Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
-import { RunsTable } from '../components/RunsTable';
-import { SettingsDrawer } from '../components/SettingsDrawer';
-import { SourceStrip } from '../components/SourceStrip';
-import { StatTiles } from '../components/StatTiles';
+import { SystemSection } from '../components/SystemSection';
 import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
-import { TopBar } from '../components/TopBar';
+import { Views } from '../components/Views';
+import { Icon } from '../components/Icon';
 
 /**
- * The whole filter set lives in the URL (delta 10), so a view is shareable and
- * survives a refresh - and so the Slack digest can link straight to a filtered
- * dashboard, not just to `?tender=<id>`.
+ * The whole filter set lives in the URL, so any view is shareable and survives a
+ * refresh — and so a Slack digest can link to a filtered dashboard, not only to
+ * `?tender=<id>`.
  *
- * There is no control anywhere on this page that starts a fetch. The sweep runs
- * at 00:00 and 12:00 Asia/Dhaka; the header reports it.
+ * Nothing here can start a fetch. Sweeps run at 00:00 and 12:00 Asia/Dhaka; the
+ * masthead reports them.
  */
 const initial = filtersFromSearch(window.location.search);
 
@@ -50,11 +51,9 @@ export function Dashboard() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const { preferences, update: setPreferences, toggleTheme } = usePreferences();
-
+  const { preferences, toggleTheme } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
@@ -66,7 +65,6 @@ export function Dashboard() {
     }
   }, [filters, selectedId]);
 
-  // Back / forward must restore the view the reader expects.
   useEffect(() => {
     const onPop = () => {
       const parsed = filtersFromSearch(window.location.search);
@@ -77,9 +75,8 @@ export function Dashboard() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Typing debounces; every other change applies at once.
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(filters), filters.query ? 300 : 0);
+    const timer = window.setTimeout(() => setDebounced(filters), filters.query ? 280 : 0);
     return () => window.clearTimeout(timer);
   }, [filters]);
 
@@ -89,7 +86,7 @@ export function Dashboard() {
     setLoading(true);
     try {
       const result = await api.tenders(current);
-      if (id !== requestId.current) return; // a newer request already won
+      if (id !== requestId.current) return;
       setPage(result);
       setError(null);
     } catch (err) {
@@ -121,12 +118,29 @@ export function Dashboard() {
     void loadMeta();
   }, [loadMeta, reloadToken]);
 
-  // --- filter helpers -----------------------------------------------------
+  // --- filters and views --------------------------------------------------
   const onChange = useCallback((patch: Partial<TenderFilters>) => {
     setFilters((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
   }, []);
 
   const clearAll = useCallback(() => setFilters(DEFAULT_FILTERS), []);
+
+  const viewContext: ViewContext = useMemo(
+    () => ({
+      lastRunAt: automation?.last_run?.started_at ?? null,
+      goodFitBand: stats?.score_bands?.good_fit ?? 70,
+    }),
+    [automation, stats],
+  );
+
+  const selectView = useCallback(
+    (key: ViewKey) => {
+      const view = VIEWS.find((v) => v.key === key);
+      if (!view) return;
+      setFilters({ ...DEFAULT_FILTERS, ...view.patch(viewContext), page: 1 });
+    },
+    [viewContext],
+  );
 
   const chips = useMemo(
     () =>
@@ -148,7 +162,7 @@ export function Dashboard() {
       ? { index: (page.page - 1) * page.page_size + selectedIndex + 1, total: page.total }
       : null;
 
-  const goRelative = useCallback(
+  const step = useCallback(
     (delta: number) => {
       if (selectedIndex < 0) return;
       const next = items[selectedIndex + delta];
@@ -157,113 +171,99 @@ export function Dashboard() {
     [items, selectedIndex],
   );
 
-  const failed = useMemo(
-    () => sources.filter((s) => s.unavailable_reason || s.last_status === 'failed'),
-    [sources],
+  const theme = resolveTheme(preferences.theme);
+  // While a view tab is lit it already says what is being filtered, so neither
+  // the chip row nor the Filters badge should repeat it. What they must still
+  // show is anything the user narrowed *beyond* the view — a source, a country —
+  // because that is invisible otherwise.
+  const currentView = activeView(filters, viewContext);
+  const extraChips = useMemo(
+    () => (currentView ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips),
+    [chips, currentView],
   );
-  const failedSummary = failed.length
-    ? failed.map((s) => `${s.display_name} — ${s.unavailable_reason ?? 'last run failed'}`)[0]
-    : 'Every connector reporting healthy';
-
-  const lastRunStartedAt = automation?.last_run?.started_at ?? null;
-  // 'system' has to be resolved here or the toggle shows the wrong icon.
-  const resolvedTheme = resolveTheme(preferences.theme);
 
   return (
     <>
-      <div className="shell">
-        <TopBar automation={automation} onToggleTheme={toggleTheme} theme={resolvedTheme} />
+      <div className="page">
+        <Masthead automation={automation} theme={theme} onToggleTheme={toggleTheme} />
 
-        <AutomationNote automation={automation} />
-
-        <StatTiles
-          stats={stats}
-          filters={filters}
-          onApply={onChange}
-          onShowSources={() => setSourcesOpen(true)}
-          failedSources={failed.length}
-          failedSummary={failedSummary}
-        />
-
-        <SourceStrip
-          sources={sources}
-          open={sourcesOpen}
-          onToggle={() => setSourcesOpen((v) => !v)}
-          loading={loading}
-        />
+        <Views filters={filters} stats={stats} context={viewContext} onSelect={selectView} />
 
         <Toolbar
           filters={filters}
-          chips={chips}
-          activeCount={chips.length}
+          chips={extraChips}
+          filtersOpen={filtersOpen}
           onChange={onChange}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onClearAll={clearAll}
+          onToggleFilters={() => setFiltersOpen((open) => !open)}
         />
 
-        <main>
-          <div className="results__head">
-            <h2 aria-live="polite">
-              {page
-                ? `${page.total.toLocaleString('en-GB')} matching ${pluralise(page.total, 'tender')}`
-                : 'Tenders'}
-              {page && page.pages > 1 ? (
-                <span className="muted">
-                  {' '}
-                  · page {page.page} of {page.pages}
-                </span>
-              ) : null}
-            </h2>
+        {filtersOpen ? (
+          <Filters
+            filters={filters}
+            stats={stats}
+            sources={sources}
+            total={page?.total ?? 0}
+            onChange={onChange}
+            onReset={clearAll}
+            onClose={() => setFiltersOpen(false)}
+          />
+        ) : extraChips.length > 0 ? (
+          <div className="active">
+            {extraChips.map((chip) => (
+              <span className="fchip" key={chip.key}>
+                {chip.label}
+                <button
+                  type="button"
+                  aria-label={`Remove filter: ${chip.label}`}
+                  onClick={() => onChange(chip.clear)}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </span>
+            ))}
           </div>
+        ) : null}
+
+        <Notice automation={automation} />
+
+        <main>
+          <p className="count" aria-live="polite">
+            {page
+              ? `${page.total.toLocaleString('en-GB')} ${page.total === 1 ? 'tender' : 'tenders'}`
+              : ' '}
+          </p>
 
           <TenderList
             tenders={items}
             loading={loading}
             error={error}
             selectedId={selectedId}
-            newSince={lastRunStartedAt}
-            activeFilterCount={chips.length}
+            newSince={viewContext.lastRunAt}
+            filterCount={extraChips.length}
             onSelect={setSelectedId}
             onRetry={() => setReloadToken((v) => v + 1)}
             onClearFilters={clearAll}
-            onLowerScore={() => onChange({ minimum_score: 25 })}
           />
 
           {page && !loading && !error ? (
             <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
           ) : null}
-
-          <RunsTable runs={runs} />
         </main>
+
+        <SystemSection automation={automation} sources={sources} runs={runs} />
       </div>
 
       <div
-        className={`scrim${settingsOpen || selectedId !== null ? ' is-on' : ''}`}
-        onClick={() => {
-          if (selectedId !== null) setSelectedId(null);
-          else setSettingsOpen(false);
-        }}
+        className={`scrim${selectedId !== null ? ' is-on' : ''}`}
+        onClick={() => setSelectedId(null)}
       />
 
-      <SettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        filters={filters}
-        stats={stats}
-        sources={sources}
-        preferences={preferences}
-        total={page?.total ?? 0}
-        onChange={onChange}
-        onPreferences={setPreferences}
-        onReset={clearAll}
-      />
-
-      <DetailDrawer
+      <DetailPanel
         tenderId={selectedId}
         position={position}
         onClose={() => setSelectedId(null)}
-        onPrev={() => goRelative(-1)}
-        onNext={() => goRelative(1)}
+        onPrev={() => step(-1)}
+        onNext={() => step(1)}
         hasPrev={selectedIndex > 0}
         hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
       />

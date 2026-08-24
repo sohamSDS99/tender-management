@@ -268,3 +268,30 @@ def test_stats_summarise_the_dashboard(client, seeded):
     assert "GB" in stats["countries"]
     assert stats["score_bands"]["excellent_fit"] == 85
     assert len(stats["categories"]) == 8
+
+
+def test_first_seen_from_filters_on_discovery_time(client, seeded, db_session) -> None:
+    """The "what arrived recently" filter behind the New view.
+
+    first_seen_at is written once at insert and never touched again, so this
+    selects by when we discovered a notice - not when the buyer amended it.
+    """
+    from app.models import Tender
+
+    rows = db_session.query(Tender).order_by(Tender.id).all()
+    old, recent = rows[0], rows[1]
+    old.first_seen_at = NOW - timedelta(days=10)
+    recent.first_seen_at = NOW - timedelta(hours=2)
+    db_session.commit()
+
+    cutoff = (NOW - timedelta(days=1)).isoformat()
+    items = client.get(f"/api/tenders?minimum_score=0&first_seen_from={cutoff}&page_size=50").json()["items"]
+    ids = {i["id"] for i in items}
+    assert recent.id in ids
+    assert old.id not in ids
+
+
+def test_first_seen_from_is_optional(client, seeded) -> None:
+    """Omitting it must not narrow anything."""
+    everything = client.get("/api/tenders?minimum_score=0&page_size=50").json()["total"]
+    assert client.get("/api/tenders?minimum_score=0&page_size=50").json()["total"] == everything

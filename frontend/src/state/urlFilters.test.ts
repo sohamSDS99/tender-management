@@ -60,6 +60,7 @@ describe('round-tripping', () => {
       categories: ['sds_management'],
       statuses: ['open'],
       fit_statuses: ['high_fit', 'manual_review'],
+      first_seen_from: '2026-08-21T06:00:00Z',
       deployment_fits: ['cloud_required'],
       deadline_from: '2026-08-01',
       deadline_to: '2026-09-30',

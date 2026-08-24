@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Density, Preferences, Theme } from '../types';
+import type { Preferences, Theme } from '../types';
 
 /**
  * Theme and card density.
@@ -11,14 +11,10 @@ import type { Density, Preferences, Theme } from '../types';
  */
 const STORAGE_KEY = 'tender-monitor:preferences';
 
-export const DEFAULT_PREFERENCES: Preferences = { theme: 'system', density: 'comfortable' };
+export const DEFAULT_PREFERENCES: Preferences = { theme: 'system' };
 
 function isTheme(value: unknown): value is Theme {
   return value === 'light' || value === 'dark' || value === 'system';
-}
-
-function isDensity(value: unknown): value is Density {
-  return value === 'comfortable' || value === 'compact';
 }
 
 export function readPreferences(): Preferences {
@@ -26,10 +22,7 @@ export function readPreferences(): Preferences {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFERENCES;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
-    return {
-      theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFERENCES.theme,
-      density: isDensity(parsed.density) ? parsed.density : DEFAULT_PREFERENCES.density,
-    };
+    return { theme: isTheme(parsed.theme) ? parsed.theme : DEFAULT_PREFERENCES.theme };
   } catch {
     // A private-mode browser or a corrupt value must not stop the app rendering.
     return DEFAULT_PREFERENCES;
@@ -50,7 +43,6 @@ export function usePreferences() {
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = resolveTheme(preferences.theme);
-    root.dataset.density = preferences.density;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
     } catch {

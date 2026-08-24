@@ -186,6 +186,8 @@ export interface TenderFilters {
   deployment_fits: DeploymentFit[];
   deadline_from: string;
   deadline_to: string;
+  /** ISO instant. Powers the New view: when we first discovered the notice. */
+  first_seen_from: string;
   published_from: string;
   published_to: string;
   active_only: boolean;
@@ -196,9 +198,7 @@ export interface TenderFilters {
 }
 
 export type Theme = 'light' | 'dark' | 'system';
-export type Density = 'comfortable' | 'compact';
 
 export interface Preferences {
   theme: Theme;
-  density: Density;
 }

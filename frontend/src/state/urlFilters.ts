@@ -42,10 +42,14 @@ export const DEPLOYMENT_FITS: DeploymentFit[] = [
   'offline_or_air_gapped',
 ];
 
-/** Default view: open opportunities scoring 50 or higher. */
+/**
+ * The default *is* the "Needs attention" view, so a tab is lit on first load and
+ * the page opens on the question a bidder actually arrives with. 70 is the
+ * engine's good-fit band; the view re-derives it from /api/stats once loaded.
+ */
 export const DEFAULT_FILTERS: TenderFilters = {
   query: '',
-  minimum_score: 50,
+  minimum_score: 70,
   maximum_score: 100,
   sources: [],
   countries: [],
@@ -55,6 +59,7 @@ export const DEFAULT_FILTERS: TenderFilters = {
   deployment_fits: [],
   deadline_from: '',
   deadline_to: '',
+  first_seen_from: '',
   published_from: '',
   published_to: '',
   active_only: true,
@@ -82,6 +87,12 @@ function positiveInt(raw: string | null, fallback: number, max = Number.MAX_SAFE
 
 function date(raw: string | null): string {
   return raw && DATE.test(raw) ? raw : '';
+}
+
+/** A full ISO instant, kept only if the browser can actually parse it. */
+function instant(raw: string | null): string {
+  if (!raw) return '';
+  return Number.isNaN(new Date(raw).getTime()) ? '' : raw;
 }
 
 function bool(raw: string | null, fallback: boolean): boolean {
@@ -124,6 +135,7 @@ export function filtersFromSearch(search: string): {
       statuses: all('statuses'),
       fit_statuses: subset(all('fit_statuses'), FIT_STATUSES),
       deployment_fits: subset(all('deployment_fits'), DEPLOYMENT_FITS),
+      first_seen_from: instant(params.get('first_seen_from')),
       deadline_from: date(params.get('deadline_from')),
       deadline_to: date(params.get('deadline_to')),
       published_from: date(params.get('published_from')),
@@ -154,6 +166,7 @@ export function searchFromFilters(filters: TenderFilters, tenderId: number | nul
   filters.statuses.forEach((v) => params.append('statuses', v));
   filters.fit_statuses.forEach((v) => params.append('fit_statuses', v));
   filters.deployment_fits.forEach((v) => params.append('deployment_fits', v));
+  if (filters.first_seen_from) params.set('first_seen_from', filters.first_seen_from);
   if (filters.deadline_from) params.set('deadline_from', filters.deadline_from);
   if (filters.deadline_to) params.set('deadline_to', filters.deadline_to);
   if (filters.published_from) params.set('published_from', filters.published_from);
@@ -246,6 +259,12 @@ export function activeChips(
       key: 'statuses',
       label: list(filters.statuses, (v) => v),
       clear: { statuses: [] },
+    });
+  if (filters.first_seen_from)
+    chips.push({
+      key: 'first_seen_from',
+      label: 'Found in the last run',
+      clear: { first_seen_from: '' },
     });
   if (filters.deadline_from)
     chips.push({

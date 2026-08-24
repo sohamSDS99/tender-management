@@ -110,6 +110,7 @@ def _apply_filters(
     published_to: datetime | None,
     deadline_from: datetime | None,
     deadline_to: datetime | None,
+    first_seen_from: datetime | None,
     active_only: bool,
     has_deadline: bool | None,
 ) -> Select:
@@ -147,6 +148,10 @@ def _apply_filters(
         stmt = stmt.where(Tender.deadline >= deadline_from)
     if deadline_to:
         stmt = stmt.where(Tender.deadline <= deadline_to)
+    if first_seen_from:
+        # "What arrived recently" - first_seen_at is written once at insert and
+        # never touched again, so this is discovery time, not amendment time.
+        stmt = stmt.where(Tender.first_seen_at >= first_seen_from)
     if has_deadline is True:
         stmt = stmt.where(Tender.deadline.is_not(None))
     if has_deadline is False:
@@ -188,6 +193,9 @@ def list_tenders(
     published_to: datetime | None = None,
     deadline_from: datetime | None = None,
     deadline_to: datetime | None = None,
+    first_seen_from: datetime | None = Query(
+        default=None, description="Only notices first discovered at or after this instant"
+    ),
     active_only: bool = False,
     has_deadline: bool | None = None,
     sort: SortOption = "score_desc",
@@ -208,6 +216,7 @@ def list_tenders(
         published_to=published_to,
         deadline_from=deadline_from,
         deadline_to=deadline_to,
+        first_seen_from=first_seen_from,
         active_only=active_only,
         has_deadline=has_deadline,
     )

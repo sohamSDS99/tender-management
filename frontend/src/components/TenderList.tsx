@@ -12,161 +12,145 @@ import {
 import { Icon } from './Icon';
 
 /**
- * Result cards (delta 6) and the real loading / empty / error states (delta 9).
+ * Hairline-separated rows, not cards.
  *
- * Each card carries the estimated value, a deadline colour-coded at 14 days and
- * 72 hours, a title clamped to two lines, a "New" marker for anything first seen
- * in the last run, and the top relevance reason prefixed with an icon.
+ * Exactly one element per row is loud — the title. Everything else sits at
+ * 0.8125rem in a quieter ink, because the reader is scanning titles and deadlines
+ * and rejecting most of them. Colour appears only where it carries meaning: the
+ * score band, a deadline inside 14 days, a disqualifier.
  */
 export interface TenderListProps {
   tenders: Tender[];
   loading: boolean;
   error: string | null;
   selectedId: number | null;
-  /** Start of the most recent run; anything first seen at or after it is new. */
+  /** Anything first seen at or after this is marked New. */
   newSince: string | null;
-  activeFilterCount: number;
+  filterCount: number;
   onSelect: (id: number) => void;
   onRetry: () => void;
   onClearFilters: () => void;
-  onLowerScore: () => void;
 }
 
-function isNew(tender: Tender, newSince: string | null): boolean {
-  if (!newSince) return false;
-  return new Date(tender.first_seen_at).getTime() >= new Date(newSince).getTime();
-}
+const TONE_CLASS = { green: 'good', amber: 'warn', red: 'bad', grey: 'flat' } as const;
 
-function Skeletons() {
-  return (
-    <div className="list" aria-busy="true" aria-live="polite">
-      <span className="sr">Loading tenders…</span>
-      {[72, 58, 66, 80].map((width, index) => (
-        <div className="skel" key={index}>
-          <div className="sk sk--pill" />
-          <div>
-            <div className="sk sk--h" style={{ width: `${width}%` }} />
-            <div className="sk sk--s" style={{ width: '42%', marginBottom: 8 }} />
-            <div className="sk sk--s" style={{ width: '88%' }} />
-          </div>
-          <div>
-            <div className="sk sk--s" style={{ width: '100%', marginBottom: 8 }} />
-            <div className="sk sk--s" style={{ width: '60%', marginLeft: 'auto' }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ResultCard({
+function Row({
   tender,
   selected,
-  isNewTender,
+  isNew,
   onSelect,
 }: {
   tender: Tender;
   selected: boolean;
-  isNewTender: boolean;
+  isNew: boolean;
   onSelect: (id: number) => void;
 }) {
   const { urgency, label } = deadlineUrgency(tender.deadline);
-  const reason = tender.relevance_reasons[0];
+  const band = scoreTone(tender.relevance_score);
   const disqualifier = tender.disqualifiers[0];
   const flag = tender.review_flags[0];
+  const reason = tender.relevance_reasons[0];
+
+  const meta = [
+    tender.buyer_name,
+    tender.buyer_country,
+    tender.source,
+    tender.publication_date ? `published ${formatDate(tender.publication_date)}` : null,
+  ].filter(Boolean) as string[];
 
   return (
     <button
       type="button"
-      className={`rescard${selected ? ' is-selected' : ''}`}
+      className={`row${selected ? ' is-on' : ''}`}
       onClick={() => onSelect(tender.id)}
-      aria-label={`${tender.title}. Score ${tender.relevance_score}. ${fitLabel(tender.fit_status)}.`}
+      aria-label={`${tender.title}. Score ${tender.relevance_score} of 100. ${fitLabel(
+        tender.fit_status,
+      )}.`}
     >
-      <div>
-        <span className={`score score--${scoreTone(tender.relevance_score)} num`}>
-          {tender.relevance_score}
+      <span className={`score score--${TONE_CLASS[band]}`}>
+        <span className="score__n">{tender.relevance_score}</span>
+        <span className="score__bar">
+          <i style={{ width: `${Math.max(4, tender.relevance_score)}%` }} />
         </span>
-      </div>
+      </span>
 
-      <div>
-        <h3 className="rescard__title">{tender.title || '(untitled notice)'}</h3>
-        <div className="badges">
-          <span className={`badge badge--${fitTone(tender.fit_status)}`}>
-            <Icon
-              name={
-                fitTone(tender.fit_status) === 'green'
-                  ? 'check'
-                  : fitTone(tender.fit_status) === 'amber'
-                    ? 'warning'
-                    : 'cross'
-              }
-              size={11}
-            />
+      <span>
+        <span className="row__title">{tender.title || 'Untitled notice'}</span>
+
+        <span className="row__meta">
+          {meta.map((part, index) => (
+            <span key={`${part}-${index}`}>
+              {index > 0 ? <span className="sep">·&nbsp;</span> : null}
+              {part}
+            </span>
+          ))}
+          <span className={`badge badge--${TONE_CLASS[fitTone(tender.fit_status)]}`}>
             {fitLabel(tender.fit_status)}
           </span>
-          <span className={`badge badge--${deploymentTone(tender.deployment_fit)}`}>
+          <span className={`badge badge--${TONE_CLASS[deploymentTone(tender.deployment_fit)]}`}>
             {deploymentLabel(tender.deployment_fit)}
           </span>
-          {tender.relevance_category ? (
-            <span className="badge badge--line">
-              {tender.relevance_category.replace(/_/g, ' ')}
-            </span>
-          ) : null}
-          {!tender.is_actionable ? <span className="badge badge--grey">Not actionable</span> : null}
-          {isNewTender ? <span className="badge badge--new">New</span> : null}
-        </div>
+          {isNew ? <span className="badge badge--new">New</span> : null}
+          {!tender.is_actionable ? <span className="badge badge--flat">Closed</span> : null}
+        </span>
 
-        <p className="metaline">
-          {tender.buyer_name ? <span>{tender.buyer_name}</span> : null}
-          {tender.buyer_country ? <span>{tender.buyer_country}</span> : null}
-          <span className="mono">{tender.source}</span>
-          {tender.publication_date ? (
-            <span>published {formatDate(tender.publication_date)}</span>
-          ) : null}
-          {tender.procurement_stage ? <span>{tender.procurement_stage}</span> : null}
-        </p>
-
-        {reason ? (
-          <p className="rescard__why">
+        {disqualifier ? (
+          <span className="row__why row__why--bad">
+            <Icon name="block" size={13} />
+            {disqualifier}
+          </span>
+        ) : flag ? (
+          <span className="row__why row__why--warn">
+            <Icon name="warn" size={13} />
+            {flag}
+          </span>
+        ) : reason ? (
+          <span className="row__why">
             <Icon name="check" size={13} />
             {reason}
-          </p>
-        ) : null}
-        {disqualifier ? (
-          <p className="flagline flagline--bad">
-            <Icon name="cross" size={13} />
-            {disqualifier}
-          </p>
-        ) : null}
-        {!disqualifier && flag ? (
-          <p className="flagline flagline--flag">
-            <Icon name="warning" size={13} />
-            {flag}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="rescard__side">
-        <span className={`deadline${urgency === 'none' ? '' : ` deadline--${urgency}`}`}>
-          <b>{tender.deadline ? formatDate(tender.deadline) : '—'}</b>
-          <em>
-            {urgency === 'urgent' || urgency === 'soon' || urgency === 'normal' ? (
-              <Icon name="clock" size={11} />
-            ) : null}
-            {label}
-          </em>
-        </span>
-        <span className={`value${tender.estimated_value === null ? ' muted' : ''}`}>
-          {formatValue(tender.estimated_value, tender.currency)}
-        </span>
-        {tender.source_url ? (
-          <span className="openlink">
-            Original notice
-            <Icon name="external" size={11} />
           </span>
         ) : null}
-      </div>
+      </span>
+
+      <span className="row__side">
+        <span className="row__deadline">{tender.deadline ? formatDate(tender.deadline) : '—'}</span>
+        <span
+          className={`row__left${
+            urgency === 'urgent'
+              ? ' row__left--urgent'
+              : urgency === 'soon'
+                ? ' row__left--soon'
+                : ''
+          }`}
+        >
+          {label}
+        </span>
+        <span className="row__value">{formatValue(tender.estimated_value, tender.currency)}</span>
+      </span>
     </button>
+  );
+}
+
+function Skeletons() {
+  return (
+    <div className="rows" aria-busy="true">
+      <span className="sr">Loading tenders…</span>
+      {[68, 54, 74, 61, 47].map((width, index) => (
+        <div className="skel" key={index}>
+          <div>
+            <div className="sk" style={{ height: 17, marginBottom: 5 }} />
+            <div className="sk" style={{ height: 3 }} />
+          </div>
+          <div>
+            <div className="sk" style={{ height: 15, width: `${width}%`, marginBottom: 8 }} />
+            <div className="sk" style={{ height: 12, width: '38%' }} />
+          </div>
+          <div>
+            <div className="sk" style={{ height: 12, width: '70%', marginLeft: 'auto' }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -176,23 +160,17 @@ export function TenderList({
   error,
   selectedId,
   newSince,
-  activeFilterCount,
+  filterCount,
   onSelect,
   onRetry,
   onClearFilters,
-  onLowerScore,
 }: TenderListProps) {
   if (error) {
     return (
       <div className="state state--error" role="alert">
-        <div className="state__icon">
-          <Icon name="cross" size={22} />
-        </div>
         <h3>Cannot reach the API</h3>
         <p>
-          {error} Start the backend with <code>docker compose up -d</code>, or{' '}
-          <code>uvicorn app.main:app --port 8000</code> from <code>backend/</code>. In development
-          the Vite proxy expects port 8000.
+          {error} Start it with <code>docker compose up -d</code>, then retry.
         </p>
         <div className="state__actions">
           <button type="button" className="btn btn--primary" onClick={onRetry}>
@@ -207,23 +185,17 @@ export function TenderList({
 
   if (tenders.length === 0) {
     return (
-      <div className="state state--empty">
-        <div className="state__icon">
-          <Icon name="search" size={22} />
-        </div>
-        <h3>No tenders match these filters</h3>
+      <div className="state">
+        <h3>Nothing matches</h3>
         <p>
-          {activeFilterCount > 0
-            ? `${activeFilterCount} ${activeFilterCount === 1 ? 'filter is' : 'filters are'} narrowing the results. Try lowering the minimum score or widening the deadline window.`
-            : 'Nothing is stored yet. The next automated run is shown in the header — or run the sweep manually from the runbook.'}
+          {filterCount > 0
+            ? `${filterCount} ${filterCount === 1 ? 'filter is' : 'filters are'} narrowing this down. Clearing them shows everything stored.`
+            : 'Nothing is stored yet. The next sweep is shown at the top of the page.'}
         </p>
-        {activeFilterCount > 0 ? (
+        {filterCount > 0 ? (
           <div className="state__actions">
             <button type="button" className="btn btn--primary" onClick={onClearFilters}>
-              Clear all filters
-            </button>
-            <button type="button" className="btn" onClick={onLowerScore}>
-              Lower minimum score to 25
+              Clear filters
             </button>
           </div>
         ) : null}
@@ -231,14 +203,17 @@ export function TenderList({
     );
   }
 
+  const isNew = (tender: Tender): boolean =>
+    Boolean(newSince) && new Date(tender.first_seen_at).getTime() >= new Date(newSince!).getTime();
+
   return (
-    <div className="list">
+    <div className="rows">
       {tenders.map((tender) => (
-        <ResultCard
+        <Row
           key={tender.id}
           tender={tender}
           selected={tender.id === selectedId}
-          isNewTender={isNew(tender, newSince)}
+          isNew={isNew(tender)}
           onSelect={onSelect}
         />
       ))}
