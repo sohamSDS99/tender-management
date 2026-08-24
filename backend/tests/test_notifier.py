@@ -782,3 +782,224 @@ def test_a_re_observed_notice_is_never_re_announced(db_session, slack_settings) 
     )
     assert again.posted == 0
     assert again.candidates == 0
+
+
+# --- the bot-token transport (docs/DECISIONS.md D22) -----------------------
+
+
+BOT_TOKEN = "xoxb-test-not-a-real-token-0000"
+
+
+def bot_settings(slack_settings):
+    """Same settings, delivering through chat.postMessage instead."""
+    return slack_settings.model_copy(
+        update={"slack_bot_token": BOT_TOKEN, "slack_channel_id": "C0TEST0001", "slack_webhook_url": ""}
+    )
+
+
+def web_api(body: dict, status: int = 200, capture: list | None = None) -> httpx.Client:
+    """A Slack Web API stand-in. Records the request for assertions."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if capture is not None:
+            capture.append(request)
+        return httpx.Response(status, json=body)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_a_200_with_ok_false_is_a_failure_not_a_delivery(slack_settings) -> None:
+    """The whole point of this transport having its own reader.
+
+    chat.postMessage answers 200 for most failures. Trusting the status code
+    would write SENT to the ledger, and the unique constraint (D6) means the
+    tender could then never be announced again - a silent permanent loss.
+    """
+    code, error = notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        web_api({"ok": False, "error": "channel_not_found"}),
+        lambda _: None,
+    )
+    assert code == 200
+    assert error is not None
+    assert "channel_not_found" in error
+
+
+def test_a_missing_scope_names_the_scope_it_needs(slack_settings) -> None:
+    _code, error = notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        web_api({"ok": False, "error": "missing_scope", "needed": "chat:write", "provided": "channels:read"}),
+        lambda _: None,
+    )
+    assert "missing_scope" in error
+    assert "chat:write" in error
+
+
+def test_ok_true_is_a_delivery(slack_settings) -> None:
+    code, error = notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        web_api({"ok": True, "ts": "1700000000.000100"}),
+        lambda _: None,
+    )
+    assert (code, error) == (200, None)
+
+
+def test_the_channel_and_bearer_token_are_sent(slack_settings) -> None:
+    captured: list[httpx.Request] = []
+    notifier.post_chat_message(
+        {"text": "x", "blocks": []},
+        bot_settings(slack_settings),
+        web_api({"ok": True}, capture=captured),
+        lambda _: None,
+    )
+    request = captured[0]
+    assert str(request.url) == notifier.SLACK_POST_MESSAGE_URL
+    assert request.headers["authorization"] == f"Bearer {BOT_TOKEN}"
+    assert json.loads(request.content.decode())["channel"] == "C0TEST0001"
+
+
+def test_a_non_json_body_is_not_treated_as_success(slack_settings) -> None:
+    """An HTML error page from a proxy in front of Slack must not read as sent."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>gateway</html>")
+
+    code, error = notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda _: None,
+    )
+    assert code == 200
+    assert "non-JSON" in error
+
+
+def test_a_config_fault_is_not_retried(slack_settings) -> None:
+    """channel_not_found will not become found. Retrying only delays the report."""
+    attempts: list[httpx.Request] = []
+    notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        web_api({"ok": False, "error": "channel_not_found"}, capture=attempts),
+        lambda _: None,
+    )
+    assert len(attempts) == 1
+
+
+def test_a_rate_limit_in_the_body_is_retried(slack_settings) -> None:
+    """Slack reports throttling both as a 429 and as ok:false ratelimited."""
+    attempts: list[httpx.Request] = []
+    notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        web_api({"ok": False, "error": "ratelimited"}, capture=attempts),
+        lambda _: None,
+    )
+    assert len(attempts) == 3  # max_retries
+
+
+def test_a_transport_error_is_unconfirmed_never_retried(slack_settings) -> None:
+    """No idempotency key here either, so a retry could post the digest twice."""
+    attempts: list[httpx.Request] = []
+
+    def boom(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
+        raise httpx.ConnectError("connection reset")
+
+    code, error = notifier.post_chat_message(
+        {"text": "x"},
+        bot_settings(slack_settings),
+        httpx.Client(transport=httpx.MockTransport(boom)),
+        lambda _: None,
+    )
+    assert code is None, "None is what the caller records as UNCONFIRMED"
+    assert len(attempts) == 1
+    assert "ConnectError" in error
+
+
+def test_the_bot_token_never_appears_in_an_error(slack_settings) -> None:
+    """Notifier errors reach the dashboard through /api/automation."""
+    settings = bot_settings(slack_settings)
+
+    def leaky(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text=f"upstream rejected token {BOT_TOKEN}")
+
+    _code, error = notifier.post_chat_message(
+        {"text": "x"}, settings, httpx.Client(transport=httpx.MockTransport(leaky)), lambda _: None
+    )
+    assert BOT_TOKEN not in error
+    assert "***" in error
+
+
+def test_post_digest_picks_the_transport_from_the_settings(slack_settings) -> None:
+    captured: list[httpx.Request] = []
+    notifier.post_digest(
+        {"text": "x"}, bot_settings(slack_settings), web_api({"ok": True}, capture=captured), lambda _: None
+    )
+    assert str(captured[0].url) == notifier.SLACK_POST_MESSAGE_URL
+
+    captured.clear()
+    notifier.post_digest(
+        {"text": "x"}, slack_settings, web_api({"ok": True}, capture=captured), lambda _: None
+    )
+    assert str(captured[0].url) == WEBHOOK
+
+
+def test_a_full_digest_delivers_through_the_bot_token(db_session, slack_settings) -> None:
+    """End to end: the ledger settles as sent, exactly as with the webhook."""
+    make_tender(db_session, notice="BOT-1")
+    captured: list[httpx.Request] = []
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b-bot",
+        settings=bot_settings(slack_settings),
+        now=NOW,
+        client=web_api({"ok": True, "ts": "1.1"}, capture=captured),
+        sleep=lambda _: None,
+    )
+    assert outcome.status == "sent", outcome.error
+    assert json.loads(captured[0].content.decode())["channel"] == "C0TEST0001"
+    assert db_session.query(SlackNotification).filter_by(status="sent").count() == 1
+
+
+def test_an_ok_false_digest_is_not_recorded_as_sent(db_session, slack_settings) -> None:
+    """The ledger must stay open so a later run can retry the announcement."""
+    make_tender(db_session, notice="BOT-2")
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b-bot-fail",
+        settings=bot_settings(slack_settings),
+        now=NOW,
+        client=web_api({"ok": False, "error": "not_in_channel"}),
+        sleep=lambda _: None,
+    )
+    assert outcome.status != "sent"
+    assert db_session.query(SlackNotification).filter_by(status="sent").count() == 0
+
+
+def test_no_transport_at_all_is_reported_as_disabled(db_session, slack_settings) -> None:
+    make_tender(db_session, notice="BOT-3")
+    outcome = notifier.notify_new_tenders(
+        db_session,
+        since=RUN_START,
+        batch_id="b-none",
+        settings=slack_settings.model_copy(
+            update={"slack_webhook_url": "", "slack_bot_token": "", "slack_channel_id": ""}
+        ),
+        now=NOW,
+    )
+    assert outcome.status == "disabled"
+    assert "SLACK_BOT_TOKEN" in outcome.error
+    assert db_session.query(SlackNotification).count() == 0
+
+
+def test_a_bot_token_without_a_channel_is_not_a_transport(slack_settings) -> None:
+    """Half-configured must fail closed, not post somewhere unintended."""
+    half = slack_settings.model_copy(update={"slack_bot_token": BOT_TOKEN, "slack_webhook_url": ""})
+    assert half.slack_transport == "none"
+    assert half.slack_configured is False

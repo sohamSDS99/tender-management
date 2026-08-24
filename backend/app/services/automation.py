@@ -127,10 +127,26 @@ def slack_state(
 ) -> dict[str, Any]:
     """Slack health. A failed delivery is visible here, never swallowed."""
     now = now or utcnow()
+    transport = settings.slack_transport
     if not settings.enable_slack_notifications:
-        return {"status": "disabled", "detail": "ENABLE_SLACK_NOTIFICATIONS is false", "sent_total": 0}
-    if not settings.slack_webhook_url:
-        return {"status": "unconfigured", "detail": "SLACK_WEBHOOK_URL is not set", "sent_total": 0}
+        return {
+            "status": "disabled",
+            "detail": "ENABLE_SLACK_NOTIFICATIONS is false",
+            "sent_total": 0,
+            "transport": transport,
+        }
+    if transport == "none":
+        # Name both ways of fixing it. A reader who has a bot token and no
+        # webhook was previously told only about the webhook.
+        return {
+            "status": "unconfigured",
+            "detail": (
+                "No Slack transport is configured. Set SLACK_BOT_TOKEN with "
+                "SLACK_CHANNEL_ID, or SLACK_WEBHOOK_URL."
+            ),
+            "sent_total": 0,
+            "transport": transport,
+        }
 
     sent_total = db.execute(
         select(func.count(SlackNotification.id)).where(SlackNotification.status == SENT)
@@ -180,6 +196,7 @@ def slack_state(
             "sent_in_last_batch": sent_in_batch,
             "channel_label": settings.slack_channel_label,
             "min_score": settings.slack_min_score,
+            "transport": transport,
         }
     return {
         "status": "degraded" if degraded else "ok",
@@ -191,6 +208,7 @@ def slack_state(
         "sent_in_last_batch": sent_in_batch,
         "channel_label": settings.slack_channel_label,
         "min_score": settings.slack_min_score,
+        "transport": transport,
     }
 
 

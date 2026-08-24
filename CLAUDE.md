@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (21 records, D1–D21).
+`docs/DECISIONS.md` explains why it is built this way (22 records, D1–D22).
 
 ## What this is
 
@@ -19,7 +19,7 @@ dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL interna
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 307 tests
+./.venv/bin/python -m pytest -q          # 321 tests
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 5 revisions, head b4efd5d106b6
 
@@ -124,6 +124,24 @@ reference would have the dashboard promise a run that cannot happen.
 **`scheduler_in_process` means "the decision in force", not `ENABLE_SCHEDULER`.**
 The dashboard's "switched on but not running" alarm keys on it, so if it reported
 the env var a deliberate pause would read as a fault. D21.
+
+**Slack's Web API returns HTTP 200 when it fails.** `chat.postMessage` answers
+`200 {"ok": false, "error": "channel_not_found"}`, so `status_code < 400` is not
+success — `_web_api_result()` reads the body. Getting this wrong is not a cosmetic
+bug: the ledger writes `sent`, the unique constraint on `(tender_id,
+channel_label)` means the tender is never announced again, and the notice is lost
+silently. The webhook transport is different — there, the status code *is* the
+answer. D22.
+
+**`SLACK_CHANNEL_LABEL` is the ledger key, not just a label.** Changing it makes
+every tender inside `SLACK_ANNOUNCE_LOOKBACK_HOURS` eligible to be announced again
+under the new label. Correct when the destination channel changes, wrong when a
+channel is merely renamed. D6, D22.
+
+**Only the bot token is needed to send to Slack.** The app's signing secret,
+verification token and OAuth client id/secret are for *receiving* from Slack
+(slash commands, events, interactivity), which this product does not do and which
+would mean exposing an endpoint against D5/D18. D22.
 
 **`PUBLIC_APP_URL` must not be a bare IP.** The host's address moved from
 `192.168.1.5` to `192.168.0.133` mid-project, which would have killed every Slack

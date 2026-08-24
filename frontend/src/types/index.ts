@@ -140,6 +140,8 @@ export interface SlackState {
   sent_in_last_batch: number;
   channel_label: string | null;
   min_score: number | null;
+  /** Which delivery path is in force. 'none' means Slack cannot send at all. */
+  transport: 'bot_token' | 'webhook' | 'none';
 }
 
 export interface LastRun {

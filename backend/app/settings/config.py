@@ -78,11 +78,30 @@ class Settings(BaseSettings):
     # Comfortably above the ~13 minutes a full live sweep takes.
     stale_run_minutes: int = 60
 
-    # --- notifications (Slack incoming webhook) ---
+    # --- notifications (Slack) ---
+    # Two transports, and the one in force is derived rather than configured:
+    # a bot token needs a channel to post to, an incoming webhook carries its
+    # own. See slack_transport below and docs/DECISIONS.md (D22).
     enable_slack_notifications: bool = True
     # Secret. Never logged; redacted by app.settings.redact().
     slack_webhook_url: str = ""
+    # Secret. Bot user OAuth token (xoxb-...) for chat.postMessage. Needs the
+    # chat:write scope, plus chat:write.public to post to a public channel the
+    # bot has not joined.
+    slack_bot_token: str = ""
+    # Channel ID (e.g. C0123ABCDEF), required by the bot-token transport. An ID
+    # rather than a name: a channel can be renamed, and #name lookups are the
+    # first thing to break when it is.
+    slack_channel_id: str = ""
+    # Posting identity, bot-token transport only. Without these a digest arrives
+    # under whatever the Slack app's bot user is called, which is rarely what the
+    # channel expects. Requires the chat:write.customize scope.
+    slack_bot_username: str = "Tender Monitor"
+    slack_bot_icon_emoji: str = ":satellite_antenna:"
     slack_min_score: int = 70
+    # Display label, and the ledger key that makes an announcement at-most-once
+    # (D6). Changing it lets already-announced tenders be announced again, which
+    # is right for a genuinely new channel and wrong as a rename - see D22.
     slack_channel_label: str = "#tenders"
     slack_max_items: int = 8
     slack_timeout_seconds: int = 15
@@ -156,11 +175,34 @@ class Settings(BaseSettings):
         return self.public_app_url.rstrip("/")
 
     @property
+    def slack_transport(self) -> str:
+        """Which delivery path is in force: "bot_token", "webhook" or "none".
+
+        Derived, not configured, so there is no such thing as a combination that
+        says one thing and does another. A bot token wins when it is usable,
+        because it is the revocable one: an incoming webhook URL *is* its own
+        credential and cannot be rotated without re-issuing it.
+        """
+        if self.slack_bot_token and self.slack_channel_id:
+            return "bot_token"
+        if self.slack_webhook_url:
+            return "webhook"
+        return "none"
+
+    @property
     def slack_configured(self) -> bool:
-        return bool(self.enable_slack_notifications and self.slack_webhook_url)
+        return bool(self.enable_slack_notifications and self.slack_transport != "none")
 
 
-SECRET_FIELDS = ("slack_webhook_url", "cron_secret", "sam_gov_api_key", "database_url")
+SECRET_FIELDS = (
+    "slack_webhook_url",
+    # Must be redacted: notifier error text reaches the dashboard through
+    # /api/automation, so an unredacted token would be readable in a browser.
+    "slack_bot_token",
+    "cron_secret",
+    "sam_gov_api_key",
+    "database_url",
+)
 
 
 def redact(text: str, settings: Settings | None = None) -> str:

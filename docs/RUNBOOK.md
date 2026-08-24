@@ -307,6 +307,115 @@ docker compose exec -T backend python -m app.jobs.scheduled_fetch \
 
 ---
 
+## 4b. Configure or rotate the Slack bot token
+
+The digest is delivered by `chat.postMessage` with a bot token. The alternative,
+an incoming webhook, still works — but the token is preferred because it can be
+revoked and reissued, whereas a webhook URL *is* its own credential.
+
+**Current setup:** a private channel in the company workspace, under the display
+name `Tender Monitor`. The workspace, token and channel ID are in `.env` and are
+deliberately not repeated here — this repository is public. To see what is live:
+
+```bash
+grep -E '^SLACK_(CHANNEL_ID|CHANNEL_LABEL|BOT_USERNAME)=' .env
+```
+
+### Which transport is live
+
+Derived from what is configured, and reported rather than assumed:
+
+```bash
+curl -s http://localhost:8081/api/automation | python3 -c \
+  "import json,sys; s=json.load(sys.stdin)['slack']; print(s['transport'], s['status'], s['channel_label'])"
+```
+
+`bot_token`, `webhook` or `none`. A bot token wins when both are set.
+
+### Required scopes
+
+On the Slack app's **OAuth & Permissions** page:
+
+| Scope | Why |
+|---|---|
+| `chat:write` | post at all |
+| `chat:write.public` | post to a **public** channel without inviting the bot |
+| `chat:write.customize` | honour `SLACK_BOT_USERNAME` / `SLACK_BOT_ICON_EMOJI` |
+| `channels:read`, `groups:read` | look up a channel ID (setup only) |
+
+For a **private** channel the bot must be invited — `chat:write.public` does not
+reach private channels. The channel in use is private, so the bot was invited to
+it; `chat:write.public` is configured anyway so a future move to a public channel
+needs no scope change.
+
+### Rotate the token
+
+Do this whenever the token may have been exposed. It needs no code change.
+
+1. Slack → the app → **OAuth & Permissions** → **Reinstall to Workspace**, which
+   issues a new `xoxb-` token and invalidates the old one.
+2. Put the new value in `.env` as `SLACK_BOT_TOKEN` (gitignored — never commit it).
+3. `docker compose up -d backend` to pick it up.
+4. Confirm the token before waiting for a sweep:
+
+```bash
+curl -s -X POST https://slack.com/api/auth.test \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN"
+```
+
+`{"ok": true}` with the expected team name means the token is live. An `invalid_auth`
+here is the whole diagnosis — no need to look at the app.
+
+### Find a channel ID
+
+An ID, not a name: a channel can be renamed, and a name lookup is the first thing
+to break when it is.
+
+```bash
+curl -s "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200" \
+  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  | python3 -c "import json,sys; [print(c['id'], '#'+c['name'], 'member' if c.get('is_member') else '') for c in json.load(sys.stdin)['channels']]"
+```
+
+**Changing channel means changing two variables.** `SLACK_CHANNEL_ID` is where the
+digest goes; `SLACK_CHANNEL_LABEL` is what the digest says *and* the ledger key
+that makes an announcement at-most-once (D6). Change both together, and expect
+every tender still inside `SLACK_ANNOUNCE_LOOKBACK_HOURS` (72h) to be announced
+once more under the new label — the new channel has not seen them. Leaving the
+label alone while moving the ID makes the ledger record a destination that is not
+where the message went.
+
+### Test without waiting for a sweep
+
+Build the exact payload and print it without posting:
+
+```bash
+docker compose exec -T backend python -m app.jobs.scheduled_fetch \
+  --seed --dry-run-notify --trigger manual --json
+```
+
+To post for real, drop `--dry-run-notify`. Note this writes to the ledger, so the
+same tenders will not be announced again — use a throwaway database if you only
+want to see the formatting:
+
+```bash
+docker compose exec -T -e DATABASE_URL=sqlite:////tmp/slack-test.db backend \
+  python -m app.jobs.scheduled_fetch --seed --seed-reset --trigger manual --json
+```
+
+### Symptoms
+
+| Error in the dashboard or logs | Cause |
+|---|---|
+| `invalid_auth` | token revoked, rotated, or copied wrong |
+| `channel_not_found` | wrong `SLACK_CHANNEL_ID`, or a private channel the bot is not in |
+| `not_in_channel` | public channel and `chat:write.public` is missing — invite the bot or add the scope |
+| `missing_scope (needed=...)` | the error names the scope; add it and reinstall |
+| `ratelimited` | throttled; retried automatically |
+| status `unconfirmed` | the request left but Slack never confirmed. **Never retried** — a retry could post twice. Check the channel by eye (section 4, and D15) |
+
+---
+
 ## 5. Slack links, and who can reach the dashboard
 
 The dashboard is served to the whole company network with no login, by design -

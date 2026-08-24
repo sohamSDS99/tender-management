@@ -362,6 +362,26 @@ retried, delayed or double-fired run cannot re-announce anything. A Slack failur
 ingested data — it is recorded, surfaced in the dashboard as a degraded state, and retried by the
 next run.
 
+**Two Slack transports.** The same payload is delivered either by `chat.postMessage` with a bot
+token or by an incoming webhook. Which one is in force is *derived* from what is configured, never
+set separately, so the configuration cannot claim a transport it does not have — and
+`GET /api/automation` reports the one it resolved to:
+
+| Transport | Configure | Notes |
+|---|---|---|
+| `bot_token` *(preferred)* | `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID` | revocable, scoped, can post to any public channel with `chat:write.public` |
+| `webhook` | `SLACK_WEBHOOK_URL` | the URL *is* the credential; cannot be rotated without re-issuing it |
+| `none` | neither | the run reports `disabled` and names both ways to fix it |
+
+The two differ in one way that matters more than it looks: the Web API answers **HTTP 200 with
+`{"ok": false}`** on failure, so the status code alone is not success. Treating it as success would
+write `sent` to the ledger and the unique constraint above would then stop that tender from ever
+being announced — a silent, permanent loss. The body is authoritative; see `docs/DECISIONS.md` D22.
+
+Only the bot token is needed to *send*. A Slack app also issues a signing secret, a verification
+token and OAuth client credentials; those are for *receiving* from Slack — slash commands, events,
+interactivity — which this product deliberately does not do.
+
 **Reliability properties, unchanged from the baseline and relied on here:**
 
 * one `FetchRun` row per source per run, so one failing source cannot fail the run

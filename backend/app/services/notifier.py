@@ -12,6 +12,12 @@ Contract
   caller is told the run is degraded; nothing is rolled back.
 * Links point at *our* dashboard first (``{PUBLIC_APP_URL}/?tender={id}``, the
   deep link Dashboard.tsx already reads) and the buyer's notice second.
+
+Two transports deliver the same payload, chosen by ``Settings.slack_transport``:
+``chat.postMessage`` with a bot token, or an incoming webhook. They differ in one
+way that matters more than it looks - the Web API answers **HTTP 200 with
+``{"ok": false}``** on failure, so status code alone is not success. See
+``post_chat_message`` and docs/DECISIONS.md (D22).
 """
 
 from __future__ import annotations
@@ -498,6 +504,38 @@ def build_heartbeat(
 
 RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
+SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+
+#: Web API errors worth a second attempt. Everything else - channel_not_found,
+#: not_in_channel, invalid_auth, missing_scope - is a configuration fault that
+#: will not fix itself by being retried, and the operator needs to see it.
+RETRYABLE_SLACK_ERRORS = frozenset({"ratelimited", "service_unavailable", "internal_error", "fatal_error"})
+
+
+def _web_api_result(response: httpx.Response, settings: Settings) -> tuple[bool, str | None]:
+    """Did chat.postMessage actually deliver? Reads the body, not the status.
+
+    A non-JSON body is treated as a failure rather than assumed fine: that is
+    what an HTML error page from a proxy in front of Slack looks like, and
+    calling it success would silently drop the digest.
+    """
+    if response.status_code >= 400:
+        return False, redact(response.text[:500], settings)
+    try:
+        data = response.json()
+    except ValueError:
+        return False, redact(f"non-JSON response: {response.text[:200]}", settings)
+    if not isinstance(data, dict):
+        return False, redact(f"unexpected response: {response.text[:200]}", settings)
+    if data.get("ok") is True:
+        return True, None
+    detail = str(data.get("error") or "unknown_error")
+    # needed / provided name the missing scope; warning covers deprecations.
+    for extra in ("needed", "provided", "warning"):
+        if data.get(extra):
+            detail = f"{detail} ({extra}={data[extra]})"
+    return False, redact(detail[:500], settings)
+
 
 def _retry_after(response: httpx.Response, fallback: float) -> float:
     """Honour Slack's Retry-After, as the connectors do for the tender APIs."""
@@ -565,6 +603,93 @@ def post_webhook(
             client.close()
 
 
+def post_chat_message(
+    payload: dict[str, Any],
+    settings: Settings | None = None,
+    client: httpx.Client | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[int | None, str | None]:
+    """POST to chat.postMessage with a bot token. Same contract as post_webhook.
+
+    **A 200 is not success here.** The Slack Web API answers 200 with
+    ``{"ok": false, "error": "channel_not_found"}`` for most failures, so reading
+    the status code alone would record every rejected digest as delivered and
+    suppress it for ever - the ledger writes SENT and the unique constraint
+    (D6) means nothing will ever re-announce it. The body is authoritative; the
+    status code is not.
+
+    Retry policy is deliberately identical to the webhook's, including the part
+    that looks over-cautious: a transport error is not retried, because
+    chat.postMessage has no idempotency key either and the request may already
+    have been delivered. Slack's own remedy for that is a client-side dedupe key,
+    which the API does not offer. Returns ``(None, error)`` so the caller records
+    UNCONFIRMED rather than FAILED.
+    """
+    settings = settings or get_settings()
+    owns = client is None
+    client = client or httpx.Client(timeout=settings.slack_timeout_seconds)
+    attempts = max(1, settings.max_retries)
+    last: tuple[int | None, str | None] = (None, "no attempt was made")
+    body = {**payload, "channel": settings.slack_channel_id}
+    # A digest that arrives under the Slack app's own bot name reads as though it
+    # came from an unrelated system. Only sent when set, so clearing them falls
+    # back to the app's identity rather than posting a blank name.
+    if settings.slack_bot_username:
+        body.setdefault("username", settings.slack_bot_username)
+    if settings.slack_bot_icon_emoji:
+        body.setdefault("icon_emoji", settings.slack_bot_icon_emoji)
+    headers = {
+        "Authorization": f"Bearer {settings.slack_bot_token}",
+        # Slack requires the charset for JSON bodies on the Web API.
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    try:
+        for attempt in range(1, attempts + 1):
+            try:
+                response = client.post(SLACK_POST_MESSAGE_URL, json=body, headers=headers)
+            except Exception as exc:
+                return None, redact(f"{type(exc).__name__}: {exc}", settings)
+
+            ok, error = _web_api_result(response, settings)
+            if ok:
+                return response.status_code, None
+
+            last = (response.status_code, error)
+            # 429 arrives as a real 429 with Retry-After; "ratelimited" in the
+            # body is the same condition reported the other way.
+            retryable = response.status_code in RETRYABLE_STATUS or error in RETRYABLE_SLACK_ERRORS
+            if not retryable or attempt == attempts:
+                break
+            delay = _retry_after(response, settings.retry_backoff_seconds * attempt)
+            log_ctx(
+                logger,
+                logging.WARNING,
+                "slack post retrying",
+                status=response.status_code,
+                error=error,
+                attempt=attempt,
+                delay=delay,
+            )
+            sleep(delay)
+        return last
+    finally:
+        if owns:
+            client.close()
+
+
+def post_digest(
+    payload: dict[str, Any],
+    settings: Settings | None = None,
+    client: httpx.Client | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[int | None, str | None]:
+    """Deliver by whichever transport is configured. One call site, two paths."""
+    settings = settings or get_settings()
+    if settings.slack_transport == "bot_token":
+        return post_chat_message(payload, settings, client, sleep)
+    return post_webhook(payload, settings, client, sleep)
+
+
 def notify_new_tenders(
     db: Session,
     *,
@@ -590,8 +715,14 @@ def notify_new_tenders(
 
     if not settings.enable_slack_notifications:
         return DigestOutcome(status="disabled", error="ENABLE_SLACK_NOTIFICATIONS is false")
-    if not settings.slack_webhook_url and not dry_run:
-        return DigestOutcome(status="disabled", error="SLACK_WEBHOOK_URL is not set")
+    if settings.slack_transport == "none" and not dry_run:
+        return DigestOutcome(
+            status="disabled",
+            error=(
+                "No Slack transport is configured: set SLACK_BOT_TOKEN with "
+                "SLACK_CHANNEL_ID, or SLACK_WEBHOOK_URL."
+            ),
+        )
 
     # Selection is ledger-driven, not window-driven: see announceable_tenders.
     candidates = announceable_tenders(db, settings, now)
@@ -620,7 +751,7 @@ def notify_new_tenders(
 
     if not claimed:
         payload = build_heartbeat(settings, run_summary=run_summary, trigger=trigger, now=now)
-        code, error = post_webhook(payload, settings, client, sleep)
+        code, error = post_digest(payload, settings, client, sleep)
         outcome = DigestOutcome(
             status="heartbeat" if error is None else "failed",
             candidates=len(candidates),
@@ -643,7 +774,7 @@ def notify_new_tenders(
     payload = build_digest(
         claimed, settings, total_candidates=len(claimed) + deferred, trigger=trigger, now=now
     )
-    code, error = post_webhook(payload, settings, client, sleep)
+    code, error = post_digest(payload, settings, client, sleep)
     if error is None:
         settle(db, claimed, channel, SENT, code, None, now, batch_id=batch_id)
         log_ctx(
