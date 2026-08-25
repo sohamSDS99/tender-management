@@ -82,8 +82,11 @@ One model replaces four.
   Matching rules, so a hardcoded "70" would go stale the moment it is tuned.
 - `Clear all` clears refinements only. The lens is where you *are*; it can only
   change by navigating.
-- State lives in the URL: `/?lens=top-scoring&q=saas&score_min=85`. A filtered
-  list is therefore linkable, which the current build cannot do.
+- State already lives in the URL — `searchFromFilters` writes it with
+  `replaceState` and `popstate` restores it — and that stays as it is. No
+  `lens=` parameter is added: the lens is *derived* from the filters by
+  `activeLens`, so storing it separately would create the second source of
+  truth this redesign exists to remove.
 - Refinements are remembered per lens in preferences. Returning to
   `Needs review` restores how it was left, and because the chip row always
   states the complete truth, a remembered filter cannot masquerade as an empty

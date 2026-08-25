@@ -46,6 +46,9 @@ from app.services.matching_rules import (
     read_rules,
     save_overrides,
 )
+from app.services.matching_rules import (
+    preview as preview_rules,
+)
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -495,6 +498,24 @@ def rescore(
 def get_matching_rules(db: Session = Depends(get_db)) -> dict[str, object]:
     """The tunable subset of relevance_profiles.yaml, with overrides applied."""
     return read_rules(db)
+
+
+@router.post(
+    "/api/matching-rules/preview",
+    tags=["rules"],
+    summary="What a rule change would move, without moving it",
+)
+def preview_matching_rules(payload: dict, db: Session = Depends(get_db)) -> dict:
+    """Score the corpus under candidate rules and report the delta.
+
+    Read-only: nothing is stored and no notice is rewritten. This exists so a
+    re-score stops being a leap - someone may have been working a shortlist for
+    a week under the current ranking.
+    """
+    try:
+        return preview_rules(db, payload)
+    except InvalidRules as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put(

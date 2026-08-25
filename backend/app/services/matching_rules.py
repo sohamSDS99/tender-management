@@ -18,10 +18,11 @@ import json
 import logging
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
-from app.models import AppSetting, utcnow
+from app.models import AppSetting, Tender, utcnow
 from app.services.relevance import RelevanceEngine, load_config, normalize
 
 logger = logging.getLogger(__name__)
@@ -207,3 +208,67 @@ def reset_engine_cache() -> None:
     """Drop the cached engine, for a file edit the fingerprint cannot see."""
     global _cache
     _cache = None
+
+
+# --- what would change -----------------------------------------------------
+#
+#: Above this many stored notices the preview samples rather than scoring the
+#: whole corpus. Scoring 470 twice is nothing; scoring 200,000 twice inside a
+#: request is not, and a preview that times out is worse than an estimate.
+PREVIEW_LIMIT = 5000
+
+
+def preview(db: Session, overrides: dict[str, Any]) -> dict[str, Any]:
+    """Score the corpus under candidate rules without storing anything.
+
+    Answers the question a re-score actually raises - "what will move?" - before
+    it moves. Nothing here writes: the candidate engine is built from a merged
+    config held in memory and thrown away.
+    """
+    base = load_config()
+    clean = _validate(overrides, base)
+
+    current = engine_for(db)
+    merged = dict(base)
+    if "weights" in clean:
+        merged["weights"] = {**base.get("weights", {}), **clean["weights"]}
+    if "bands" in clean:
+        merged["bands"] = {**base.get("bands", {}), **clean["bands"]}
+    if "profiles" in clean:
+        profiles = {k: dict(v) for k, v in base.get("profiles", {}).items()}
+        for key, tiers in clean["profiles"].items():
+            if key in profiles:
+                profiles[key] = {**profiles[key], **tiers}
+        merged["profiles"] = profiles
+    candidate = RelevanceEngine(apply_overrides(db, merged))
+
+    total = db.execute(select(func.count(Tender.id))).scalar_one()
+    rows = db.execute(select(Tender).limit(PREVIEW_LIMIT)).scalars().all()
+
+    good_now = current.bands.get("good_fit", 70)
+    good_next = candidate.bands.get("good_fit", good_now)
+
+    changed = crossing_up = crossing_down = 0
+    for row in rows:
+        before = current.score_obj(row)
+        after = candidate.score_obj(row)
+        if before.relevance_score != after.relevance_score:
+            changed += 1
+        was_good = before.relevance_score >= good_now
+        is_good = after.relevance_score >= good_next
+        if is_good and not was_good:
+            crossing_up += 1
+        elif was_good and not is_good:
+            crossing_down += 1
+
+    return {
+        "changed": changed,
+        "crossing_up": crossing_up,
+        "crossing_down": crossing_down,
+        "examined": len(rows),
+        "total": total,
+        #: True when the corpus was sampled, so the UI can say "about" rather
+        #: than presenting an estimate as a count.
+        "sampled": total > len(rows),
+        "good_fit_band": good_next,
+    }

@@ -241,6 +241,17 @@ export type MatchingRulesPatch = {
   profiles?: Record<string, Partial<Record<'strong' | 'medium' | 'weak', string[]>>>;
 };
 
+export interface RulesPreview {
+  changed: number;
+  crossing_up: number;
+  crossing_down: number;
+  examined: number;
+  total: number;
+  /** True when the corpus was sampled, so the UI says "about". */
+  sampled: boolean;
+  good_fit_band: number;
+}
+
 export interface Preferences {
   density: Density;
   /** Whether the left Settings panel is showing. Persisted so it survives a reload. */

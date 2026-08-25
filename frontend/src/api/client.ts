@@ -12,6 +12,7 @@ import type {
   TriggerResponse,
   MatchingRules,
   MatchingRulesPatch,
+  RulesPreview,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -147,6 +148,12 @@ export const api = {
     }),
 
   matchingRules: () => request<MatchingRules>('/api/matching-rules'),
+  /** What a rule change would move, without moving it. Stores nothing. */
+  previewMatchingRules: (payload: MatchingRulesPatch) =>
+    request<RulesPreview>('/api/matching-rules/preview', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   /** Save overrides and re-score. The YAML file itself is never rewritten. */
   saveMatchingRules: (payload: MatchingRulesPatch) =>
     request<RescoreResponse>('/api/matching-rules', {

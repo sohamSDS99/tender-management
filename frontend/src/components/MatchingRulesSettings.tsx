@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MatchingRules } from '../types';
+import type { MatchingRules, RulesPreview } from '../types';
 import { api } from '../api/client';
 
 const WEIGHTS: { key: string; label: string; hint: string }[] = [
@@ -27,7 +27,8 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [bands, setBands] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<RulesPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
 
   useEffect(() => {
@@ -60,12 +61,27 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
         tone: 'ok',
         text: `Saved. ${result.rescored.toLocaleString('en-GB')} notices re-scored under the new rules.`,
       });
-      setConfirming(false);
+      setConfirming(null);
       onRescored();
     } catch (error) {
       setMessage({ tone: 'bad', text: error instanceof Error ? error.message : 'Could not save.' });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const askFirst = async () => {
+    setPreviewing(true);
+    setMessage(null);
+    try {
+      setConfirming(await api.previewMatchingRules({ weights, bands }));
+    } catch (error) {
+      setMessage({
+        tone: 'bad',
+        text: error instanceof Error ? error.message : 'Could not work out what would change.',
+      });
+    } finally {
+      setPreviewing(false);
     }
   };
 
@@ -195,13 +211,19 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
         {confirming ? (
           <>
             <p className="screen__warn">
-              Saving re-scores every stored notice and re-ranks every list. Anyone working from the
-              current ordering will see it change.
+              {confirming.sampled ? 'About ' : ''}
+              <b>{confirming.changed.toLocaleString('en-GB')}</b> of{' '}
+              {confirming.examined.toLocaleString('en-GB')} notices change score ·{' '}
+              <b>{confirming.crossing_up}</b> rise into Top scoring ·{' '}
+              <b>{confirming.crossing_down}</b> drop out of it.
+              {confirming.changed === 0
+                ? ' Nothing moves — saving only records the new rules.'
+                : ' Anyone working from the current ordering will see it change.'}
             </p>
             <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void save()}>
               {busy ? 'Re-scoring…' : 'Save and re-score'}
             </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setConfirming(false)}>
+            <button type="button" className="btn btn--ghost" onClick={() => setConfirming(null)}>
               Cancel
             </button>
           </>
@@ -210,11 +232,11 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
             <button
               type="button"
               className="btn btn--primary"
-              disabled={busy || !balanced}
+              disabled={busy || previewing || !balanced}
               title={balanced ? undefined : 'The weights must add up to 1.00'}
-              onClick={() => setConfirming(true)}
+              onClick={() => void askFirst()}
             >
-              Save changes
+              {previewing ? 'Checking…' : 'Save changes'}
             </button>
             {rules.overridden.length > 0 ? (
               <button type="button" className="btn" disabled={busy} onClick={() => void reset()}>

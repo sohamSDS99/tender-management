@@ -129,3 +129,59 @@ def test_a_changed_band_actually_moves_the_scoring_engine(client, db_session):
     before = engine_for(db_session).bands["good_fit"]
     client.put("/api/matching-rules", json={"bands": {"good_fit": before + 5}})
     assert engine_for(db_session).bands["good_fit"] == before + 5
+
+
+def test_preview_reports_what_would_move_without_moving_it(client, db_session):
+    from app.models import Tender
+
+    before = [(t.id, t.relevance_score) for t in db_session.query(Tender).all()]
+    body = client.post("/api/matching-rules/preview", json={"bands": {"good_fit": 60}}).json()
+    assert set(body) >= {"changed", "crossing_up", "crossing_down", "examined", "sampled"}
+    after = [(t.id, t.relevance_score) for t in db_session.query(Tender).all()]
+    assert before == after, "preview must not rewrite any stored score"
+
+
+def test_preview_refuses_invalid_rules_like_save_does(client):
+    response = client.post(
+        "/api/matching-rules/preview",
+        json={"weights": {"topic": 0.1, "product_fit": 0.1, "procurement_intent": 0.1}},
+    )
+    assert response.status_code == 422
+
+
+def test_an_empty_corpus_previews_as_no_change(client):
+    response = client.post("/api/matching-rules/preview", json={"bands": {"good_fit": 60}})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["changed"] == 0
+    assert body["examined"] == 0
+    assert body["sampled"] is False
+
+
+def test_preview_scores_a_real_corpus(client, db_session):
+    """A preview over an empty database proves nothing: the loop never runs.
+
+    Regression — the first version of preview() read `result.score`, which does
+    not exist on RelevanceResult, and every test passed because none of them
+    had a tender to score.
+    """
+    from app.models import Tender
+    from app.services.ingest import _apply_score
+    from app.services.matching_rules import engine_for
+
+    row = Tender(
+        source="ted",
+        source_notice_id="PREVIEW-1",
+        content_hash="h",
+        title="Cloud-hosted safety data sheet management platform",
+        description="SDS authoring and distribution, GHS compliance.",
+    )
+    _apply_score(row, engine_for(db_session))
+    db_session.add(row)
+    db_session.commit()
+
+    response = client.post("/api/matching-rules/preview", json={"bands": {"good_fit": 60}})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["examined"] == 1
+    assert body["total"] == 1
