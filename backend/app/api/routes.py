@@ -38,6 +38,7 @@ from app.services.credentials import (
     CREDENTIAL_FIELDS,
     credential_hint,
     set_credential,
+    settings_with_stored_credentials,
     stored_credential,
 )
 from app.services.matching_rules import (
@@ -211,7 +212,12 @@ def list_sources(
     counts = dict(db.execute(select(Tender.source, func.count(Tender.id)).group_by(Tender.source)).all())
     running = ingest.running_sources()
     out: list[SourceStatus] = []
-    for entry in source_catalog(settings):
+    # With the stored credentials applied, so a key set from this very page stops
+    # the source reporting "SAM_GOV_API_KEY is not set" the moment it is saved.
+    # unavailable_reason() is computed from the settings the connector is built
+    # with, so passing the raw ones would contradict the hint shown beside it.
+    resolved = settings_with_stored_credentials(db, settings)
+    for entry in source_catalog(resolved):
         name = str(entry["name"])
         last_run = db.execute(
             select(FetchRun).where(FetchRun.source == name).order_by(FetchRun.started_at.desc()).limit(1)

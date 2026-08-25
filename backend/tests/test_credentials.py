@@ -117,3 +117,19 @@ def test_put_is_refused_when_operator_actions_are_off(db_session, monkeypatch, s
     response = TestClient(app).put("/api/sources/sam/credential", json={"value": "x"})
     assert response.status_code == 403
     assert "ALLOW_OPERATOR_ACTIONS" in response.json()["detail"]
+
+
+def test_a_stored_key_clears_the_sources_unavailable_reason(client, db_session):
+    """The point of setting a key here: the source stops reporting it is missing.
+
+    unavailable_reason() is computed from the settings the connector is built
+    with, so a listing built from raw Settings would keep saying the key is not
+    set while showing its hint beside it.
+    """
+    before = next(s for s in client.get("/api/sources").json() if s["name"] == "sam")
+    assert before["unavailable_reason"] is not None
+
+    set_credential(db_session, "sam", "A-REAL-LOOKING-KEY")
+    after = next(s for s in client.get("/api/sources").json() if s["name"] == "sam")
+    assert after["unavailable_reason"] is None
+    assert after["credential_configured"] is True

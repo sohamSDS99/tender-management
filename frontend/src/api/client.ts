@@ -50,6 +50,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(detail, response.status);
   }
+  // 204 carries no body, so parsing it throws "Unexpected end of JSON input" —
+  // which surfaced as a failure on a PUT that had in fact succeeded. Checked
+  // here rather than at the call site so every no-content endpoint is covered.
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
   return (await response.json()) as T;
 }
 
