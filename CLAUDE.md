@@ -181,6 +181,17 @@ legitimately sends nothing, and the top of the dashboard is showing fixtures. Do
 read "no digest" as a broken notifier, and do not present those top cards as live
 finds.
 
+**SAM.gov's default transport is the keyless bulk extract, not the API.** `sam_use_bulk_extract`
+is on, so `SAM_GOV_API_KEY` is not required and `requires_api_key` is a *property* that reports
+False in that mode - which is why the credential tests pin themselves to the API path with
+`sam_use_bulk_extract=False` (SAM is the only built-in with a credential, so it is the only one
+that can demonstrate the mechanism). The extract is one 242 MB CSV of every *active* notice, so
+it cannot query a past window or see closed notices; that is the entire reason the API path still
+exists. It is streamed to a `tempfile` and parsed with the stdlib `csv` module rather than off the
+socket, because descriptions are free text containing newlines inside quoted fields and splitting
+the stream on newlines produces corrupt rows. `_from_extract_row()` rewrites a CSV row into the
+API's field names so `_normalize()` stays one code path - do not grow a second normaliser.
+
 **SAM.gov's quota is per day, and the free tier is 10 requests.** Not per sweep, per *day*,
 shared across every run — and it is 10 only for a non-federal account with no role (1000 with
 one). A 429 there carries `code 900804 "Message throttled out"` and a `Retry-After` HTTP-date
