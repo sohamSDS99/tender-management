@@ -14,17 +14,19 @@ from sqlalchemy.orm import Session
 from app.connectors.registry import SOURCE_NAMES, source_catalog
 from app.db import get_db
 from app.jobs.schedule import next_run_local, utc_cron_expressions
-from app.models import FetchRun, Tender, utcnow
+from app.models import FetchRun, Source, Tender, utcnow
 from app.schemas import (
     AutomationStatus,
     CredentialRequest,
     FetchRequest,
     FetchResponse,
     FetchRunSchema,
+    ProbeRequest,
     RescoreResponse,
     ScheduleResponse,
     ScheduleUpdate,
     SortOption,
+    SourceRequest,
     SourceStatus,
     StatsResponse,
     TenderDetail,
@@ -51,6 +53,7 @@ from app.services.matching_rules import (
 from app.services.matching_rules import (
     preview as preview_rules,
 )
+from app.services.probe import UnsafeUrl, assert_safe_url, probe_source
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -515,6 +518,105 @@ def rescore(
     rescored = ingest.rescore_all(db)
     operator.mark_rescore(db)
     return RescoreResponse(rescored=rescored)
+
+
+@router.post("/api/sources/probe", tags=["sources"])
+async def probe_new_source(
+    payload: ProbeRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> dict:
+    """Try a candidate endpoint. Stores nothing.
+
+    Reports what *parsed*, not merely what answered: a 200 proves the
+    credential works and nothing more, and a source that answers while yielding
+    no notices is the exact failure this system already had once.
+    """
+    if not settings.allow_operator_actions:
+        raise HTTPException(
+            status_code=403,
+            detail="Adding sources from the dashboard is switched off (ALLOW_OPERATOR_ACTIONS=false).",
+        )
+    try:
+        return await probe_source(
+            payload.url,
+            settings,
+            credential=payload.credential or None,
+            auth=payload.auth,
+            auth_param=payload.auth_param,
+            mapping=payload.mapping,
+        )
+    except UnsafeUrl as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/api/sources", status_code=201, tags=["sources"])
+def create_source(
+    payload: SourceRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> dict:
+    """Save a source. Refuses a name that collides with a built-in connector."""
+    if not settings.allow_operator_actions:
+        raise HTTPException(
+            status_code=403,
+            detail="Adding sources from the dashboard is switched off (ALLOW_OPERATOR_ACTIONS=false).",
+        )
+    if payload.name in SOURCE_NAMES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"'{payload.name}' is already a built-in source.",
+        )
+    if db.get(Source, payload.name) is not None:
+        raise HTTPException(status_code=409, detail=f"A source called '{payload.name}' already exists.")
+    try:
+        assert_safe_url(payload.url)
+    except UnsafeUrl as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    db.add(
+        Source(
+            name=payload.name,
+            display_name=payload.display_name,
+            homepage=payload.homepage,
+            url=payload.url,
+            auth=payload.auth,
+            auth_param=payload.auth_param,
+            format=payload.format,
+            mapping=payload.mapping,
+            notes=payload.notes,
+            enabled=True,
+        )
+    )
+    db.commit()
+    if payload.credential:
+        set_credential(db, payload.name, payload.credential)
+    return {"name": payload.name}
+
+
+@router.delete("/api/sources/{name}", status_code=204, tags=["sources"])
+def delete_source(
+    name: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> Response:
+    """Remove a user-added source. Built-ins are code and cannot be deleted."""
+    if not settings.allow_operator_actions:
+        raise HTTPException(status_code=403, detail="Switched off (ALLOW_OPERATOR_ACTIONS=false).")
+    row = db.get(Source, name)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"'{name}' is a built-in source and is part of the application."
+                if name in SOURCE_NAMES
+                else f"No source called '{name}'."
+            ),
+        )
+    db.delete(row)
+    set_credential(db, name, "")
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/api/matching-rules", tags=["rules"])

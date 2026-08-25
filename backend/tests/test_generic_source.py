@@ -229,3 +229,78 @@ def test_a_disabled_row_never_joins_a_sweep(db_session, settings):
     db_session.commit()
     set_credential(db_session, "acme", "A-KEY")
     assert "acme" not in enabled_sources(settings, db=db_session)
+
+
+# --- the endpoints ---------------------------------------------------------
+
+
+def test_creating_a_source_makes_it_part_of_the_sweep(public_dns, client, db_session, settings):
+    from app.connectors.registry import enabled_sources
+
+    response = client.post(
+        "/api/sources",
+        json={
+            "name": "acme",
+            "display_name": "Acme Tenders",
+            "url": "https://example.gov/api/notices",
+            "auth": "query",
+            "auth_param": "api_key",
+            "format": "json",
+            "mapping": MAPPING,
+            "credential": "A-KEY",
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert "acme" in enabled_sources(settings, db=db_session)
+
+    listed = {s["name"] for s in client.get("/api/sources").json()}
+    assert "acme" in listed and "ted" in listed
+
+
+def test_a_name_that_collides_with_a_builtin_is_refused(client):
+    response = client.post(
+        "/api/sources",
+        json={"name": "ted", "display_name": "Not TED", "url": "https://example.gov/api"},
+    )
+    assert response.status_code == 409
+    assert "built-in" in response.json()["detail"]
+
+
+def test_the_same_name_twice_is_refused(public_dns, client):
+    body = {"name": "acme", "display_name": "Acme", "url": "https://example.gov/api"}
+    assert client.post("/api/sources", json=body).status_code == 201
+    assert client.post("/api/sources", json=body).status_code == 409
+
+
+def test_a_private_url_is_refused_at_creation_too(client):
+    # Not only at probe time: the guard has to hold on the write that persists.
+    response = client.post(
+        "/api/sources",
+        json={"name": "evil", "display_name": "Evil", "url": "https://169.254.169.254/latest"},
+    )
+    assert response.status_code == 422
+
+
+def test_deleting_a_source_takes_its_credential_with_it(public_dns, client, db_session):
+    from app.services.credentials import stored_credential
+
+    client.post(
+        "/api/sources",
+        json={
+            "name": "acme",
+            "display_name": "Acme",
+            "url": "https://example.gov/api",
+            "auth": "query",
+            "credential": "A-KEY",
+        },
+    )
+    assert stored_credential(db_session, "acme") == "A-KEY"
+
+    assert client.delete("/api/sources/acme").status_code == 204
+    assert stored_credential(db_session, "acme") is None
+
+
+def test_a_builtin_cannot_be_deleted(client):
+    response = client.delete("/api/sources/ted")
+    assert response.status_code == 404
+    assert "built-in" in response.json()["detail"]
