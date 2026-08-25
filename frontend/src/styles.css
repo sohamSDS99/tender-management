@@ -2256,3 +2256,185 @@ html[data-density='compact'] .score {
     padding-left: clamp(12px, 2.2vw, 28px);
   }
 }
+
+/* ============================================================
+   SETTINGS SCREENS
+   ------------------------------------------------------------
+   Sources and Matching rules take over the content column rather than opening
+   in a panel: they are places you go, not things you peek at, and the sidebar
+   keeps saying where you are.
+   ============================================================ */
+.screen {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px 22px;
+}
+.screen__head h2 {
+  margin: 0 0 4px;
+  font-size: 1.12rem;
+  letter-spacing: -0.02em;
+}
+.screen__head p {
+  margin: 0 0 6px;
+  color: var(--ink-soft);
+  font-size: 0.83rem;
+  line-height: 1.55;
+  max-width: 68ch;
+}
+.screen__section {
+  margin: 22px 0 4px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.screen__hint,
+.screen__foot {
+  margin: 0 0 10px;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  max-width: 68ch;
+}
+.screen__foot {
+  margin: 20px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.screen__warn {
+  margin: 0;
+  flex: 1 1 100%;
+  color: var(--amber-ink);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.srclist,
+.tunelist,
+.proflist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.srclist {
+  gap: 2px;
+}
+.srcrow {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.srcrow:last-child {
+  border-bottom: 0;
+}
+.srcrow__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.srcrow__id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.srcrow__id b {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.srcrow__id span {
+  font-size: 0.755rem;
+  color: var(--ink-muted);
+}
+.srcrow__cred {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px 18px;
+  padding: 8px 10px;
+  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+}
+.srcrow__key {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+.input--sm {
+  padding: 5px 9px;
+  font-size: 0.8rem;
+  max-width: 260px;
+}
+
+.tunelist {
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.tunelist li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tunelist label {
+  width: 190px;
+  flex: none;
+  font-size: 0.84rem;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tunelist label span {
+  font-weight: 400;
+  font-size: 0.735rem;
+  color: var(--ink-muted);
+}
+.tunelist input[type='range'] {
+  flex: 1;
+  max-width: 320px;
+  accent-color: var(--brand);
+}
+.tunelist output {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  min-width: 3ch;
+}
+
+.proflist {
+  gap: 1px;
+}
+.proflist li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+.proflist li:last-child {
+  border-bottom: 0;
+}
+.proflist span {
+  font-family: var(--font-mono);
+  font-size: 0.735rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}

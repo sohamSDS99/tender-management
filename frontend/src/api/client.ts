@@ -10,6 +10,8 @@ import type {
   TenderFilters,
   TenderPage,
   TriggerResponse,
+  MatchingRules,
+  MatchingRulesPatch,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -131,4 +133,27 @@ export const api = {
     }),
   /** Reload the relevance config and re-score every stored notice. */
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
+
+  /**
+   * Set or clear a source's API key.
+   *
+   * Write-only by design: there is no matching read. GET /api/sources reports
+   * whether a key is configured and its last four characters, never the value.
+   */
+  setCredential: (source: string, value: string) =>
+    request<void>(`/api/sources/${encodeURIComponent(source)}/credential`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+
+  matchingRules: () => request<MatchingRules>('/api/matching-rules'),
+  /** Save overrides and re-score. The YAML file itself is never rewritten. */
+  saveMatchingRules: (payload: MatchingRulesPatch) =>
+    request<RescoreResponse>('/api/matching-rules', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  /** Hand the rules back to the file and re-score. */
+  resetMatchingRules: () =>
+    request<RescoreResponse>('/api/matching-rules', { method: 'DELETE' }),
 };

@@ -40,7 +40,9 @@ import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
 import { TenderList } from '../components/TenderList';
+import { MatchingRulesSettings } from '../components/MatchingRulesSettings';
 import { Sidebar, type SettingsScreen } from '../components/Sidebar';
+import { SourcesSettings } from '../components/SourcesSettings';
 import { Toolbar } from '../components/Toolbar';
 import { ScheduleEditor } from '../components/ScheduleEditor';
 import { TriggerSwitch } from '../components/TriggerSwitch';
@@ -327,6 +329,22 @@ export function Dashboard() {
     <>
       <div className="shell">
         <div className="col">
+          {settingsScreen === 'sources' ? (
+            <SourcesSettings
+              sources={sources}
+              busySource={busySource}
+              onFetchSource={(name) => void runAction('fetch', name)}
+              onChanged={() => void loadMeta()}
+            />
+          ) : settingsScreen === 'rules' ? (
+            <MatchingRulesSettings
+              onRescored={() => {
+                void loadMeta();
+                setReloadToken((v) => v + 1);
+              }}
+            />
+          ) : (
+          <>
           <SourcesPanel
             sources={sources}
             open={sourcesOpen}
@@ -407,6 +425,8 @@ export function Dashboard() {
           </main>
 
           <RunsTable runs={runs} sourceLabel={sourceLabel} />
+          </>
+          )}
         </div>
       </div>
 

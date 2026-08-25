@@ -77,6 +77,10 @@ export interface SourceStatus {
   homepage: string;
   enabled: boolean;
   requires_api_key: boolean;
+  /** Whether a key is stored. The value itself is never sent to the browser. */
+  credential_configured: boolean;
+  /** Last four characters, for confirming which key is set. */
+  credential_hint: string | null;
   unavailable_reason: string | null;
   keyword_prefiltered: boolean;
   notes: string;
@@ -214,6 +218,28 @@ export interface TenderFilters {
 
 /** Card height. Applied as `html[data-density]`, which the stylesheet keys off. */
 export type Density = 'comfortable' | 'compact';
+
+export interface MatchingProfile {
+  key: string;
+  label: string;
+  strong: string[];
+  medium: string[];
+  weak: string[];
+}
+
+export interface MatchingRules {
+  weights: Record<string, number>;
+  bands: Record<string, number>;
+  profiles: MatchingProfile[];
+  /** Which sections currently differ from the file. */
+  overridden: string[];
+}
+
+export type MatchingRulesPatch = {
+  weights?: Record<string, number>;
+  bands?: Record<string, number>;
+  profiles?: Record<string, Partial<Record<'strong' | 'medium' | 'weak', string[]>>>;
+};
 
 export interface Preferences {
   density: Density;
