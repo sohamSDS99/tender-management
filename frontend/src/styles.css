@@ -1,106 +1,76 @@
 /* ============================================================
    TENDER MONITOR — stylesheet
    ------------------------------------------------------------
-   Dark is the default, so the dark palette lives on :root and light is the
-   override. Any failure to stamp data-theme therefore lands on the intended
-   theme rather than flashing the other one.
+   One palette. White ground, black type, black actions. Colour is reserved
+   for status — green good, amber closing, red broken — and arrives as ink
+   and hairline, never as a filled pill. Anything not reporting a condition
+   is black, white, or grey.
    ============================================================ */
 
 :root {
-  color-scheme: dark;
-  --page: #0b1015;
-  --surface: #131a21;
-  --surface-2: #182129;
-  --surface-3: #1d2731;
-  --ink: #eef3f8;
-  --ink-soft: #9dabb9;
-  --ink-muted: #8b99a7;
-  --line: #242f3a;
-  --line-strong: #33404d;
+  color-scheme: light;
 
-  --brand: #7cb3e8;
-  --brand-hover: #9ac7f0;
-  --brand-ink: #0b1015;
-  --brand-soft: #12283c;
-  --brand-ring: rgba(124, 179, 232, 0.26);
+  /* Surfaces: white, with two barely-there steps for nesting. */
+  --page: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --surface-3: #f4f4f5;
 
-  /* Status marks. Never the only carrier of meaning — always beside a word. */
-  --mark-good: #35c98a;
-  --mark-warning: #f4c04f;
-  --mark-serious: #f0956b;
-  --mark-critical: #ef6b6b;
+  /* Ink. */
+  --ink: #000000;
+  --ink-soft: #52525b;
+  --ink-muted: #71717a;
 
-  --green-bg: #123024;
-  --green-ink: #5fd39b;
-  --amber-bg: #3a2c0c;
-  --amber-ink: #f4c04f;
-  --red-bg: #3a1717;
-  --red-ink: #f28b8b;
-  --blue-bg: #12283c;
-  --blue-ink: #8cc0f0;
-  --grey-bg: #1d262f;
-  --grey-ink: #b2bfcc;
+  /* Rules. */
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
 
-  /* Sequential ramp — magnitude only, for the score meters. */
-  --seq-100: #184f95;
-  --seq-250: #256abf;
-  --seq-450: #3987e5;
-  --seq-600: #86b6ef;
+  /* Action is black, not a hue. --brand keeps its name so no rule moves. */
+  --brand: #000000;
+  --brand-hover: #27272a;
+  --brand-ink: #ffffff;
+  --brand-soft: #f4f4f5;
+  --brand-ring: rgba(0, 0, 0, 0.16);
+
+  /* Status marks. The only colour in the system. */
+  --mark-good: #15803d;
+  --mark-warning: #b45309;
+  --mark-serious: #b45309;
+  --mark-critical: #b91c1c;
+
+  /* Status chips: coloured ink on white, bounded by a hairline. */
+  --green-bg: #ffffff;
+  --green-ink: #15803d;
+  --amber-bg: #ffffff;
+  --amber-ink: #b45309;
+  --red-bg: #ffffff;
+  --red-ink: #b91c1c;
+  --blue-bg: #ffffff;
+  --blue-ink: #000000;
+  --grey-bg: #ffffff;
+  --grey-ink: #52525b;
+
+  /* Score ramp: a value ramp now, not a hue ramp. High score dark. */
+  --seq-100: #d4d4d8;
+  --seq-250: #a1a1aa;
+  --seq-450: #52525b;
+  --seq-600: #000000;
 
   --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 6px;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 10px 24px -8px rgba(0, 0, 0, 0.5);
-  --shadow-3: 0 24px 60px -12px rgba(0, 0, 0, 0.7);
+
+  /* Shadows on white have to be far lighter than the dark theme's. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 10px 24px -8px rgba(0, 0, 0, 0.08);
+  --shadow-3: 0 24px 60px -12px rgba(0, 0, 0, 0.14);
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --sidebar-w: 340px;
   --rail-w: 62px;
-}
-
-html[data-theme='light'] {
-  color-scheme: light;
-  --page: #f4f6f9;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-3: #eff3f8;
-  --ink: #0d1b26;
-  --ink-soft: #5a6b7c;
-  --ink-muted: #64707c;
-  --line: #e2e7ee;
-  --line-strong: #cfd7e0;
-
-  --brand: #0f4c81;
-  --brand-hover: #0c3d68;
-  --brand-ink: #ffffff;
-  --brand-soft: #e8f0f8;
-  --brand-ring: rgba(15, 76, 129, 0.18);
-
-  --mark-good: #0ca30c;
-  --mark-warning: #d98c00;
-  --mark-serious: #d2643a;
-  --mark-critical: #d03b3b;
-
-  --green-bg: #e6f6ee;
-  --green-ink: #0f6b45;
-  --amber-bg: #fdf3dd;
-  --amber-ink: #7a4d00;
-  --red-bg: #fdeaea;
-  --red-ink: #9c1f1f;
-  --blue-bg: #e6f0f9;
-  --blue-ink: #14568c;
-  --grey-bg: #eef1f5;
-  --grey-ink: #4c5763;
-
-  --seq-100: #cde2fb;
-  --seq-250: #86b6ef;
-  --seq-450: #2a78d6;
-  --seq-600: #184f95;
-
-  --shadow-1: 0 1px 2px rgba(13, 27, 38, 0.06), 0 1px 3px rgba(13, 27, 38, 0.04);
-  --shadow-2: 0 4px 6px -1px rgba(13, 27, 38, 0.08), 0 10px 24px -8px rgba(13, 27, 38, 0.1);
-  --shadow-3: 0 24px 60px -12px rgba(13, 27, 38, 0.28);
 }
 
 * {
@@ -236,7 +206,7 @@ ol {
   height: 36px;
   flex: none;
   border-radius: 10px;
-  background: linear-gradient(150deg, var(--brand) 0%, #1b6ba8 100%);
+  background: var(--brand);
   color: var(--brand-ink);
   display: grid;
   place-items: center;
@@ -401,7 +371,7 @@ ol {
   font-weight: 600;
 }
 .btn--danger:hover:not(:disabled) {
-  background: var(--red-bg);
+  background: #fef2f2;
   border-color: var(--red-ink);
 }
 .btn--icon {
@@ -505,8 +475,8 @@ input[type='date'] {
   height: 40px;
   flex: none;
   border-radius: 10px;
-  background: linear-gradient(150deg, var(--brand) 0%, #1b6ba8 100%);
-  color: #fff;
+  background: var(--brand);
+  color: var(--brand-ink);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -1068,7 +1038,7 @@ html[data-density='compact'] .rescard .flagline {
   align-items: center;
   gap: 5px;
   border-radius: 999px;
-  padding: 2px 9px;
+  padding: 1px 8px;
   font-size: 0.735rem;
   font-weight: 600;
   white-space: nowrap;
@@ -1079,18 +1049,22 @@ html[data-density='compact'] .rescard .flagline {
 .badge--green {
   background: var(--green-bg);
   color: var(--green-ink);
+  border: 1px solid currentColor;
 }
 .badge--amber {
   background: var(--amber-bg);
   color: var(--amber-ink);
+  border: 1px solid currentColor;
 }
 .badge--red {
   background: var(--red-bg);
   color: var(--red-ink);
+  border: 1px solid currentColor;
 }
 .badge--grey {
   background: var(--grey-bg);
   color: var(--grey-ink);
+  border: 1px solid var(--line-strong);
 }
 .badge--line {
   border: 1px solid var(--line-strong);
@@ -2189,8 +2163,9 @@ html[data-density='compact'] .score {
 }
 .raw pre {
   margin: 0;
-  background: #0a0f14;
-  color: #d7e2ec;
+  background: var(--surface-3);
+  color: var(--ink);
+  border: 1px solid var(--line);
   padding: 12px;
   border-radius: var(--radius-xs);
   overflow: auto;
