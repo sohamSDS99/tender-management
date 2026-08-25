@@ -254,6 +254,31 @@ export interface RulesPreview {
   good_fit_band: number;
 }
 
+export interface ProbeResult {
+  ok: boolean;
+  status: number;
+  format?: 'ocds' | 'rss' | 'json' | 'unknown';
+  records_path?: string;
+  found?: number;
+  parsed?: number | null;
+  paths?: { path: string; sample: string }[];
+  reason: string | null;
+  detail: string | null;
+}
+
+export interface NewSource {
+  name: string;
+  display_name: string;
+  url: string;
+  homepage?: string;
+  auth: 'none' | 'query' | 'header' | 'bearer';
+  auth_param?: string | null;
+  format: string;
+  mapping?: Record<string, string> | null;
+  notes?: string;
+  credential?: string;
+}
+
 export interface Preferences {
   density: Density;
   /** Whether the left Settings panel is showing. Persisted so it survives a reload. */

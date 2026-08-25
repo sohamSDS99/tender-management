@@ -2885,3 +2885,17 @@ html[data-density='compact'] .score {
   line-height: 1.45;
   color: var(--ink-muted);
 }
+
+.input--wide {
+  max-width: 480px;
+  width: 100%;
+}
+.select--sm {
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  max-width: 380px;
+}
+.tunelist select {
+  flex: 1;
+  min-width: 0;
+}

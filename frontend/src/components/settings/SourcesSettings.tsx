@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { sourceHealth } from '../../labels';
 import { Icon } from '../Icon';
 import { SourceCard } from '../SourceCard';
+import { AddSource } from './AddSource';
 import { SettingsPage, SettingsRow, SettingsSection } from './SettingsPage';
 
 /**
@@ -189,6 +190,7 @@ export function SourcesSettings({
         </p>
       </SettingsSection>
 
+      <AddSource onAdded={onChanged} />
     </SettingsPage>
   );
 }

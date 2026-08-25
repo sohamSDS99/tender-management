@@ -13,6 +13,8 @@ import type {
   TriggerResponse,
   MatchingRules,
   MatchingRulesPatch,
+  NewSource,
+  ProbeResult,
   RulesPreview,
 } from '../types';
 
@@ -164,6 +166,19 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ value }),
     }),
+
+  /** Try a candidate endpoint. Stores nothing; reports what parsed. */
+  probeSource: (body: {
+    url: string;
+    auth?: string;
+    auth_param?: string | null;
+    credential?: string;
+    mapping?: Record<string, string> | null;
+  }) => request<ProbeResult>('/api/sources/probe', { method: 'POST', body: JSON.stringify(body) }),
+  addSource: (body: NewSource) =>
+    request<{ name: string }>('/api/sources', { method: 'POST', body: JSON.stringify(body) }),
+  deleteSource: (name: string) =>
+    request<void>(`/api/sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   matchingRules: () => request<MatchingRules>('/api/matching-rules'),
   /** What a rule change would move, without moving it. Stores nothing. */
