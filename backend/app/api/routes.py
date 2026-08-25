@@ -39,6 +39,13 @@ from app.services.credentials import (
     set_credential,
     stored_credential,
 )
+from app.services.matching_rules import (
+    InvalidRules,
+    clear_overrides,
+    engine_for,
+    read_rules,
+    save_overrides,
+)
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -484,9 +491,65 @@ def rescore(
     return RescoreResponse(rescored=rescored)
 
 
+@router.get("/api/matching-rules", tags=["rules"])
+def get_matching_rules(db: Session = Depends(get_db)) -> dict[str, object]:
+    """The tunable subset of relevance_profiles.yaml, with overrides applied."""
+    return read_rules(db)
+
+
+@router.put(
+    "/api/matching-rules",
+    response_model=RescoreResponse,
+    tags=["rules"],
+    summary="Change the matching rules and re-score",
+)
+def put_matching_rules(
+    payload: dict,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+    trusted: bool = Depends(has_cron_secret),
+) -> RescoreResponse:
+    """Store overrides, then re-score every notice under the new rules.
+
+    The YAML file is never rewritten - overrides live in app_settings and merge
+    over it, so the file's matching contract and its comments stay intact and
+    "reset to defaults" is a row deletion.
+
+    Carries the re-score cooldown, because that is what this actually does.
+    """
+    if not trusted:
+        operator.guard_rescore(db, settings)
+    try:
+        save_overrides(db, payload)
+    except InvalidRules as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    rescored = ingest.rescore_all(db)
+    operator.mark_rescore(db)
+    return RescoreResponse(rescored=rescored)
+
+
+@router.delete(
+    "/api/matching-rules",
+    response_model=RescoreResponse,
+    tags=["rules"],
+    summary="Hand the matching rules back to the file and re-score",
+)
+def delete_matching_rules(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+    trusted: bool = Depends(has_cron_secret),
+) -> RescoreResponse:
+    if not trusted:
+        operator.guard_rescore(db, settings)
+    clear_overrides(db)
+    rescored = ingest.rescore_all(db)
+    operator.mark_rescore(db)
+    return RescoreResponse(rescored=rescored)
+
+
 @router.get("/api/stats", response_model=StatsResponse, tags=["system"])
 def stats(db: Session = Depends(get_db), settings: Settings = Depends(settings_dep)) -> StatsResponse:
-    engine = get_engine()
+    engine = engine_for(db)
     bands = engine.bands
     now = utcnow()
 

@@ -23,7 +23,8 @@ from app.db import SessionLocal
 from app.logging_config import log_ctx
 from app.models import FetchRun, Tender, utcnow
 from app.services.credentials import settings_with_stored_credentials
-from app.services.relevance import RelevanceEngine, get_engine
+from app.services.matching_rules import engine_for
+from app.services.relevance import RelevanceEngine
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def upsert_tender(
     now: datetime | None = None,
 ) -> str:
     """Insert or update one notice. Returns 'created' | 'updated' | 'unchanged'."""
-    engine = engine or get_engine()
+    engine = engine or engine_for(db)
     now = now or utcnow()
     existing = db.execute(
         select(Tender).where(
@@ -151,7 +152,7 @@ def store_tenders(
     engine: RelevanceEngine | None = None,
 ) -> UpsertStats:
     """Upsert a batch. A malformed record only loses itself, not the batch."""
-    engine = engine or get_engine()
+    engine = engine or engine_for(db)
     stats = UpsertStats()
     for tender in tenders:
         try:
@@ -173,7 +174,7 @@ def store_tenders(
 
 def rescore_all(db: Session, engine: RelevanceEngine | None = None) -> int:
     """Re-run the relevance engine over every stored notice."""
-    engine = engine or get_engine(None)
+    engine = engine or engine_for(db)
     rows = db.execute(select(Tender)).scalars().all()
     now = utcnow()
     for row in rows:
@@ -242,7 +243,7 @@ async def _execute(
             log_ctx(logger, logging.INFO, "source skipped", source=source, reason=reason)
         else:
             tenders = await connector.fetch(date_from, date_to)
-            stats = store_tenders(db, tenders, get_engine())
+            stats = store_tenders(db, tenders, engine_for(db))
             run.records_received = len(tenders)
             run.records_created = stats.created
             run.records_updated = stats.updated
