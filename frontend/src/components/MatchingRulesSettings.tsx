@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { MatchingRules, RulesPreview } from '../types';
+import type { MatchingProfile, MatchingRules, RulesPreview } from '../types';
 import { api } from '../api/client';
+import { Icon } from './Icon';
+import { PhraseTable } from './settings/PhraseTable';
 import { SettingsPage } from './settings/SettingsPage';
 
 const WEIGHTS: { key: string; label: string; hint: string }[] = [
@@ -33,6 +35,8 @@ export function MatchingRulesSettings({
   const [rules, setRules] = useState<MatchingRules | null>(null);
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [bands, setBands] = useState<Record<string, number>>({});
+  const [profiles, setProfiles] = useState<MatchingProfile[]>([]);
+  const [openProfile, setOpenProfile] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<RulesPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -47,6 +51,7 @@ export function MatchingRulesSettings({
         setRules(data);
         setWeights(data.weights);
         setBands(data.bands);
+        setProfiles(data.profiles);
       })
       .catch((error: unknown) =>
         setMessage({ tone: 'bad', text: error instanceof Error ? error.message : 'Could not load.' }),
@@ -63,7 +68,10 @@ export function MatchingRulesSettings({
     setBusy(true);
     setMessage(null);
     try {
-      const result = await api.saveMatchingRules({ weights, bands });
+      const asProfiles = Object.fromEntries(
+        profiles.map((p) => [p.key, { strong: p.strong, medium: p.medium, weak: p.weak }]),
+      );
+      const result = await api.saveMatchingRules({ weights, bands, profiles: asProfiles });
       setMessage({
         tone: 'ok',
         text: `Saved. ${result.rescored.toLocaleString('en-GB')} notices re-scored under the new rules.`,
@@ -81,7 +89,10 @@ export function MatchingRulesSettings({
     setPreviewing(true);
     setMessage(null);
     try {
-      setConfirming(await api.previewMatchingRules({ weights, bands }));
+      const asProfiles = Object.fromEntries(
+        profiles.map((p) => [p.key, { strong: p.strong, medium: p.medium, weak: p.weak }]),
+      );
+      setConfirming(await api.previewMatchingRules({ weights, bands, profiles: asProfiles }));
     } catch (error) {
       setMessage({
         tone: 'bad',
@@ -100,6 +111,7 @@ export function MatchingRulesSettings({
       setRules(fresh);
       setWeights(fresh.weights);
       setBands(fresh.bands);
+      setProfiles(fresh.profiles);
       setMessage({
         tone: 'ok',
         text: `Back to the file's defaults. ${result.rescored.toLocaleString('en-GB')} notices re-scored.`,
@@ -192,19 +204,40 @@ export function MatchingRulesSettings({
 
       <h3 className="screen__section">Capability phrases</h3>
       <p className="screen__hint">
-        {rules.profiles.length} profiles, editable in the file. Every phrase is matched against
-        normalised text — lower-cased, accents folded, punctuation replaced by spaces.
+        What the engine looks for in a notice. A hit scores <b>strong 26</b>, <b>medium 12</b> or{' '}
+        <b>weak 5</b> points toward that profile, and <b>1.9×</b> as much when it lands in the title
+        rather than the description. Those points make the topic score, which is 55% of the final
+        one.
       </p>
       <ul className="proflist">
-        {rules.profiles.map((profile) => (
-          <li key={profile.key}>
-            <b>{profile.label}</b>
-            <span>
-              {profile.strong.length} strong · {profile.medium.length} medium · {profile.weak.length}{' '}
-              weak
-            </span>
-          </li>
-        ))}
+        {profiles.map((profile) => {
+          const open = openProfile === profile.key;
+          return (
+            <li key={profile.key} className={open ? 'is-open' : undefined}>
+              <button
+                type="button"
+                className="proflist__head"
+                aria-expanded={open}
+                onClick={() => setOpenProfile(open ? null : profile.key)}
+              >
+                <b>{profile.label}</b>
+                <span>
+                  {profile.strong.length} strong · {profile.medium.length} medium ·{' '}
+                  {profile.weak.length} weak
+                </span>
+                <Icon name="chevronDown" size={14} />
+              </button>
+              {open ? (
+                <PhraseTable
+                  profile={profile}
+                  onChange={(next) =>
+                    setProfiles((prev) => prev.map((p) => (p.key === next.key ? next : p)))
+                  }
+                />
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
 
       <div className="screen__actions">

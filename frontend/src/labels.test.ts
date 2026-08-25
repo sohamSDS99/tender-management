@@ -12,6 +12,7 @@ import {
   sourceHealth,
   sweepSummary,
   formatWhen,
+  normalisePhrase,
 } from './labels';
 
 /**
@@ -293,5 +294,25 @@ describe('formatWhen', () => {
 
   it('has nothing to say about a run that never happened', () => {
     expect(formatWhen(null)).toBe('—');
+  });
+});
+
+describe('normalisePhrase', () => {
+  it('lower-cases and turns punctuation into single spaces', () => {
+    expect(normalisePhrase('Cloud-Based Platform')).toBe('cloud based platform');
+    expect(normalisePhrase("buyer's data centre")).toBe('buyer s data centre');
+  });
+
+  it('folds accents, so a French or German phrase matches', () => {
+    expect(normalisePhrase('données de sécurité')).toBe('donnees de securite');
+    expect(normalisePhrase('Sicherheitsdatenblätter')).toBe('sicherheitsdatenblatter');
+  });
+
+  it('collapses runs of whitespace', () => {
+    expect(normalisePhrase('  SDS   management  ')).toBe('sds management');
+  });
+
+  it('has nothing to say about an empty phrase', () => {
+    expect(normalisePhrase('   ')).toBe('');
   });
 });

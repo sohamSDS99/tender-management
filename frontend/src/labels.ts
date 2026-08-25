@@ -452,3 +452,21 @@ export function formatWhen(value: string | null | undefined): string {
     timeZone: DHAKA,
   });
 }
+
+/**
+ * The matching contract from config/relevance_profiles.yaml, applied as you type.
+ *
+ * Lower-cased, accents folded, punctuation replaced by single spaces. The file
+ * documents this and the backend enforces it; showing it live is what stops
+ * someone typing "cloud-based platform" and quietly getting a phrase that never
+ * matches. The backend normalises again on save — this is a preview, not the
+ * authority.
+ */
+export function normalisePhrase(raw: string): string {
+  return raw
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
