@@ -78,3 +78,42 @@ def test_the_value_is_not_in_the_row_repr(db_session):
     set_credential(db_session, "sam", "SUPER-SECRET-VALUE")
     row = db_session.query(AppSetting).filter(AppSetting.key == "source.sam.credential").one()
     assert "SUPER-SECRET-VALUE" not in repr(row)
+
+
+# --- endpoints -------------------------------------------------------------
+
+
+def test_get_sources_never_returns_the_credential_value(client, db_session):
+    set_credential(db_session, "sam", "SUPER-SECRET-VALUE")
+    response = client.get("/api/sources")
+    assert response.status_code == 200
+    assert "SUPER-SECRET-VALUE" not in response.text
+    sam = next(s for s in response.json() if s["name"] == "sam")
+    assert sam["credential_configured"] is True
+    assert sam["credential_hint"] == "…ALUE"
+
+
+def test_put_stores_a_credential(client, db_session):
+    response = client.put("/api/sources/sam/credential", json={"value": "NEW-KEY-ABCD"})
+    assert response.status_code == 204
+    assert stored_credential(db_session, "sam") == "NEW-KEY-ABCD"
+
+
+def test_put_is_refused_for_a_source_that_takes_no_key(client):
+    assert client.put("/api/sources/ted/credential", json={"value": "x"}).status_code == 404
+
+
+def test_put_is_refused_when_operator_actions_are_off(db_session, monkeypatch, settings):
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import settings_dep as routes_settings_dep
+    from app.db import get_db
+    from app.main import create_app
+
+    closed = settings.model_copy(update={"allow_operator_actions": False})
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[routes_settings_dep] = lambda: closed
+    response = TestClient(app).put("/api/sources/sam/credential", json={"value": "x"})
+    assert response.status_code == 403
+    assert "ALLOW_OPERATOR_ACTIONS" in response.json()["detail"]

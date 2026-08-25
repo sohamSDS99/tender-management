@@ -125,6 +125,11 @@ class SourceStatus(UtcModel):
     homepage: str
     enabled: bool
     requires_api_key: bool
+    #: Whether a key is stored for this source. The value itself is never
+    #: returned by any endpoint - see app/services/credentials.py.
+    credential_configured: bool = False
+    #: Last four characters, for confirming *which* key is set.
+    credential_hint: str | None = None
     unavailable_reason: str | None
     keyword_prefiltered: bool
     notes: str
@@ -261,3 +266,9 @@ class TriggerResponse(BaseModel):
     scheduler_running: bool
     next_run_local_label: str | None
     detail: str
+
+
+class CredentialRequest(BaseModel):
+    """A new credential. Blank clears it and falls back to the environment."""
+
+    value: str = Field(default="", max_length=512)

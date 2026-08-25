@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import Select, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from app.jobs.schedule import next_run_local, utc_cron_expressions
 from app.models import FetchRun, Tender, utcnow
 from app.schemas import (
     AutomationStatus,
+    CredentialRequest,
     FetchRequest,
     FetchResponse,
     FetchRunSchema,
@@ -32,6 +33,12 @@ from app.schemas import (
 )
 from app.security import has_cron_secret
 from app.services import automation, ingest, operator, schedule_settings, scheduler
+from app.services.credentials import (
+    CREDENTIAL_FIELDS,
+    credential_hint,
+    set_credential,
+    stored_credential,
+)
 from app.services.relevance import get_engine
 from app.settings import Settings, get_settings
 
@@ -207,6 +214,8 @@ def list_sources(
         out.append(
             SourceStatus(
                 **entry,
+                credential_configured=stored_credential(db, name) is not None,
+                credential_hint=credential_hint(db, name),
                 tender_count=counts.get(name, 0),
                 running=name in running,
                 last_status=last_run.status if last_run else None,
@@ -297,6 +306,46 @@ _SORTS = {
     "published_asc": (Tender.publication_date.is_(None), Tender.publication_date.asc()),
     "first_seen_desc": (Tender.first_seen_at.desc(),),
 }
+
+
+@router.put(
+    "/api/sources/{name}/credential",
+    status_code=204,
+    tags=["sources"],
+    summary="Set or clear a source's API key - write-only, never read back",
+)
+def set_source_credential(
+    name: str,
+    payload: CredentialRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> Response:
+    """Store a credential so it takes effect without editing .env or restarting.
+
+    Write-only on purpose. The dashboard is unauthenticated (D23), and D23's
+    reasoning - these writes are expensive, not confidential, so rate-limit them
+    rather than gate them - does not extend to a secret. Nothing about *reading*
+    a key can be rate-limited, so the read path does not exist: GET /api/sources
+    reports only whether one is set and its last four characters.
+
+    Gated by ALLOW_OPERATOR_ACTIONS, reusing the switch the other operator
+    writes already answer to rather than inventing an auth system.
+    """
+    if not settings.allow_operator_actions:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Editing credentials from the dashboard is switched off "
+                "(ALLOW_OPERATOR_ACTIONS=false). Set it in .env instead."
+            ),
+        )
+    if name not in CREDENTIAL_FIELDS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' does not take an API key.",
+        )
+    set_credential(db, name, payload.value)
+    return Response(status_code=204)
 
 
 @router.get("/api/tenders", response_model=TenderPage, tags=["tenders"])
