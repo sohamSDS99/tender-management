@@ -8,7 +8,6 @@ import type {
   Stats,
   TenderFilters,
   TenderPage,
-  Theme,
 } from '../types';
 import {
   DEFAULT_FILTERS,
@@ -81,7 +80,7 @@ export function Dashboard() {
     null,
   );
 
-  const { preferences, resolved: theme, update, toggleTheme } = usePreferences();
+  const { preferences, update } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
@@ -354,12 +353,9 @@ export function Dashboard() {
         <Masthead
           automation={automation}
           stats={stats}
-          theme={theme}
-          preference={preferences.theme}
           busy={busy}
           onFetch={() => void runAction('fetch')}
           onRescore={() => void runAction('rescore')}
-          onToggleTheme={toggleTheme}
         />
 
         <StatTiles
@@ -472,13 +468,11 @@ export function Dashboard() {
         stats={stats}
         sources={sources}
         total={page?.total ?? 0}
-        theme={preferences.theme}
         density={preferences.density}
         pageSize={filters.page_size}
         onChange={onChange}
         onReset={clearAll}
         onClose={() => update({ settingsOpen: false })}
-        onTheme={(next: Theme) => update({ theme: next })}
         onDensity={(next: Density) => update({ density: next })}
         onPageSize={(size) => onChange({ page_size: size })}
         automation={

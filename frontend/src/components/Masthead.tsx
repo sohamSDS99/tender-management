@@ -1,4 +1,4 @@
-import type { AutomationStatus, Stats, Theme } from '../types';
+import type { AutomationStatus, Stats } from '../types';
 import { formatDateTime } from '../labels';
 import { Icon } from './Icon';
 
@@ -19,22 +19,16 @@ import { Icon } from './Icon';
 export function Masthead({
   automation,
   stats,
-  theme,
   busy,
   onFetch,
   onRescore,
-  onToggleTheme,
 }: {
   automation: AutomationStatus | null;
   stats: Stats | null;
-  theme: 'light' | 'dark';
   /** Which action is in flight, so only that button shows a pending label. */
   busy: 'fetch' | 'rescore' | null;
   onFetch: () => void;
   onRescore: () => void;
-  onToggleTheme: () => void;
-  /** The stored preference, for the toggle's label. */
-  preference?: Theme;
 }) {
   const lastRun = automation?.last_run;
   const sweeping = lastRun?.status === 'running' || busy === 'fetch';
@@ -86,16 +80,6 @@ export function Masthead({
         >
           <Icon name="download" size={14} />
           {sweeping ? 'Sweeping…' : 'Fetch new tenders'}
-        </button>
-
-        <button
-          type="button"
-          className="btn btn--icon"
-          onClick={onToggleTheme}
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-        >
-          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
         </button>
       </div>
     </header>

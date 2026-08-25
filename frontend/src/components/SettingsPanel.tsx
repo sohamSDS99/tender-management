@@ -7,7 +7,6 @@ import type {
   SourceStatus,
   Stats,
   TenderFilters,
-  Theme,
 } from '../types';
 import { DEPLOYMENT_FITS, FIT_STATUSES, isDefaultFilters } from '../state/urlFilters';
 import { countryLabel, deploymentLabel, fitLabel } from '../labels';
@@ -83,14 +82,12 @@ export function SettingsPanel({
   stats,
   sources,
   total,
-  theme,
   density,
   pageSize,
   automation,
   onChange,
   onReset,
   onClose,
-  onTheme,
   onDensity,
   onPageSize,
 }: {
@@ -99,7 +96,6 @@ export function SettingsPanel({
   stats: Stats | null;
   sources: SourceStatus[];
   total: number;
-  theme: Theme;
   density: Density;
   pageSize: number;
   /** The trigger switch and schedule editor, unchanged. */
@@ -107,7 +103,6 @@ export function SettingsPanel({
   onChange: (patch: Partial<TenderFilters>) => void;
   onReset: () => void;
   onClose: () => void;
-  onTheme: (theme: Theme) => void;
   onDensity: (density: Density) => void;
   onPageSize: (size: number) => void;
 }) {
@@ -450,22 +445,6 @@ export function SettingsPanel({
                   onClick={() => onDensity(value)}
                 >
                   {value === 'comfortable' ? 'Comfortable' : 'Compact'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="switchrow">
-            <p>Theme</p>
-            <div className="seg">
-              {(['dark', 'light', 'system'] as Theme[]).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={theme === value ? 'is-on' : undefined}
-                  aria-pressed={theme === value}
-                  onClick={() => onTheme(value)}
-                >
-                  {value === 'dark' ? 'Dark' : value === 'light' ? 'Light' : 'System'}
                 </button>
               ))}
             </div>
