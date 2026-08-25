@@ -2,14 +2,14 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (23 records, D1–D23).
+`docs/DECISIONS.md` explains why it is built this way (25 records, D1–D25).
 
 ## What this is
 
 Tender Monitor watches eight free public procurement sources, normalises every
 notice, scores it for relevance to SDS/EHS software work, and surfaces the few
 worth a human's time. Fetching is automated twice a day; a Slack digest announces
-new high scorers. Internal network only, no accounts. Notices are never edited,
+new high scorers. Internal network only. Notices are never edited,
 but a sweep, a re-score and the schedule can all be driven from the dashboard
 (D19, D21, D23).
 
@@ -26,14 +26,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 336 tests
+./.venv/bin/python -m pytest -q          # 515 tests
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 5 revisions, head b4efd5d106b6
+./.venv/bin/alembic upgrade head         # 7 revisions, head c7e1a4b90f32
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 70 tests
+npx vitest run                           # 121 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -223,8 +223,40 @@ when it looks fragile.
 
 ## Auth boundary
 
+**There are accounts now (D25), and they gate nothing.** This is the single
+easiest thing in the repository to get wrong, because "we added authentication"
+and "we added accounts" sound like the same sentence and are not. No tender
+route, no stats route, no operator action and no settings endpoint gained a
+`Depends`. A signed-out browser is served exactly what it was served before.
+`tests/test_auth.py::test_reads_stay_open_after_accounts_exist` fails loudly if
+that stops being true — if you find yourself regenerating it, you are reversing
+a decision, not fixing a test.
+
+The only endpoints that refuse a caller are the ones under `/api/auth` that read
+or change an account: `require_principal` (401) and `require_admin` (403) at the
+foot of `app/security.py`, and nowhere else.
+
+Registration is invite-only *after the first account*. The first registration on
+an empty deployment needs no invite and becomes an administrator — so between
+first start and first registration, whoever gets there first is the admin.
+Register immediately, or use `python -m app.accounts_cli create-admin`.
+
+**A Secure cookie over plain HTTP is never sent, and the symptom looks like a
+backend bug.** Sign-in returns 200, the dashboard says nothing is wrong, and the
+next request is anonymous. `SESSION_COOKIE_SECURE` is false by default because
+the documented deployment is plain HTTP; set it true only behind TLS. If sign-in
+"succeeds and does nothing", check this before anything else.
+
+**There is no email transport, so there is no password reset.** Invitation links
+are handed to the administrator to deliver. The recovery path for a locked-out
+account is `python -m app.accounts_cli reset-password` on the host.
+
+**`SameSite=Lax` is the entire CSRF defence**, and that is only sufficient
+because nothing is gated on identity (D23 + D25). The moment any endpoint is
+gated on a session, Lax stops being enough and a token becomes necessary.
+
 Reads are open by design — the data is public procurement notices, the tool is
-internal-network only, and there are no accounts (D5, D18).
+internal-network only (D5, D18, as amended by D25).
 
 **Nothing is gated on the shared secret any more (D23).** The secret is now a
 *bypass* of the cost limits, not a key. Every write is callable from the browser,

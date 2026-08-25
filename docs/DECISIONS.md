@@ -5,7 +5,8 @@ produced them. Each record names the files that carry the decision, so a reader 
 check the code rather than trust the prose. Verified against commit `7957480`.
 
 Read D2 before enabling any scheduler, and D5 before making the API reachable from
-anywhere other than the machine it runs on.
+anywhere other than the machine it runs on. D25 added user accounts and is
+explicit that they gate nothing — do not read it as authentication.
 
 ---
 
@@ -151,7 +152,7 @@ that option.
 
 ## D5 — Reads stay open; every write sits behind a shared secret
 
-**Decision.** README section 12 states the API has no authentication. That stays true
+**Decision.** README section 13 states the API has no authentication. That stays true
 for reads: `/health`, `/api/tenders`, `/api/tenders/{id}`, `/api/sources`,
 `/api/stats`, `/api/automation` and `/api/fetch-runs` are unauthenticated. Every
 endpoint that writes, or that spends an outbound request, is gated:
@@ -968,7 +969,7 @@ limits are *stricter* than what they replaced.
   and it is the same boundary D18, D19 and D21 already accept: the network is the
   perimeter, there are no accounts, and the person acting in the dashboard is the
   authorisation. It is only defensible while the API is not reachable from the
-  internet (README section 12). `ALLOW_OPERATOR_ACTIONS=false` is the switch for
+  internet (README section 13). `ALLOW_OPERATOR_ACTIONS=false` is the switch for
   the day that changes, and it must be set before any such exposure.
 * **Neither action can destroy data**, which is what makes the widening
   survivable rather than reckless. Ingest upserts on
@@ -1002,7 +1003,7 @@ with a worker (infrastructure for a problem a cooldown solves).
 ## Not done, deliberately
 
 * **No attachment download or parsing.** Documents are linked, never fetched, so their
-  text is not scored. Unchanged from the baseline; README section 12 says so.
+  text is not scored. Unchanged from the baseline; README section 13 says so.
 * **No rate limiting.** Read endpoints can be called without limit (D5).
 * **No per-user authentication.** There are no user accounts; writes are gated by one
   shared secret (D5).
@@ -1110,3 +1111,113 @@ mid-flight, and would die leaving its rows at `running` until
 now holds a strong reference until completion. This is a bug fix in run
 orchestration, not a change to the windowing, upsert, hashing or scoring
 semantics that `app/services/ingest.py` freezes.
+
+---
+
+## D25 — The tool has user accounts now, and they deliberately gate nothing
+
+**Decision.** There are accounts: `POST /api/auth/register`, `/login`, `/logout`,
+a profile at `/me`, a session list, and an administrator's view of invitations
+and people. They are carried by `app/models/user.py` (three tables: `users`,
+`user_sessions`, `invites`), `app/services/accounts.py`, `app/api/auth_routes.py`
+and the `Principal` dependencies at the foot of `app/security.py`. In the
+dashboard: `state/auth.ts`, `components/auth/AuthDialog.tsx` and the Account
+settings page.
+
+**This reverses D18's "deliberately no user accounts" and nothing else.** Every
+other position D18 took still holds, and the single most important property of
+this record is what did *not* change:
+
+> Reads are open. Writes are cost-controlled, not credential-gated (D23).
+> A signed-out browser is served exactly what it was served before this record.
+
+No tender route, no stats route, no operator action and no settings endpoint
+gained a `Depends`. `tests/test_auth.py::test_reads_stay_open_after_accounts_exist`
+and `::test_the_operator_actions_are_still_callable_signed_out` exist to fail
+loudly if that ever stops being true. The only endpoints in the product that
+refuse a caller are the ones under `/api/auth` that read or change an account —
+identity here buys a profile, not access.
+
+**Why accounts at all, then.** Because "who are you" and "what may you do" are
+different questions, and the product had no answer to the first. There was no way
+to have a profile, no way to tell one operator from another, and — the practical
+trigger — no way to hand someone limited access to a deployment without handing
+them the whole network. Answering the first question does not require starting to
+gate on it, and gating would have been the larger, riskier change: the Slack
+digest deep-links into the dashboard, and every one of those links would have
+landed on a sign-in form.
+
+**Registration is invite-only after the first account.** The first registration
+on an empty deployment needs no invite and becomes an administrator; everyone
+after that needs a single-use, expiring invite issued by an administrator. Open
+self-serve signup was rejected because the perimeter is still the network (D18):
+anyone who can reach the dashboard can already read everything, so open signup
+would add accounts without adding a boundary, while making the *administrator*
+role reachable by anyone who got there first.
+
+**The bootstrap window is a real exposure, and it is documented rather than
+closed.** Between the first start and the first registration, whoever reaches the
+dashboard first becomes the administrator. It cannot be closed by a constraint —
+"only one bootstrap" is not something a UNIQUE index can express — so
+`docs/RUNBOOK.md` says to register immediately after the first start, and
+`app/accounts_cli.py` can create an administrator from a shell on the host if
+somebody beat you to it.
+
+**Passwords use `hashlib.scrypt` from the standard library.** Not because it
+beats argon2 — it does not — but because the alternative was a new runtime
+dependency in a project whose entire dependency list fits on a screen, for a
+password store that will hold single digits of rows. The stored format
+(`scrypt$n$r$p$salt$key`) carries its own cost parameters, so raising the cost
+later is a change to one constant rather than a migration. No frontend dependency
+was added at all, which keeps the runtime at `react` + `react-dom` and needs no
+record of its own.
+
+**Sessions are rows, not JWTs.** A signed token cannot be withdrawn before it
+expires, which would make three of the features here dishonest: "sign out
+everywhere", "changing your password ends your other sessions", and
+"deactivating an account ends its sessions". Revocation has to be a write
+somewhere, so it is a write in `user_sessions`. The cookie is opaque, HttpOnly,
+`SameSite=Lax`, and only its SHA-256 is stored — a dump of the database lets
+nobody sign in as anybody.
+
+**SameSite=Lax is the whole CSRF defence, and that is enough here.** The
+dashboard is same-origin with the API in both supported deployments (Vite proxies
+in development, the web container proxies in production), so Lax costs nothing
+and stops another site's form from posting as you. It is acceptable as the only
+control precisely because of D23: the endpoints that spend money were never
+credential-gated, so there is no privilege for a forged request to ride. If any
+endpoint is ever gated on identity, this record stops being sufficient and a
+token becomes necessary.
+
+**Sign-in failures are deliberately uninformative.** An unknown address, a wrong
+password and a deactivated account return the same status and the same sentence,
+and cost the same time — `authenticate` verifies against a dummy hash when no
+user matches. The alternative turns the sign-in form into a directory of who
+works here. The lockout after `LOGIN_MAX_FAILURES` is per account rather than per
+address, because the API sits behind a proxy where every browser on the network
+shares one apparent address.
+
+**Two refusals protect the deployment from its own administrators.** The last
+active administrator cannot be demoted or deactivated, and nobody can deactivate
+themselves. Without the first, one click leaves nobody able to invite anyone;
+without the second, that click is an extremely easy one to make by accident. Both
+are enforced in `accounts.set_role` / `set_active`, not in the UI — the disabled
+buttons only make the reason legible before the click.
+
+**Accepted, and written down rather than solved:**
+
+* **There is no email transport**, so an invitation link is handed to the
+  administrator to deliver however they already talk to the person. Slack posts
+  to a channel, not to a person, and adding a mailer for this would be a larger
+  change than the feature.
+* **There is therefore no self-serve password reset.** The recovery path is
+  `python -m app.accounts_cli reset-password`, run by someone with a shell on the
+  host — the same trust boundary that already owns the database file and `.env`.
+* **`SESSION_COOKIE_SECURE` defaults to false**, because the documented
+  deployment is plain HTTP on a LAN and a Secure cookie over HTTP is silently
+  never sent. The failure mode is nasty and quiet — sign-in returns 200 and
+  leaves you signed out — so it is named in `.env.example`, in `docker-compose.yml`
+  and here. Set it true wherever the dashboard is behind TLS.
+* **Nothing is attributed to a user yet.** A sweep started by a signed-in
+  operator records `trigger=manual` exactly as before. Adding `triggered_by`
+  would touch `fetch_runs`, and attribution was not what was asked for.

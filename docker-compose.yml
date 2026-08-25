@@ -68,6 +68,13 @@ services:
       ENABLE_SLACK_NOTIFICATIONS: ${ENABLE_SLACK_NOTIFICATIONS:-true}
       CRON_SECRET: ${CRON_SECRET:-}
       SAM_GOV_API_KEY: ${SAM_GOV_API_KEY:-}
+      # Accounts (D25). Named here rather than left to .env because the one that
+      # matters is easy to get wrong in exactly one direction: a Secure cookie
+      # over plain HTTP is never sent by the browser, so sign-in returns 200 and
+      # leaves the reader signed out. This compose file serves plain HTTP, so it
+      # is false; set it true wherever the dashboard is behind HTTPS.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_LIFETIME_DAYS: ${SESSION_LIFETIME_DAYS:-14}
     volumes:
       - ./config:/app/config:ro
     ports:

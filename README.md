@@ -375,6 +375,18 @@ Interactive documentation: <http://localhost:8000/docs>.
 | POST | `/api/matching-rules/preview` | what a rule change would move, without moving it |
 | GET | `/api/settings/secrets` | which operator-settable values are configured — never returns one |
 | PUT | `/api/settings/secrets/{field}` | set or clear the Slack destination — write-only |
+| GET | `/api/auth/session` | who is signed in — `200` with `user: null` when nobody is |
+| POST | `/api/auth/register` | create an account; first one on a fresh deployment becomes admin |
+| POST | `/api/auth/login` · `/logout` | start or end a session (HttpOnly cookie) |
+| GET · PATCH | `/api/auth/me` | your profile |
+| POST | `/api/auth/me/password` | change it; ends every *other* session |
+| GET · DELETE | `/api/auth/sessions` | your signed-in browsers; sign out everywhere else |
+| GET · POST · DELETE | `/api/auth/invites` | invitations — **admin only** |
+| GET · PATCH | `/api/auth/users` | roles and deactivation — **admin only** |
+
+The `/api/auth` group is the only part of this API that ever refuses a caller
+(`401` unidentified, `403` identified but not an administrator). Everything above it answers a
+signed-out browser, and that is a decision rather than an oversight — see section 12 and D25.
 
 `GET /api/tenders` query parameters: `query`, `sources`, `countries`, `categories`, `statuses`,
 `fit_statuses`, `deployment_fits`, `minimum_score`, `maximum_score`, `published_from`,
@@ -743,7 +755,55 @@ tender-monitor/
 └── .env.example  README.md  CLAUDE.md  PRODUCT.md  DESIGN.md
 ```
 
-## 12. Known gaps / next steps
+## 12. Accounts
+
+Optional, and additive. **Nothing on this dashboard requires an account** — tenders,
+filters, sweeps and settings are all open to anyone who can reach the page, exactly as
+they were before accounts existed (`docs/DECISIONS.md` D25). What an account buys is a
+profile, and for administrators the ability to let other people in.
+
+| Action | Where |
+| --- | --- |
+| Create the first account | Sign in → **Create account**. The first one on a fresh deployment becomes the administrator and needs no invitation. |
+| Sign in / sign out | The account control at the foot of the left sidebar. |
+| Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
+| Invite someone | **Settings → Account → Invitations** (administrators only). |
+| Change a role, deactivate someone | **Settings → Account → People** (administrators only). |
+
+**Register immediately after the first start.** Until somebody does, the next person to
+reach the dashboard becomes the administrator. If you are too late, create one from a
+shell on the host:
+
+```bash
+docker compose exec backend python -m app.accounts_cli create-admin \
+  --email you@example.com --name "Your Name"
+```
+
+Registration is invite-only after that first account. There is no email transport here,
+so an invitation is a single-use link that expires in 7 days and that **you** deliver —
+it is shown once, at creation, and cannot be retrieved afterwards.
+
+Other things worth knowing:
+
+* **Sign-in over HTTPS needs `SESSION_COOKIE_SECURE=true`; over plain HTTP it must stay
+  `false`.** A Secure cookie is silently never sent over HTTP, and the symptom is a
+  sign-in that succeeds and leaves you signed out.
+* **There is no password reset**, because there is no mailer. Recovery is
+  `docker compose exec backend python -m app.accounts_cli reset-password --email …`,
+  which also ends every session that account had.
+* Changing your password signs out every *other* browser; this one stays in.
+* The last remaining administrator cannot be demoted or deactivated, and nobody can
+  deactivate themselves.
+* Passwords are hashed with `hashlib.scrypt` and session cookies are stored only as a
+  SHA-256, so a database dump lets nobody sign in as anybody.
+
+```bash
+python -m app.accounts_cli list             # who has an account
+python -m app.accounts_cli invite --email colleague@example.com
+python -m app.accounts_cli reset-password --email you@example.com --reactivate
+```
+
+## 13. Known gaps / next steps
 
 * PNCP and (to a lesser degree) CanadaBuys are volume-capped; a full mirror needs incremental
   bookmarking per modalidade instead of a page cap.
@@ -755,12 +815,13 @@ tender-monitor/
 * Read endpoints are unauthenticated **by design** — the content is public procurement data
   already published by governments. The writes are not secret-gated either: they are
   cost-controlled instead (section 6, D23), which means the trust boundary is "anyone who can
-  reach the dashboard can start a sweep, rotate a key or add a source". That is the same boundary
-  D18/D19/D21 already accept for an accountless internal tool, and it is **only defensible while
+  reach the dashboard can start a sweep, rotate a key or add a source". **The accounts added in
+  D25 do not change this** — signing in buys a profile, not access, and every route listed above
+  answers a signed-out browser exactly as it did before. That boundary is **only defensible while
   the API is not reachable from the internet**. Before that changes: set
   `ALLOW_OPERATOR_ACTIONS=false`, set `ENABLE_API_DOCS=false`, and read `docs/DECISIONS.md` D5,
-  D18 and D23. Hardening headers are applied to every response; there is no rate limiting beyond
-  the two cooldowns and no per-user auth.
+  D18, D23 and D25. Hardening headers are applied to every response; there is no rate limiting
+  beyond the two cooldowns and the per-account sign-in lockout.
 * A source added from the dashboard makes the server fetch an operator-supplied URL. The probe
   refuses localhost, private ranges and the cloud metadata endpoint, but this is the one feature
   whose safety rests on that guard rather than on the network boundary.

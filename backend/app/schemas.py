@@ -308,3 +308,124 @@ class SourceRequest(BaseModel):
     mapping: dict[str, str] | None = None
     notes: str = ""
     credential: str = Field(default="", max_length=512)
+
+
+# --- accounts (D25) ---------------------------------------------------------
+#
+# Nothing in this group appears inside a tender response. Accounts are a
+# parallel surface, not a field on the data, which is what keeps a signed-out
+# reader's payloads byte-for-byte what they were before D25.
+
+
+class UserOut(UtcModel):
+    """A person, as the dashboard is allowed to see them.
+
+    No password hash, no lockout counters, no session tokens. The admin user
+    list and "who am I" both render from this one shape, so there is no second
+    definition to fall out of step.
+    """
+
+    id: int
+    email: str
+    display_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    last_login_at: datetime | None
+
+
+class SessionState(UtcModel):
+    """What one call at page load has to answer.
+
+    The dashboard needs three things before it can draw the account control, and
+    fetching them separately would flash the wrong state in between: who you
+    are, whether an invite is needed to register, and whether this deployment is
+    still waiting for its first administrator.
+    """
+
+    user: UserOut | None
+    #: True only while no account exists. The next registration takes the
+    #: dashboard's first admin slot, which is why the UI says so out loud.
+    bootstrap: bool
+    #: The mirror of bootstrap, named for what the form needs rather than for
+    #: the condition, because that is what the form asks.
+    invite_required: bool
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+    #: Required except on the bootstrap registration. Comes from ?invite= in the
+    #: link an administrator sent.
+    invite_token: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ProfileUpdate(BaseModel):
+    """Both fields optional: a PATCH that names one must not blank the other."""
+
+    display_name: str | None = None
+    email: str | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class SessionOut(UtcModel):
+    """One live session in the profile's list."""
+
+    id: int
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    user_agent: str
+    #: The browser making this request. Marked so nobody ends their own session
+    #: expecting it to be one of the others.
+    current: bool
+
+
+class InviteOut(UtcModel):
+    id: int
+    email: str | None
+    role: str
+    note: str
+    #: pending / accepted / expired / revoked, derived rather than stored.
+    status: str
+    created_at: datetime
+    expires_at: datetime
+    accepted_at: datetime | None
+
+
+class InviteCreate(BaseModel):
+    email: str | None = None
+    role: str = "member"
+    note: str = ""
+
+
+class InviteCreated(UtcModel):
+    """The one response in the API that carries a live credential.
+
+    The token is returned exactly once, at creation, because only its SHA-256 is
+    stored. An administrator who loses the link issues another one; there is no
+    endpoint that can show it again.
+    """
+
+    invite: InviteOut
+    token: str
+    url: str
+
+
+class UserAdminUpdate(BaseModel):
+    role: str | None = None
+    is_active: bool | None = None
+
+
+class RevokedCount(BaseModel):
+    revoked: int

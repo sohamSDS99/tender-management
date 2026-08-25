@@ -15,6 +15,7 @@ describe('the settings menu', () => {
       'display',
       'automation',
       'sources',
+      'account',
       'system',
     ]);
   });
@@ -24,7 +25,7 @@ describe('the settings menu', () => {
     // so the list stays visible while a filter is being set. A full-width page
     // would hide the very results being narrowed.
     expect(categoryFor('filters')?.surface).toBe('panel');
-    for (const key of ['display', 'automation', 'sources', 'system']) {
+    for (const key of ['display', 'automation', 'sources', 'account', 'system']) {
       expect(categoryFor(key)?.surface).toBe('page');
     }
   });
@@ -41,7 +42,7 @@ describe('the settings menu', () => {
   });
 
   it('PAGE_KEYS is exactly the addressable set, in menu order', () => {
-    expect(PAGE_KEYS).toEqual(['rules', 'display', 'automation', 'sources', 'system']);
+    expect(PAGE_KEYS).toEqual(['rules', 'display', 'automation', 'sources', 'account', 'system']);
   });
 });
 

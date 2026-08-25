@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import router
+from app.api import auth_router, router
 from app.db import SessionLocal, init_db
 from app.logging_config import configure_logging
 from app.security import SecurityHeadersMiddleware
@@ -59,14 +59,24 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.enable_api_docs else None,
     )
     app.add_middleware(SecurityHeadersMiddleware)
+    origins = settings.cors_origin_list
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origin_list or ["*"],
-        allow_credentials=False,
+        allow_origins=origins or ["*"],
+        # The session cookie only travels to an origin named explicitly. '*'
+        # with credentials is rejected by every browser anyway, so deriving the
+        # flag from whether an origin list exists is the only combination that
+        # both works and stays safe when CORS_ORIGINS is cleared. Neither
+        # supported deployment needs it - Vite proxies in development and the
+        # web container proxies in production, so the dashboard is same-origin
+        # with the API in both - but a browser pointed straight at the API with
+        # VITE_API_BASE_URL set does. See docs/DECISIONS.md (D25).
+        allow_credentials=bool(origins),
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.include_router(router)
+    app.include_router(auth_router)
     return app
 
 

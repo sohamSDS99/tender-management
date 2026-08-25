@@ -17,6 +17,13 @@ import type {
   ProbeResult,
   RulesPreview,
   SettingsSecrets,
+  AuthSession,
+  Invite,
+  InviteCreated,
+  RevokedCount,
+  SessionState,
+  User,
+  UserRole,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -35,6 +42,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE}${path}`, {
       headers: { 'Content-Type': 'application/json' },
+      // The session cookie (D25). `same-origin` is fetch's default and covers
+      // both supported deployments, but VITE_API_BASE_URL can point the page at
+      // another origin, and there the default silently sends no cookie — the
+      // symptom is a sign-in that returns 200 and leaves you signed out. The
+      // API only allows credentials for origins named in CORS_ORIGINS.
+      credentials: 'include',
       ...init,
     });
   } catch {
@@ -203,6 +216,58 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   /** Hand the rules back to the file and re-score. */
-  resetMatchingRules: () =>
-    request<RescoreResponse>('/api/matching-rules', { method: 'DELETE' }),
+  resetMatchingRules: () => request<RescoreResponse>('/api/matching-rules', { method: 'DELETE' }),
+};
+
+/**
+ * Accounts (D25). Grouped separately from `api` because it is a different kind
+ * of surface: everything above reads or operates on procurement notices and
+ * answers anybody, while roughly half of this refuses a caller.
+ *
+ * No token is handled here. The session is an HttpOnly cookie the browser
+ * attaches on its own, which is precisely why script cannot read it — so there
+ * is nothing for this module to store, refresh or accidentally log.
+ */
+export const auth = {
+  /**
+   * Who is signed in, if anyone. Called once at page load.
+   *
+   * A 200 with `user: null` is the ordinary signed-out answer, so this never
+   * needs a 401 branch — see the note on the endpoint itself.
+   */
+  session: () => request<SessionState>('/api/auth/session'),
+  register: (body: {
+    email: string;
+    password: string;
+    display_name: string;
+    invite_token?: string | null;
+  }) => request<User>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  login: (email: string, password: string) =>
+    request<User>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+
+  updateProfile: (body: { display_name?: string; email?: string }) =>
+    request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
+  /** Returns how many *other* sessions the change ended. This one survives. */
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<RevokedCount>('/api/auth/me/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  sessions: () => request<AuthSession[]>('/api/auth/sessions'),
+  /** Ends every session but this one, so success is not a sign-in screen. */
+  signOutOthers: () => request<RevokedCount>('/api/auth/sessions', { method: 'DELETE' }),
+
+  invites: () => request<Invite[]>('/api/auth/invites'),
+  /** The response carries the only copy of the link. Show it, do not discard it. */
+  createInvite: (body: { email?: string | null; role: UserRole; note?: string }) =>
+    request<InviteCreated>('/api/auth/invites', { method: 'POST', body: JSON.stringify(body) }),
+  revokeInvite: (id: number) => request<void>(`/api/auth/invites/${id}`, { method: 'DELETE' }),
+
+  users: () => request<User[]>('/api/auth/users'),
+  updateUser: (id: number, body: { role?: UserRole; is_active?: boolean }) =>
+    request<User>(`/api/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };

@@ -217,7 +217,6 @@ export interface TenderFilters {
   page_size: number;
 }
 
-
 /** Card height. Applied as `html[data-density]`, which the stylesheet keys off. */
 export type Density = 'comfortable' | 'compact';
 
@@ -329,4 +328,77 @@ export interface TriggerResponse {
   scheduler_running: boolean;
   next_run_local_label: string | null;
   detail: string;
+}
+
+// --- accounts (D25) ---------------------------------------------------------
+//
+// A parallel surface, not a field on the data: no tender response gained a
+// property when accounts arrived, and a signed-out reader is served exactly what
+// they were served before.
+
+export type UserRole = 'admin' | 'member';
+
+/** A person, as the API is willing to describe them. Never carries a secret. */
+export interface User {
+  id: number;
+  email: string;
+  display_name: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+/**
+ * The answer to one call at page load.
+ *
+ * `user: null` is the ordinary signed-out state and not an error — the whole
+ * dashboard works without an account.
+ */
+export interface SessionState {
+  user: User | null;
+  /** No account exists yet: the next registration takes the admin slot. */
+  bootstrap: boolean;
+  /** The mirror of `bootstrap`, named for what the registration form asks. */
+  invite_required: boolean;
+}
+
+/** One signed-in browser, in the profile's session list. */
+export interface AuthSession {
+  id: number;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  user_agent: string;
+  /** The browser reading this list. Marked so nobody ends their own by mistake. */
+  current: boolean;
+}
+
+export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface Invite {
+  id: number;
+  email: string | null;
+  role: UserRole;
+  note: string;
+  status: InviteStatus;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+}
+
+/**
+ * The one response in the API carrying a live credential.
+ *
+ * `token` and `url` are returned once, at creation, because only a hash of the
+ * token is stored. There is no endpoint that can show them again.
+ */
+export interface InviteCreated {
+  invite: Invite;
+  token: string;
+  url: string;
+}
+
+export interface RevokedCount {
+  revoked: number;
 }
