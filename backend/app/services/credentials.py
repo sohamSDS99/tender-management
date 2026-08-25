@@ -26,7 +26,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
-from app.models import AppSetting, utcnow
+from app.models import AppSetting, Source, utcnow
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -45,9 +45,22 @@ def _key(source: str) -> str:
     return f"source.{source}.credential"
 
 
+def _known(db: Session, source: str) -> bool:
+    """Whether this name can hold a credential at all.
+
+    A built-in that declares a Settings field, or a source somebody added from
+    the dashboard. Anything else is refused rather than written, so a typo
+    cannot leave a row nothing will ever read - which is the whole point of the
+    check, and why it is not simply "any string".
+    """
+    if source in CREDENTIAL_FIELDS:
+        return True
+    return db.get(Source, source) is not None
+
+
 def stored_credential(db: Session, source: str) -> str | None:
     """The stored value, or None. Internal to the connector layer - see module docstring."""
-    if source not in CREDENTIAL_FIELDS:
+    if not _known(db, source):
         return None
     row = db.get(AppSetting, _key(source))
     value = (row.value or "").strip() if row else ""
@@ -71,7 +84,7 @@ def set_credential(db: Session, source: str, value: str) -> bool:
 
     Never logs the value, and the log line says only that one changed.
     """
-    if source not in CREDENTIAL_FIELDS:
+    if not _known(db, source):
         log_ctx(logger, logging.WARNING, "credential refused", source=source, reason="unknown source")
         return False
 

@@ -153,7 +153,7 @@ def patched_session(monkeypatch, db_session):
 
 
 async def test_one_failing_source_does_not_fail_the_run(patched_session, settings, monkeypatch):
-    def build(source, settings_arg=None, transport=None):
+    def build(source, settings_arg=None, transport=None, **kw):
         if source == "ted":
             return FakeConnector(settings, tenders=[make_tender()])
         if source == "sam":
@@ -179,7 +179,7 @@ async def test_connector_crash_is_recorded_not_raised(patched_session, settings,
     monkeypatch.setattr(
         ingest,
         "build_connector",
-        lambda source, s=None, transport=None: FakeConnector(settings, error=RuntimeError("boom")),
+        lambda source, s=None, transport=None, **kw: FakeConnector(settings, error=RuntimeError("boom")),
     )
     await ingest.run_fetch(["ted"], days_back=1, settings=settings)
     run = patched_session.execute(select(FetchRun)).scalar_one()
@@ -193,7 +193,7 @@ async def test_partial_status_when_some_records_fail(patched_session, settings, 
     monkeypatch.setattr(
         ingest,
         "build_connector",
-        lambda source, s=None, transport=None: FakeConnector(settings, tenders=tenders),
+        lambda source, s=None, transport=None, **kw: FakeConnector(settings, tenders=tenders),
     )
     await ingest.run_fetch(["ted"], days_back=1, settings=settings)
     run = patched_session.execute(select(FetchRun)).scalar_one()
@@ -216,7 +216,7 @@ async def test_duplicate_concurrent_runs_are_prevented(patched_session, settings
             return [make_tender()]
 
     monkeypatch.setattr(
-        ingest, "build_connector", lambda source, s=None, transport=None: SlowConnector(settings)
+        ingest, "build_connector", lambda source, s=None, transport=None, **kw: SlowConnector(settings)
     )
     first = asyncio.create_task(ingest.run_fetch(["ted"], days_back=1, settings=settings))
     await started.wait()
@@ -236,7 +236,7 @@ async def test_start_fetch_returns_immediately_with_run_ids(patched_session, set
     monkeypatch.setattr(
         ingest,
         "build_connector",
-        lambda source, s=None, transport=None: FakeConnector(settings, tenders=[make_tender()]),
+        lambda source, s=None, transport=None, **kw: FakeConnector(settings, tenders=[make_tender()]),
     )
     response = await ingest.start_fetch(["ted"], days_back=1, settings=settings)
     assert response["run_ids"]

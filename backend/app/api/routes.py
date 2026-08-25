@@ -217,7 +217,7 @@ def list_sources(
     # unavailable_reason() is computed from the settings the connector is built
     # with, so passing the raw ones would contradict the hint shown beside it.
     resolved = settings_with_stored_credentials(db, settings)
-    for entry in source_catalog(resolved):
+    for entry in source_catalog(resolved, db=db):
         name = str(entry["name"])
         last_run = db.execute(
             select(FetchRun).where(FetchRun.source == name).order_by(FetchRun.started_at.desc()).limit(1)

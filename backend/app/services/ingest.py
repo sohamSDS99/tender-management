@@ -248,7 +248,7 @@ async def _execute(
     try:
         # The stored credential wins over .env and applies without a restart,
         # so a key pasted into the dashboard takes effect on the next sweep.
-        connector = build_connector(source, settings_with_stored_credentials(db, settings))
+        connector = build_connector(source, settings_with_stored_credentials(db, settings), db=db)
         reason = connector.unavailable_reason()
         if reason:
             run.status = "skipped"
@@ -342,7 +342,7 @@ def _plan(
     else:
         db = SessionLocal()
         try:
-            requested = enabled_sources(settings_with_stored_credentials(db, settings))
+            requested = enabled_sources(settings_with_stored_credentials(db, settings), db=db)
         finally:
             db.close()
     busy = [s for s in requested if s in _running]
