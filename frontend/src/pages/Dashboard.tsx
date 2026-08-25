@@ -19,13 +19,11 @@ import {
 } from '../state/urlFilters';
 import {
   OWNED,
-  TILES,
-  VIEWS,
-  activeView,
-  type TileKey,
-  type ViewContext,
-  type ViewKey,
-} from '../state/views';
+  activeLens,
+  lensByKey,
+  type LensContext,
+  type LensKey,
+} from '../state/lenses';
 import { usePreferences } from '../state/preferences';
 import {
   FALLBACK_BANDS,
@@ -36,15 +34,13 @@ import {
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
 import { LinkBase } from '../components/LinkBase';
-import { Masthead } from '../components/Masthead';
-import { Notice } from '../components/Notice';
+import { BucketNote, Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
-import { Rail } from '../components/Rail';
 import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
-import { BucketNote, StatTiles } from '../components/StatTiles';
 import { TenderList } from '../components/TenderList';
+import { Sidebar, type SettingsScreen } from '../components/Sidebar';
 import { Toolbar } from '../components/Toolbar';
 import { ScheduleEditor } from '../components/ScheduleEditor';
 import { TriggerSwitch } from '../components/TriggerSwitch';
@@ -71,6 +67,8 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [unreachable, setUnreachable] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  /** Which settings screen has taken over the content area, if any. */
+  const [settingsScreen, setSettingsScreen] = useState<SettingsScreen | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   // Which whole-system action is in flight, and what the server said about it.
@@ -213,7 +211,7 @@ export function Dashboard() {
 
   const clearAll = useCallback(() => setFilters(DEFAULT_FILTERS), []);
 
-  const viewContext: ViewContext = useMemo(
+  const lensContext: LensContext = useMemo(
     () => ({
       lastRunAt: automation?.last_run?.started_at ?? null,
       goodFitBand: stats?.score_bands?.good_fit ?? FALLBACK_BANDS.good_fit,
@@ -237,18 +235,15 @@ export function Dashboard() {
     [sources],
   );
 
-  const selectView = useCallback(
-    (key: ViewKey) => {
-      const view = VIEWS.find((v) => v.key === key);
-      if (!view) return;
-      setFilters({ ...DEFAULT_FILTERS, ...view.patch(viewContext), page: 1 });
+  const selectLens = useCallback(
+    (key: LensKey) => {
+      const lens = lensByKey(key);
+      if (!lens) return;
+      setSettingsScreen(null);
+      setFilters({ ...DEFAULT_FILTERS, ...lens.patch(lensContext), page: 1 });
     },
-    [viewContext],
+    [lensContext],
   );
-
-  const applyTile = useCallback((patch: Partial<TenderFilters>) => {
-    setFilters({ ...DEFAULT_FILTERS, ...patch, page: 1 });
-  }, []);
 
   // Machine keys like "sds_management" have no business on screen, on a chip or
   // on a card badge.
@@ -269,53 +264,34 @@ export function Dashboard() {
     [filters, sourceLabel, categoryLabel],
   );
 
-  const currentView = activeView(filters, viewContext);
-
-  /** Which tile, if any, the current filters are exactly. */
-  const activeTile: TileKey | null = useMemo(() => {
-    for (const tile of TILES) {
-      const wanted = { ...DEFAULT_FILTERS, ...tile.patch(viewContext) };
-      const same = (OWNED as (keyof TenderFilters)[]).every((key) => {
-        const a = wanted[key];
-        const b = filters[key];
-        if (Array.isArray(a) && Array.isArray(b)) {
-          return a.length === b.length && a.every((v) => (b as unknown[]).includes(v));
-        }
-        return a === b;
-      });
-      if (same) return tile.key;
-    }
-    return null;
-  }, [filters, viewContext]);
+  const currentLens = activeLens(filters, lensContext);
 
   /**
-   * Counts beside the tabs, taken only where /api/stats counts exactly the same
-   * population the tab filters on. "New this fetch" has no such stat, so it shows
-   * no number rather than a guess.
+   * The chip row states the complete truth about what is on screen: the lens's
+   * own predicate first, locked, then anything the reader narrowed on top.
+   *
+   * Locked because the lens is where you *are*. It changes by navigating, not
+   * by dismissing a chip — which is also why "Clear all" only clears the rest.
    */
-  const bucketCounts = useMemo(
-    () => ({
-      new: null,
-      relevant: stats === null ? null : stats.good_fit_or_better + stats.possible_or_review,
-      irrelevant: stats?.not_relevant ?? null,
-      all: stats?.total_tenders ?? null,
-    }),
-    [stats],
-  );
+  const chipRow = useMemo(() => {
+    const lens = lensByKey(currentLens);
+    const locked = lens?.lockedLabel(lensContext) ?? null;
+    const refinements = (currentLens ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips).map(
+      (chip) => ({ label: chip.label, onRemove: () => onChange(chip.clear) }),
+    );
+    const row: { label: string; locked?: boolean; onRemove: () => void }[] = refinements;
+    return locked === null ? row : [{ label: locked, locked: true, onRemove: () => {} }, ...row];
+  }, [chips, currentLens, lensContext, onChange]);
 
-  // While a bucket tab is lit it already says what is being filtered, so neither
-  // the chip row nor the Settings badge should repeat it. What they must still
-  // show is anything narrowed *beyond* the bucket — a source, a country — because
-  // that is invisible otherwise.
-  const extraChips = useMemo(
-    () => (currentView ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips),
-    [chips, currentView],
-  );
+  const lensNote = useMemo(() => {
+    const lens = lensByKey(currentLens);
+    return lens ? lens.note(lensContext) : null;
+  }, [currentLens, lensContext]);
 
-  const bucketNote = useMemo(() => {
-    const view = VIEWS.find((v) => v.key === currentView);
-    return view ? view.note(viewContext) : null;
-  }, [currentView, viewContext]);
+  const brokenSources = useMemo(
+    () => sources.filter((s) => s.unavailable_reason || s.last_status === 'failed').length,
+    [sources],
+  );
 
   // --- detail navigation --------------------------------------------------
   const items = page?.items ?? [];
@@ -350,22 +326,6 @@ export function Dashboard() {
   return (
     <>
       <div className="shell">
-        <Masthead
-          automation={automation}
-          stats={stats}
-          busy={busy}
-          onFetch={() => void runAction('fetch')}
-          onRescore={() => void runAction('rescore')}
-        />
-
-        <StatTiles
-          stats={stats}
-          sources={sources}
-          activeTile={activeTile}
-          onApply={applyTile}
-          onShowSources={() => setSourcesOpen(true)}
-        />
-
         <div className="col">
           <SourcesPanel
             sources={sources}
@@ -378,18 +338,12 @@ export function Dashboard() {
 
           <Toolbar
             filters={filters}
-            stats={stats}
-            viewContext={viewContext}
-            activeView={currentView}
-            bucketCounts={bucketCounts}
+            filterCount={activeFilterCount(filters)}
+            onOpenFilters={() => update({ settingsOpen: true })}
             onSearch={(query) => onChange({ query })}
             onSort={(sort) => onChange({ sort })}
-            onSelectView={selectView}
             onClearAll={clearAll}
-            chips={extraChips.map((chip) => ({
-              label: chip.label,
-              onRemove: () => onChange(chip.clear),
-            }))}
+            chips={chipRow}
           />
 
           {actionMessage ? (
@@ -404,7 +358,7 @@ export function Dashboard() {
           <Notice automation={automation} />
 
           <main>
-            {bucketNote ? <BucketNote text={bucketNote} /> : null}
+            {lensNote ? <BucketNote text={lensNote} /> : null}
 
             <div className="results__head">
               <h2 aria-live="polite">
@@ -433,7 +387,7 @@ export function Dashboard() {
               error={error}
               unreachable={unreachable}
               selectedId={selectedId}
-              newSince={viewContext.lastRunAt}
+              newSince={lensContext.lastRunAt}
               filterCount={activeFilterCount(filters)}
               total={page?.total ?? 0}
               storedTotal={stats?.total_tenders ?? 0}
@@ -444,7 +398,7 @@ export function Dashboard() {
               onRetry={() => setReloadToken((v) => v + 1)}
               onClearFilters={clearAll}
               onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-              onShowAll={() => selectView('all')}
+              onShowAll={() => selectLens('all')}
             />
 
             {page && !error ? (
@@ -456,10 +410,18 @@ export function Dashboard() {
         </div>
       </div>
 
-      <Rail
-        settingsOpen={settingsOpen}
-        activeFilterCount={activeFilterCount(filters)}
-        onToggleSettings={() => update({ settingsOpen: !settingsOpen })}
+      <Sidebar
+        stats={stats}
+        lensContext={lensContext}
+        activeLens={currentLens}
+        settingsScreen={settingsScreen}
+        brokenSources={brokenSources}
+        busy={busy}
+        sweeping={automation?.last_run?.status === 'running' || busy === 'fetch'}
+        onSelectLens={selectLens}
+        onOpenSettings={setSettingsScreen}
+        onFetch={() => void runAction('fetch')}
+        onRescore={() => void runAction('rescore')}
       />
 
       <SettingsPanel
