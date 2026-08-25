@@ -235,7 +235,7 @@ writes need a gate. That is out of scope here and should be its own decision.
 ## 7. Removed
 
 - Dark mode: toggle, `theme` preference, and all dark rules in `styles.css`
-  (currently 3073 lines covering both themes).
+  (currently 2310 lines covering both themes).
 - The view tabs (`Views.tsx` was already deleted upstream; the tab row in
   `Toolbar` goes with it).
 - The stat tile row (`StatTiles.tsx`) — becomes sidebar counts.
@@ -288,7 +288,7 @@ deferred without invalidating it.
   implementation plan.
 - **Per-lens remembered filters can confuse.** Mitigated by the chip row always
   stating the truth, but worth watching in use.
-- **Stylesheet surgery.** Removing dark mode from a 3073-line stylesheet while
+- **Stylesheet surgery.** Removing dark mode from a 2310-line stylesheet while
   restructuring layout is where regressions will come from. Do the theme
   removal as its own commit, verified visually, before layout work starts.
 

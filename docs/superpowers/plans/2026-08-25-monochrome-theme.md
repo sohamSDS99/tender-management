@@ -4,7 +4,7 @@
 
 **Goal:** Remove dark mode entirely and repaint the dashboard in a monochrome palette with a sans/mono type split, changing no layout.
 
-**Architecture:** `styles.css` is already fully tokenised — `:root` holds the dark palette and `html[data-theme='light']` overrides the same 37 custom properties, with only three theme-specific rules living outside those two blocks. So this is a token rewrite plus the removal of the theme state machine, not a sweep through 3073 lines. Work inward: delete the state machinery first (it has real tests), then collapse the tokens, then apply type.
+**Architecture:** `styles.css` is already fully tokenised — `:root` holds the dark palette and `html[data-theme='light']` overrides the same 37 custom properties, with only three theme-specific rules living outside those two blocks. So this is a token rewrite plus the removal of the theme state machine, not a sweep through 2300 lines. Work inward: delete the state machinery first (it has real tests), then collapse the tokens, then apply type.
 
 **Tech Stack:** React 18 + TypeScript, Vite, vitest + jsdom, plain CSS custom properties.
 
