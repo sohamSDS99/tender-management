@@ -106,3 +106,14 @@ def client(db_session, monkeypatch, settings):
 def anon_client(db_session, monkeypatch, settings):
     """An unauthenticated caller: no shared secret, as the public internet would."""
     return TestClient(_build_app(db_session, monkeypatch, settings))
+
+
+@pytest.fixture
+def isolated_factory(db_session):
+    """A session factory bound to this test's own in-memory database.
+
+    Passed to start_scheduler so the trigger decision is read from here rather
+    than from whatever database the process happens to point at. Without it the
+    result depends on the developer's own data/tenders.db.
+    """
+    return db_session.info["factory"]
