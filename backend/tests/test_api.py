@@ -219,8 +219,11 @@ def test_fetch_runs_listing_and_filters(client, seeded):
 def test_trigger_fetch_returns_run_ids_without_waiting(client, monkeypatch):
     calls: list[dict] = []
 
-    async def fake_start(sources=None, days_back=None, trigger="manual", settings=None):
-        calls.append({"sources": sources, "days_back": days_back, "trigger": trigger})
+    # Mirrors the real signature, batch_id included: a double that accepts less
+    # than the caller passes turns a route change into a confusing TypeError
+    # instead of a clear assertion failure.
+    async def fake_start(sources=None, days_back=None, trigger="manual", settings=None, batch_id=None):
+        calls.append({"sources": sources, "days_back": days_back, "trigger": trigger, "batch_id": batch_id})
         return {
             "runs": [{"id": 1, "source": "ted", "status": "queued"}],
             "run_ids": [1],
@@ -234,7 +237,12 @@ def test_trigger_fetch_returns_run_ids_without_waiting(client, monkeypatch):
     assert response.status_code == 202
     assert response.json()["run_ids"] == [1]
     assert response.json()["skipped_sources"] == ["sam"]
-    assert calls == [{"sources": ["ted"], "days_back": 3, "trigger": "manual"}]
+    assert len(calls) == 1
+    assert calls[0]["sources"] == ["ted"]
+    assert calls[0]["days_back"] == 3
+    assert calls[0]["trigger"] == "manual"
+    # Every sweep is attributable, so /api/automation can report on this one.
+    assert calls[0]["batch_id"]
 
 
 def test_trigger_fetch_rejects_unknown_sources(client):

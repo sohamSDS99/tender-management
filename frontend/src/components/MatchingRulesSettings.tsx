@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { MatchingRules, RulesPreview } from '../types';
 import { api } from '../api/client';
+import { SettingsPage } from './settings/SettingsPage';
 
 const WEIGHTS: { key: string; label: string; hint: string }[] = [
   { key: 'topic', label: 'Topic', hint: 'How much the subject matter matters' },
@@ -22,7 +23,13 @@ const BANDS: { key: string; label: string }[] = [
  * re-scores every stored notice, so it asks first — someone may have been
  * working a shortlist for a week under the old ranking.
  */
-export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }) {
+export function MatchingRulesSettings({
+  onBack,
+  onRescored,
+}: {
+  onBack: () => void;
+  onRescored: () => void;
+}) {
   const [rules, setRules] = useState<MatchingRules | null>(null);
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [bands, setBands] = useState<Record<string, number>>({});
@@ -107,10 +114,7 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
 
   if (!rules) {
     return (
-      <section className="screen">
-        <header className="screen__head">
-          <h2>Matching rules</h2>
-        </header>
+      <SettingsPage title="Matching rules" blurb="How a notice earns its score." onBack={onBack}>
         {message ? (
           <p className="notice notice--bad" role="status">
             {message.text}
@@ -118,20 +122,16 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
         ) : (
           <p className="screen__foot">Loading…</p>
         )}
-      </section>
+      </SettingsPage>
     );
   }
 
   return (
-    <section className="screen">
-      <header className="screen__head">
-        <h2>Matching rules</h2>
-        <p>
-          How a notice earns its score. Phrase lists and regexes live in
-          <code> config/relevance_profiles.yaml</code>; what you change here is stored separately and
-          merged over the file, so the file stays readable and resetting is one click.
-        </p>
-      </header>
+    <SettingsPage
+      title="Matching rules"
+      blurb="How a notice earns its score. Phrase lists and regexes live in config/relevance_profiles.yaml; what you change here is stored separately and merged over the file, so the file stays readable and resetting is one click."
+      onBack={onBack}
+    >
 
       {message ? (
         <p className={`notice${message.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`} role="status">
@@ -246,6 +246,6 @@ export function MatchingRulesSettings({ onRescored }: { onRescored: () => void }
           </>
         )}
       </div>
-    </section>
+    </SettingsPage>
   );
 }

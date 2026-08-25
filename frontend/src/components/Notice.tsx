@@ -6,18 +6,32 @@ import { Icon } from './Icon';
  * is one line rather than a panel: the bidder can do nothing about it, so it must
  * inform without taking over the page.
  */
-export function Notice({ automation }: { automation: AutomationStatus | null }) {
+export function Notice({
+  automation,
+  sweeping,
+}: {
+  automation: AutomationStatus | null;
+  /** True while an operator-started sweep is in flight. */
+  sweeping?: boolean;
+}) {
   if (!automation) return null;
   const { slack, last_run: last } = automation;
 
   // First, and deliberately: while sweeps are off nothing else on this page is
-  // going to change, so no other warning is more useful than this one.
+  // going to change on its own, so no other warning is more useful than this one.
   if (!automation.scheduler_in_process) {
     return (
       <p className="notice notice--bad" role="status">
         <Icon name="block" size={14} />
-        Automated sweeps are paused, so no new tenders are being collected. Switch them back on in
-        the sources section at the bottom of this page.
+        {/* Two corrections here, both of which mattered. The panel moved into the
+            left rail when Settings did, so "the sources section at the bottom of
+            this page" sent the reader somewhere that no longer exists. And the
+            old wording claimed nothing was being collected even while a manual
+            sweep was actively running, which is the exact opposite of the truth
+            at the one moment the reader is watching. */}
+        {sweeping
+          ? 'Automated sweeps are paused. The sweep you started is still running — but once it finishes, nothing further will be collected until you switch automation back on.'
+          : 'Automated sweeps are paused, so nothing is being collected on a schedule. Use Fetch above for a one-off sweep, or switch automation back on under Settings → Automation in the left rail.'}
       </p>
     );
   }

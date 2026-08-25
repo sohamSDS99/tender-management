@@ -7,7 +7,10 @@ import {
   formatValue,
   relativeTime,
   safeHref,
+  isSweepInFlight,
   scoreTone,
+  sourceHealth,
+  sweepSummary,
 } from './labels';
 
 /**
@@ -161,5 +164,107 @@ describe('relativeTime', () => {
   it('says never rather than inventing a date', () => {
     expect(relativeTime(null, now)).toBe('never');
     expect(relativeTime('not a date', now)).toBe('never');
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Source health during a sweep
+ *
+ * The summary read "0 of 8 sources healthy" while a sweep was running, which is
+ * the most alarming thing on the page and was false: every source had just been
+ * set to `queued`/`running`, and those fell through runTone() to 'idle', which
+ * the healthy count does not include. A system reporting zero healthy sources
+ * *because it is working* teaches the reader to distrust it.
+ * --------------------------------------------------------------------------- */
+describe('sourceHealth separates working from broken', () => {
+  const base = {
+    enabled: true,
+    unavailable_reason: null as string | null,
+    running: false,
+    last_status: null as string | null,
+  };
+
+  it('a source mid-sweep is sweeping, not unhealthy', () => {
+    expect(sourceHealth({ ...base, last_status: 'running' })).toBe('sweeping');
+    expect(sourceHealth({ ...base, last_status: 'queued' })).toBe('sweeping');
+  });
+
+  it('trusts the live running flag even before the run row updates', () => {
+    expect(sourceHealth({ ...base, running: true, last_status: 'success' })).toBe('sweeping');
+  });
+
+  it('reports genuine states unchanged', () => {
+    expect(sourceHealth({ ...base, last_status: 'success' })).toBe('good');
+    expect(sourceHealth({ ...base, last_status: 'partial' })).toBe('warning');
+    expect(sourceHealth({ ...base, last_status: 'failed' })).toBe('critical');
+  });
+
+  it('a missing credential is critical however the last run went', () => {
+    expect(sourceHealth({ ...base, unavailable_reason: 'SAM_GOV_API_KEY is not set' })).toBe(
+      'critical',
+    );
+  });
+
+  it('a switched-off source is idle, not broken', () => {
+    expect(sourceHealth({ ...base, enabled: false, last_status: 'success' })).toBe('idle');
+  });
+
+  it('never run yet is idle rather than healthy', () => {
+    expect(sourceHealth({ ...base, last_status: null })).toBe('idle');
+  });
+});
+
+describe('sweepSummary reports what a sweep did, in the reader’s words', () => {
+  it('counts a finished sweep honestly, including the window it searched', () => {
+    expect(
+      sweepSummary({ created: 12, updated: 30, received: 303, daysBack: 30, done: true }),
+    ).toBe('12 new, 30 updated from 303 notices seen across the last 30 days.');
+  });
+
+  it('does not claim nothing was found when nothing was new but plenty was seen', () => {
+    // The old page said nothing at all here, which is what "it is not fetching"
+    // actually looked like. Seen-but-already-known is a real, sayable outcome.
+    expect(sweepSummary({ created: 0, updated: 19, received: 303, daysBack: 30, done: true })).toBe(
+      'No new notices. 303 seen across the last 30 days were already stored, 19 updated.',
+    );
+  });
+
+  it('says so when a source genuinely returned nothing at all', () => {
+    expect(sweepSummary({ created: 0, updated: 0, received: 0, daysBack: 7, done: true })).toBe(
+      'No notices at all were returned for the last 7 days. Check source health below.',
+    );
+  });
+
+  it('reads as progress while still running', () => {
+    expect(sweepSummary({ created: 4, updated: 2, received: 88, daysBack: 30, done: false })).toBe(
+      'Sweeping the last 30 days… 88 seen so far, 4 new.',
+    );
+  });
+
+  it('uses singular units where a person would', () => {
+    expect(sweepSummary({ created: 1, updated: 0, received: 1, daysBack: 1, done: true })).toBe(
+      '1 new, 0 updated from 1 notice seen across the last 1 day.',
+    );
+  });
+});
+
+describe('isSweepInFlight', () => {
+  it('counts a queued batch as still going, not as finished', () => {
+    // Every FetchRun row is born `queued`, so a batch reads queued for its first
+    // instant. Testing only for `running` stopped the page polling before the
+    // sweep had begun, freezing the progress it had just promised to track.
+    expect(isSweepInFlight('queued')).toBe(true);
+    expect(isSweepInFlight('running')).toBe(true);
+  });
+
+  it('a settled batch is not in flight', () => {
+    for (const status of ['success', 'partial', 'failed', 'skipped', 'unknown']) {
+      expect(isSweepInFlight(status)).toBe(false);
+    }
+  });
+
+  it('no batch at all is not in flight', () => {
+    expect(isSweepInFlight(null)).toBe(false);
+    expect(isSweepInFlight(undefined)).toBe(false);
   });
 });

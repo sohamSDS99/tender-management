@@ -1,3 +1,4 @@
+import { FALLBACK_SWEEP_DAYS } from '../labels';
 import type {
   AutomationStatus,
   FetchStartedResponse,
@@ -96,14 +97,12 @@ export function buildQuery(filters: TenderFilters): string {
 }
 
 /**
- * Read-only, with one exception.
+ * Reads, plus the four operating decisions a member of staff is allowed to make.
  *
- * There is deliberately no startFetch or rescore: fetching is automated and both
- * of those endpoints require the CRON_SECRET header, which a browser must never
- * hold. `setSchedule` and `setTrigger` are the exceptions — *when* the sweep runs,
- * and *whether* it runs at all, are operating decisions a member of staff makes,
- * and the person making one in the dashboard is the authorisation. See
- * docs/DECISIONS.md D19 and D21.
+ * Nothing here holds a secret. `setSchedule` and `setTrigger` decide *when* and
+ * *whether* the sweep runs (D19, D21); `fetchNow` and `rescore` are the two
+ * expensive actions, callable since D23 because the shared secret was replaced by
+ * server-side cost controls rather than put in the page.
  */
 export const api = {
   tenders: (filters: TenderFilters) => request<TenderPage>(`/api/tenders?${buildQuery(filters)}`),
@@ -123,14 +122,27 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   /**
-   * Start a sweep now. Callable without a secret since D23 — the guards that
-   * replaced it live on the server, so a 409 means "already running" and a 429
-   * means "too soon", both with a message written for the person who clicked.
+   * Start a sweep now, over an explicit window.
+   *
+   * Callable without a secret since D23 — the guards that replaced it live on the
+   * server, so a 409 means "already running" and a 429 means "too soon", both
+   * with a message written for the person who clicked.
+   *
+   * `daysBack` is the whole point of this call. Sending an empty body used to let
+   * the backend fall back to the scheduler's 72-hour overlap, which by the time a
+   * human presses the button holds nothing it has not already stored — so the
+   * sweep truthfully reported success and created nothing. The depth is always
+   * sent, and it is always what the operator chose.
    */
-  fetchNow: (sources?: string[]) =>
+  fetchNow: (options: { sources?: string[]; daysBack?: number } = {}) =>
     request<FetchStartedResponse>('/api/fetch', {
       method: 'POST',
-      body: JSON.stringify(sources?.length ? { sources } : {}),
+      body: JSON.stringify({
+        days_back: options.daysBack ?? FALLBACK_SWEEP_DAYS,
+        // Omitted rather than sent empty: an empty list is a different request
+        // from "every enabled source", and only one of them is what we mean.
+        ...(options.sources?.length ? { sources: options.sources } : {}),
+      }),
     }),
   /** Reload the relevance config and re-score every stored notice. */
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),

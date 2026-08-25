@@ -1,6 +1,7 @@
-import type { Stats } from '../types';
+import type { AutomationStatus, Stats } from '../types';
 import { LENSES, type LensContext, type LensKey } from '../state/lenses';
-import { formatDateTime } from '../labels';
+import { SETTINGS_CATEGORIES, type SettingsKey } from '../state/settingsNav';
+import { SWEEP_DEPTHS, formatDateTime, isSweepInFlight } from '../labels';
 import { Icon } from './Icon';
 
 const TONE_CLASS: Record<string, string> = {
@@ -9,8 +10,6 @@ const TONE_CLASS: Record<string, string> = {
   warning: 'dot--warning',
   serious: 'dot--serious',
 };
-
-export type SettingsScreen = 'rules' | 'sources';
 
 /**
  * The permanent left column: navigation, settings, and the two operator
@@ -26,30 +25,39 @@ export type SettingsScreen = 'rules' | 'sources';
  */
 export function Sidebar({
   stats,
+  automation,
   lensContext,
   activeLens,
-  settingsScreen,
+  settingsKey,
   brokenSources,
   busy,
-  sweeping,
+  sweepDays,
+  onSweepDays,
   onSelectLens,
-  onOpenSettings,
+  onSelectCategory,
   onFetch,
   onRescore,
 }: {
   stats: Stats | null;
+  automation: AutomationStatus | null;
   lensContext: LensContext;
   activeLens: LensKey | null;
-  settingsScreen: SettingsScreen | null;
+  settingsKey: SettingsKey | null;
   /** Connectors reporting a problem — badged on Sources, where the fix is. */
   brokenSources: number;
   busy: 'fetch' | 'rescore' | null;
-  sweeping: boolean;
+  /** Days of history the next sweep will search. */
+  sweepDays: number;
+  onSweepDays: (days: number) => void;
   onSelectLens: (key: LensKey) => void;
-  onOpenSettings: (screen: SettingsScreen) => void;
+  onSelectCategory: (key: SettingsKey) => void;
   onFetch: () => void;
   onRescore: () => void;
 }) {
+  // Shared helper, so the button's idea of "still sweeping" can never drift
+  // from the one driving the progress poll.
+  const sweeping = busy === 'fetch' || isSweepInFlight(automation?.last_run?.status);
+
   return (
     <nav className="sidebar" aria-label="Main">
       <div className="sidebar__brand">
@@ -62,9 +70,9 @@ export function Sidebar({
       <p className="sidebar__group">Tenders</p>
       <ul className="sidebar__list">
         {LENSES.map((lens) => {
-          const count = lens.count(stats);
+          const count = lens.count(stats, automation);
           const disabled = lens.key === 'new' && !lensContext.lastRunAt;
-          const on = settingsScreen === null && activeLens === lens.key;
+          const on = settingsKey === null && activeLens === lens.key;
           return (
             <li key={lens.key}>
               <button
@@ -92,40 +100,33 @@ export function Sidebar({
 
       <p className="sidebar__group">Settings</p>
       <ul className="sidebar__list">
-        <li>
-          <button
-            type="button"
-            className={`navitem${settingsScreen === 'rules' ? ' is-on' : ''}`}
-            aria-current={settingsScreen === 'rules' ? 'page' : undefined}
-            onClick={() => onOpenSettings('rules')}
-          >
-            <span className="navitem__icon" aria-hidden="true">
-              <Icon name="sliders" size={14} />
-            </span>
-            <span className="navitem__label">Matching rules</span>
-          </button>
-        </li>
-        <li>
-          <button
-            type="button"
-            className={`navitem${settingsScreen === 'sources' ? ' is-on' : ''}`}
-            aria-current={settingsScreen === 'sources' ? 'page' : undefined}
-            onClick={() => onOpenSettings('sources')}
-          >
-            <span className="navitem__icon" aria-hidden="true">
-              <Icon name="sliders" size={14} />
-            </span>
-            <span className="navitem__label">Sources</span>
-            {brokenSources > 0 ? (
-              <span
-                className="navitem__warn"
-                title={`${brokenSources} source${brokenSources === 1 ? '' : 's'} reporting a problem`}
+        {SETTINGS_CATEGORIES.map((category) => {
+          const on = settingsKey === category.key;
+          return (
+            <li key={category.key}>
+              <button
+                type="button"
+                className={`navitem${on ? ' is-on' : ''}`}
+                aria-current={on ? 'page' : undefined}
+                title={category.blurb}
+                onClick={() => onSelectCategory(category.key)}
               >
-                {brokenSources}
-              </span>
-            ) : null}
-          </button>
-        </li>
+                <span className="navitem__icon" aria-hidden="true">
+                  <Icon name={category.icon} size={14} />
+                </span>
+                <span className="navitem__label">{category.label}</span>
+                {category.key === 'sources' && brokenSources > 0 ? (
+                  <span
+                    className="navitem__warn"
+                    title={`${brokenSources} source${brokenSources === 1 ? '' : 's'} reporting a problem`}
+                  >
+                    {brokenSources}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          );
+        })}
       </ul>
 
       <div className="sidebar__foot">
@@ -142,6 +143,27 @@ export function Sidebar({
             </>
           )}
         </p>
+        <div className="depth">
+          <span className="depth__label" id="sweepDepthLabel">
+            Search back
+          </span>
+          <div className="seg seg--sm" role="group" aria-labelledby="sweepDepthLabel">
+            {SWEEP_DEPTHS.map((days) => (
+              <button
+                key={days}
+                type="button"
+                className={sweepDays === days ? 'is-on' : undefined}
+                aria-pressed={sweepDays === days}
+                disabled={sweeping}
+                aria-label={`Search back ${days} days`}
+                onClick={() => onSweepDays(days)}
+              >
+                {days}d
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="sidebar__actions">
           <button
             type="button"

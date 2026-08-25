@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import Select, distinct, func, or_, select
@@ -452,7 +453,23 @@ async def trigger_fetch(
             raise HTTPException(status_code=400, detail=f"unknown sources: {', '.join(unknown)}")
     if not trusted:
         operator.guard_fetch(db, settings)
-    return await ingest.start_fetch(payload.sources, payload.days_back, "manual", settings)
+    # An omitted window means "an operator asked for a sweep", not "repeat the
+    # scheduled one". Those are different questions: the schedule's 72-hour
+    # overlap keeps up with the present, so by the time a human clicks this it
+    # contains nothing unseen and the sweep creates nothing while reporting
+    # success. OPERATOR_FETCH_DAYS_BACK is the deeper window that makes the
+    # button mean what it says; ingest.window() still enforces the 72-hour floor
+    # underneath, so this can never search *less* than the schedule does.
+    days_back = payload.days_back if payload.days_back is not None else settings.operator_fetch_days_back
+    # An operator sweep is a sweep. Without a batch id its per-source rows only
+    # group by a shared window_to - the compatibility fallback for rows written
+    # before the column existed (D8) - and /api/automation cannot attribute
+    # anything to it.
+    batch_id = uuid4().hex[:16]
+    started = await ingest.start_fetch(payload.sources, days_back, "manual", settings, batch_id=batch_id)
+    # Merged here rather than returned by ingest: the window rule belongs to the
+    # operator path, and app/services/ingest.py is additive-only.
+    return {**started, "days_back": days_back, "batch_id": batch_id}
 
 
 @router.get("/api/fetch-runs", response_model=list[FetchRunSchema], tags=["fetch"])

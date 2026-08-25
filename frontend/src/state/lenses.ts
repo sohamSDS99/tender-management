@@ -1,4 +1,4 @@
-import type { Stats, TenderFilters } from '../types';
+import type { AutomationStatus, Stats, TenderFilters } from '../types';
 import { DEFAULT_FILTERS } from './urlFilters';
 
 /**
@@ -62,7 +62,7 @@ export interface LensSpec {
    * "New this fetch" has no such stat, so it shows no number rather than a
    * guess — a count that disagrees with the list it opens is worse than none.
    */
-  count: (stats: Stats | null) => number | null;
+  count: (stats: Stats | null, automation: AutomationStatus | null) => number | null;
 }
 
 export const LENSES: LensSpec[] = [
@@ -81,7 +81,11 @@ export const LENSES: LensSpec[] = [
       first_seen_from: ctx.lastRunAt ?? '',
       sort: 'score_desc',
     }),
-    count: () => null,
+    // The last sweep's own created-count. It satisfies the rule above by
+    // construction rather than coincidence: this lens filters on
+    // `first_seen_from = <that batch's start>`, and records_created is exactly
+    // the number of rows that batch inserted.
+    count: (_stats, automation) => automation?.last_run?.records_created ?? null,
   },
   {
     key: 'open',

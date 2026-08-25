@@ -1,35 +1,30 @@
 import type { SourceStatus } from '../types';
-import { formatTime, runTone } from '../labels';
+import { formatTime, sourceHealth } from '../labels';
 import { Icon } from './Icon';
+import { SourceCard } from './SourceCard';
 
 const PIP = {
   good: '',
   warning: ' pip--warning',
   critical: ' pip--critical',
   idle: ' pip--idle',
+  sweeping: ' pip--sweeping',
 } as const;
 
-const CARD = {
-  good: ' src--good',
-  warning: ' src--warning',
-  critical: ' src--critical',
-  idle: ' src--idle',
-} as const;
-
-function tone(source: SourceStatus): 'good' | 'warning' | 'critical' | 'idle' {
-  if (source.unavailable_reason) return 'critical';
-  if (!source.enabled) return 'idle';
-  return runTone(source.last_status);
-}
+const tone = sourceHealth;
 
 /**
  * Source health, collapsed to one line until asked for.
  *
- * A source failing never fails the sweep — each one gets its own run row — so the
- * summary has to distinguish "some sources are unhealthy" from "the sweep broke",
- * and name which and why. The per-source fetch button exists because a single
- * connector recovering is the common case after a key or an outage is fixed, and
- * re-running eight sources to test one is thirteen wasted minutes.
+ * Stays on the dashboard even though Settings now has a Sources page, because
+ * the two answer different questions. This one is "where is this data coming
+ * from", which a reader has on arrival (D20); the settings page is "something is
+ * broken, what and why", which they go looking for. Both render the same
+ * SourceCard, so neither can learn something the other does not.
+ *
+ * A source failing never fails the sweep — each one gets its own run row — so
+ * the summary has to distinguish "some sources are unhealthy" from "the sweep
+ * broke", and name which and why.
  */
 export function SourcesPanel({
   sources,
@@ -51,6 +46,10 @@ export function SourcesPanel({
 
   const healthy = sources.filter((s) => tone(s) === 'good').length;
   const problems = sources.filter((s) => tone(s) === 'critical' || tone(s) === 'warning');
+  // Counted separately so a sweep in progress can never read as a failure. This
+  // line used to say "0 of 8 sources healthy" for the whole of a sweep, because
+  // every source had just been set to `queued` and that is not `good`.
+  const sweeping = sources.filter((s) => tone(s) === 'sweeping');
 
   return (
     <section className={`sources${open ? ' is-open' : ''}`} aria-label="Source health">
@@ -66,9 +65,16 @@ export function SourcesPanel({
           ))}
         </span>
         <span>
-          <b>
-            {healthy} of {sources.length} sources healthy
-          </b>
+          {sweeping.length > 0 ? (
+            <b>
+              Sweeping {sweeping.length} of {sources.length} sources now
+            </b>
+          ) : (
+            <b>
+              {healthy} of {sources.length} sources healthy
+            </b>
+          )}
+          {sweeping.length > 0 && healthy > 0 ? ` · ${healthy} already reported` : ''}
           {problems.length > 0
             ? ` · ${problems.map((s) => `${s.display_name} ${tone(s) === 'critical' ? 'unavailable' : 'partial'}`).join(' · ')}`
             : ''}
@@ -79,52 +85,14 @@ export function SourcesPanel({
 
       {open ? (
         <div className="sources__grid">
-          {sources.map((source) => {
-            const state = tone(source);
-            const status = source.unavailable_reason
-              ? 'unavailable'
-              : (source.last_status ?? 'never run');
-            return (
-              <article key={source.name} className={`src${CARD[state]}`}>
-                <header>
-                  <span className="src__name">{source.display_name}</span>
-                  <span className="src__status">{status}</span>
-                </header>
-                <p className="src__meta">
-                  {source.tender_count.toLocaleString('en-GB')} stored
-                  {source.last_run_at ? ` · ${formatTime(source.last_run_at)}` : ' · never run'}
-                  {source.keyword_prefiltered ? ' · keyword prefilter applied' : ''}
-                </p>
-                {source.unavailable_reason ? (
-                  <p className="src__err">{source.unavailable_reason}</p>
-                ) : source.last_error ? (
-                  <p className="src__err">{source.last_error.slice(0, 160)}</p>
-                ) : null}
-                <div className="src__foot">
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    disabled={
-                      Boolean(source.unavailable_reason) ||
-                      !source.enabled ||
-                      source.running ||
-                      busySource !== null
-                    }
-                    onClick={() => onFetchSource(source.name)}
-                    title={
-                      source.unavailable_reason
-                        ? 'This source cannot run until its configuration is fixed'
-                        : `Query ${source.display_name} now`
-                    }
-                  >
-                    {source.running || busySource === source.name
-                      ? 'Fetching…'
-                      : 'Fetch this source'}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
+          {sources.map((source) => (
+            <SourceCard
+              key={source.name}
+              source={source}
+              busySource={busySource}
+              onFetch={onFetchSource}
+            />
+          ))}
         </div>
       ) : null}
     </section>

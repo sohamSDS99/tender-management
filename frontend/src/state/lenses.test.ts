@@ -51,7 +51,14 @@ describe('lockedLabel', () => {
 });
 
 describe('counts', () => {
-  it('gives "new" no count rather than a guess', () => {
-    expect(lensByKey('new')!.count(null)).toBeNull();
+  it('takes the new-lens count from the sweep that created the rows', () => {
+    // Not from /api/stats: the count must equal the list it opens, and
+    // records_created is exactly the population first_seen_from selects.
+    const automation = { last_run: { records_created: 12 } } as never;
+    expect(lensByKey('new')!.count(null, automation)).toBe(12);
+  });
+
+  it('gives "new" no count rather than a guess when no sweep has run', () => {
+    expect(lensByKey('new')!.count(null, null)).toBeNull();
   });
 });

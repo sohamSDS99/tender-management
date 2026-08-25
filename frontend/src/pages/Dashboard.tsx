@@ -26,26 +26,35 @@ import {
 } from '../state/lenses';
 import { usePreferences } from '../state/preferences';
 import {
+  categoryFor,
+  settingsFromSearch,
+  withSettings,
+  type SettingsKey,
+} from '../state/settingsNav';
+import {
   FALLBACK_BANDS,
+  FALLBACK_SWEEP_DAYS,
   countryLabel,
+  isSweepInFlight,
   deploymentLabel,
   fitLabel,
   makeSourceLabel,
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
-import { LinkBase } from '../components/LinkBase';
 import { BucketNote, Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
 import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
-import { TenderList } from '../components/TenderList';
+import { SweepReport } from '../components/SweepReport';
+import { AutomationSettings } from '../components/settings/AutomationSettings';
+import { DisplaySettings } from '../components/settings/DisplaySettings';
+import { SourcesSettings } from '../components/settings/SourcesSettings';
+import { SystemSettings } from '../components/settings/SystemSettings';
 import { MatchingRulesSettings } from '../components/MatchingRulesSettings';
-import { Sidebar, type SettingsScreen } from '../components/Sidebar';
-import { SourcesSettings } from '../components/SourcesSettings';
+import { Sidebar } from '../components/Sidebar';
+import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
-import { ScheduleEditor } from '../components/ScheduleEditor';
-import { TriggerSwitch } from '../components/TriggerSwitch';
 
 /**
  * The whole filter set lives in the URL, so any view is shareable and survives a
@@ -53,6 +62,8 @@ import { TriggerSwitch } from '../components/TriggerSwitch';
  * `?tender=<id>`.
  */
 const initial = filtersFromSearch(window.location.search);
+/** Which settings page the URL asks for, so one survives a refresh or a share. */
+const initialSettings = settingsFromSearch(window.location.search);
 
 export function Dashboard() {
   const [filters, setFilters] = useState<TenderFilters>(initial.filters);
@@ -69,8 +80,6 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [unreachable, setUnreachable] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  /** Which settings screen has taken over the content area, if any. */
-  const [settingsScreen, setSettingsScreen] = useState<SettingsScreen | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   // Which whole-system action is in flight, and what the server said about it.
@@ -79,24 +88,41 @@ export function Dashboard() {
   const [actionMessage, setActionMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(
     null,
   );
+  // The sweep this reader started: which batch it is and how deep it searched.
+  // Tracked because a sweep runs for minutes after the request returns, and the
+  // page previously said "started" once and then never mentioned it again.
+  const [sweep, setSweep] = useState<{ batchId: string | null; daysBack: number } | null>(null);
+  // How far back the next sweep looks. The server owns the default (it is the
+  // number that decides whether Fetch can find anything at all), so this is
+  // seeded from /api/automation rather than kept as a second copy.
+  const [sweepDays, setSweepDays] = useState<number>(FALLBACK_SWEEP_DAYS);
+  const depthTouched = useRef(false);
+
+  // Settings navigation: which full-width page is showing, and whether the
+  // category menu is open. The filters panel keeps its own stored preference,
+  // because it is the one surface that stays open while you work.
+  const [settingsPage, setSettingsPage] = useState<SettingsKey | null>(initialSettings);
 
   const { preferences, update } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
   useEffect(() => {
-    const search = searchFromFilters(filters, selectedId);
+    // The settings page rides on top of the filter codec rather than inside it,
+    // so there is still exactly one place that knows how filters serialise.
+    const search = withSettings(searchFromFilters(filters, selectedId), settingsPage);
     const next = `${window.location.pathname}${search ? `?${search}` : ''}`;
     if (next !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(null, '', next);
     }
-  }, [filters, selectedId]);
+  }, [filters, selectedId, settingsPage]);
 
   useEffect(() => {
     const onPop = () => {
       const parsed = filtersFromSearch(window.location.search);
       setFilters(parsed.filters);
       setSelectedId(parsed.tenderId);
+      setSettingsPage(settingsFromSearch(window.location.search));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -159,14 +185,30 @@ export function Dashboard() {
 
   // --- whole-system actions (D23) -----------------------------------------
   /**
-   * A sweep runs for about thirteen minutes in the background, so the 202 only
-   * means "started". Poll the metadata while it runs rather than leaving the page
-   * claiming the old numbers.
+   * The server owns the sweep depth, so adopt it once it answers — but never
+   * overwrite a choice the reader has already made.
    */
-  const sweeping = automation?.last_run?.status === 'running';
+  useEffect(() => {
+    if (!automation || depthTouched.current) return;
+    setSweepDays(automation.operator_fetch_days_back);
+  }, [automation]);
+
+  const chooseSweepDays = useCallback((days: number) => {
+    depthTouched.current = true;
+    setSweepDays(days);
+  }, []);
+
+  /**
+   * A sweep runs for many minutes in the background, so the 202 only means
+   * "started". Poll the metadata while it runs rather than leaving the page
+   * claiming the old numbers — this is what makes the progress line move.
+   */
+  // `queued` counts: a batch's rows are all queued for the first instant, and
+  // treating that as "finished" stopped the poll before the sweep had started.
+  const sweeping = busy === 'fetch' || isSweepInFlight(automation?.last_run?.status);
   useEffect(() => {
     if (!sweeping) return;
-    const timer = window.setInterval(() => void loadMeta(), 15_000);
+    const timer = window.setInterval(() => void loadMeta(), 8_000);
     return () => window.clearInterval(timer);
   }, [sweeping, loadMeta]);
 
@@ -177,11 +219,15 @@ export function Dashboard() {
       setActionMessage(null);
       try {
         if (kind === 'fetch') {
-          const started = await api.fetchNow(source ? [source] : undefined);
-          setActionMessage({
-            tone: 'ok',
-            text: `Sweep started across ${started.run_ids.length} source${started.run_ids.length === 1 ? '' : 's'}. This takes a few minutes; the page updates as it goes.`,
+          // The depth is the point of the call. Sending nothing let the backend
+          // fall back to the scheduler's 72-hour window, which by the time
+          // anyone presses this button holds nothing it has not already stored.
+          const started = await api.fetchNow({
+            sources: source ? [source] : undefined,
+            daysBack: sweepDays,
           });
+          // SweepReport takes over from here and reports what it finds.
+          setSweep({ batchId: started.batch_id, daysBack: started.days_back });
         } else {
           const result = await api.rescore();
           setActionMessage({
@@ -198,12 +244,15 @@ export function Dashboard() {
           tone: 'bad',
           text: err instanceof ApiError ? err.message : String(err),
         });
+        // A refused sweep is not a running sweep: leaving the report up would
+        // have it narrate a batch that never started.
+        if (kind === 'fetch') setSweep(null);
       } finally {
         setBusy(null);
         setBusySource(null);
       }
     },
-    [loadMeta],
+    [loadMeta, sweepDays],
   );
 
   // --- filters and views --------------------------------------------------
@@ -241,7 +290,7 @@ export function Dashboard() {
     (key: LensKey) => {
       const lens = lensByKey(key);
       if (!lens) return;
-      setSettingsScreen(null);
+      setSettingsPage(null);
       setFilters({ ...DEFAULT_FILTERS, ...lens.patch(lensContext), page: 1 });
     },
     [lensContext],
@@ -270,30 +319,31 @@ export function Dashboard() {
 
   /**
    * The chip row states the complete truth about what is on screen: the lens's
-   * own predicate first, locked, then anything the reader narrowed on top.
+   * own predicate first, locked, then anything narrowed on top of it.
    *
    * Locked because the lens is where you *are*. It changes by navigating, not
-   * by dismissing a chip — which is also why "Clear all" only clears the rest.
+   * by dismissing a chip — which is why "Clear all" only clears the rest.
    */
   const chipRow = useMemo(() => {
     const lens = lensByKey(currentLens);
     const locked = lens?.lockedLabel(lensContext) ?? null;
-    const refinements = (currentLens ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips).map(
-      (chip) => ({ label: chip.label, onRemove: () => onChange(chip.clear) }),
-    );
-    const row: { label: string; locked?: boolean; onRemove: () => void }[] = refinements;
-    return locked === null ? row : [{ label: locked, locked: true, onRemove: () => {} }, ...row];
+    const refinements: { label: string; locked?: boolean; onRemove: () => void }[] = (
+      currentLens ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips
+    ).map((chip) => ({ label: chip.label, onRemove: () => onChange(chip.clear) }));
+    return locked === null
+      ? refinements
+      : [{ label: locked, locked: true, onRemove: () => {} }, ...refinements];
   }, [chips, currentLens, lensContext, onChange]);
-
-  const lensNote = useMemo(() => {
-    const lens = lensByKey(currentLens);
-    return lens ? lens.note(lensContext) : null;
-  }, [currentLens, lensContext]);
 
   const brokenSources = useMemo(
     () => sources.filter((s) => s.unavailable_reason || s.last_status === 'failed').length,
     [sources],
   );
+
+  const lensNote = useMemo(() => {
+    const view = lensByKey(currentLens);
+    return view ? view.note(lensContext) : null;
+  }, [currentLens, lensContext]);
 
   // --- detail navigation --------------------------------------------------
   const items = page?.items ?? [];
@@ -314,6 +364,29 @@ export function Dashboard() {
 
   const settingsOpen = preferences.settingsOpen;
 
+  /**
+   * Open a category on the surface it belongs to.
+   *
+   * Filters get the side panel because the results have to stay visible while
+   * they are being set; everything else takes the width. The two are mutually
+   * exclusive on purpose - the panel is fixed against the rail and would sit on
+   * top of a page, hiding the very thing the reader just asked for.
+   */
+  const selectCategory = useCallback(
+    (key: SettingsKey) => {
+      if (categoryFor(key)?.surface === 'panel') {
+        setSettingsPage(null);
+        update({ settingsOpen: true });
+      } else {
+        update({ settingsOpen: false });
+        setSettingsPage(key);
+      }
+    },
+    [update],
+  );
+
+  const closeSettingsPage = useCallback(() => setSettingsPage(null), []);
+
   // Escape closes the slide-out — but not while the detail drawer is up, which
   // owns Escape for itself and is stacked above it.
   useEffect(() => {
@@ -325,121 +398,161 @@ export function Dashboard() {
     return () => window.removeEventListener('keydown', onKey);
   }, [settingsOpen, selectedId, update]);
 
+  const settingsSurface =
+    settingsPage === 'display' ? (
+      <DisplaySettings
+        density={preferences.density}
+        pageSize={filters.page_size}
+        onDensity={(next: Density) => update({ density: next })}
+        onPageSize={(size) => onChange({ page_size: size })}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'rules' ? (
+      <MatchingRulesSettings
+        onBack={closeSettingsPage}
+        onRescored={() => {
+          void loadMeta();
+          setReloadToken((v) => v + 1);
+        }}
+      />
+    ) : settingsPage === 'automation' ? (
+      <AutomationSettings
+        automation={automation}
+        onSaved={() => void loadMeta()}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'sources' ? (
+      <SourcesSettings
+        sources={sources}
+        busySource={busySource}
+        onFetchSource={(name) => void runAction('fetch', name)}
+        onChanged={() => void loadMeta()}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'system' ? (
+      <SystemSettings automation={automation} stats={stats} onBack={closeSettingsPage} />
+    ) : null;
+
   return (
     <>
       <div className="shell">
-        <div className="col">
-          {settingsScreen === 'sources' ? (
-            <SourcesSettings
-              sources={sources}
-              busySource={busySource}
-              onFetchSource={(name) => void runAction('fetch', name)}
-              onChanged={() => void loadMeta()}
-            />
-          ) : settingsScreen === 'rules' ? (
-            <MatchingRulesSettings
-              onRescored={() => {
-                void loadMeta();
-                setReloadToken((v) => v + 1);
-              }}
-            />
-          ) : (
+        {settingsSurface}
+
+        {settingsSurface ? null : (
           <>
-          <SourcesPanel
-            sources={sources}
-            open={sourcesOpen}
-            onToggle={setSourcesOpen}
-            lastSweepAt={automation?.last_run?.started_at ?? null}
-            busySource={busySource}
-            onFetchSource={(name) => void runAction('fetch', name)}
-          />
+            <div className="col">
+              <SourcesPanel
+                sources={sources}
+                open={sourcesOpen}
+                onToggle={setSourcesOpen}
+                lastSweepAt={automation?.last_run?.started_at ?? null}
+                busySource={busySource}
+                onFetchSource={(name) => void runAction('fetch', name)}
+              />
 
-          <Toolbar
-            filters={filters}
-            filterCount={activeFilterCount(filters)}
-            onOpenFilters={() => update({ settingsOpen: true })}
-            onSearch={(query) => onChange({ query })}
-            onSort={(sort) => onChange({ sort })}
-            onClearAll={clearAll}
-            chips={chipRow}
-          />
+              <Toolbar
+                filters={filters}
+                filterCount={activeFilterCount(filters)}
+                onOpenFilters={() => update({ settingsOpen: true })}
+                onSearch={(query) => onChange({ query })}
+                onSort={(sort) => onChange({ sort })}
+                onClearAll={clearAll}
+                chips={chipRow}
+              />
 
-          {actionMessage ? (
-            <p
-              className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
-              role="status"
-            >
-              {actionMessage.text}
-            </p>
-          ) : null}
+              {sweep ? (
+                <SweepReport
+                  daysBack={sweep.daysBack}
+                  batchId={sweep.batchId}
+                  lastRun={automation?.last_run ?? null}
+                  runs={runs}
+                  onShowNew={() => selectLens('new')}
+                  onDismiss={() => setSweep(null)}
+                />
+              ) : null}
 
-          <Notice automation={automation} />
+              {actionMessage ? (
+                <p
+                  className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
+                  role="status"
+                >
+                  {actionMessage.text}
+                </p>
+              ) : null}
 
-          <main>
-            {lensNote ? <BucketNote text={lensNote} /> : null}
+              <Notice automation={automation} sweeping={sweeping} />
 
-            <div className="results__head">
-              <h2 aria-live="polite">
-                {/* Suppressed while erroring: the last successful count is stale,
+              <main>
+                {lensNote ? <BucketNote text={lensNote} /> : null}
+
+                <div className="results__head">
+                  <h2 aria-live="polite">
+                    {/* Suppressed while erroring: the last successful count is stale,
                       and showing "6 tenders" above "cannot reach the API"
                       contradicts itself. */}
+                    {page && !error ? (
+                      <>
+                        {page.total.toLocaleString('en-GB')}{' '}
+                        {page.total === 1 ? 'tender' : 'tenders'}
+                        {page.pages > 1 ? (
+                          <span className="muted">
+                            {' '}
+                            · page {page.page} of {page.pages}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      ' '
+                    )}
+                  </h2>
+                </div>
+
+                <TenderList
+                  tenders={items}
+                  loading={loading}
+                  error={error}
+                  unreachable={unreachable}
+                  selectedId={selectedId}
+                  newSince={lensContext.lastRunAt}
+                  filterCount={activeFilterCount(filters)}
+                  total={page?.total ?? 0}
+                  storedTotal={stats?.total_tenders ?? 0}
+                  bands={bands}
+                  sourceLabel={sourceLabel}
+                  categoryLabel={categoryLabel}
+                  onSelect={setSelectedId}
+                  onRetry={() => setReloadToken((v) => v + 1)}
+                  onClearFilters={clearAll}
+                  onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
+                  onShowAll={() => selectLens('all')}
+                />
+
                 {page && !error ? (
-                  <>
-                    {page.total.toLocaleString('en-GB')} {page.total === 1 ? 'tender' : 'tenders'}
-                    {page.pages > 1 ? (
-                      <span className="muted">
-                        {' '}
-                        · page {page.page} of {page.pages}
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  ' '
-                )}
-              </h2>
+                  <Pager
+                    page={page}
+                    onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))}
+                  />
+                ) : null}
+              </main>
+
+              <RunsTable runs={runs} sourceLabel={sourceLabel} />
             </div>
-
-            <TenderList
-              tenders={items}
-              loading={loading}
-              error={error}
-              unreachable={unreachable}
-              selectedId={selectedId}
-              newSince={lensContext.lastRunAt}
-              filterCount={activeFilterCount(filters)}
-              total={page?.total ?? 0}
-              storedTotal={stats?.total_tenders ?? 0}
-              bands={bands}
-              sourceLabel={sourceLabel}
-              categoryLabel={categoryLabel}
-              onSelect={setSelectedId}
-              onRetry={() => setReloadToken((v) => v + 1)}
-              onClearFilters={clearAll}
-              onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-              onShowAll={() => selectLens('all')}
-            />
-
-            {page && !error ? (
-              <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
-            ) : null}
-          </main>
-
-          <RunsTable runs={runs} sourceLabel={sourceLabel} />
           </>
-          )}
-        </div>
+        )}
       </div>
 
       <Sidebar
         stats={stats}
+        automation={automation}
         lensContext={lensContext}
         activeLens={currentLens}
-        settingsScreen={settingsScreen}
+        settingsKey={settingsPage ?? (settingsOpen ? 'filters' : null)}
         brokenSources={brokenSources}
         busy={busy}
-        sweeping={automation?.last_run?.status === 'running' || busy === 'fetch'}
+        sweepDays={sweepDays}
+        onSweepDays={chooseSweepDays}
         onSelectLens={selectLens}
-        onOpenSettings={setSettingsScreen}
+        onSelectCategory={selectCategory}
         onFetch={() => void runAction('fetch')}
         onRescore={() => void runAction('rescore')}
       />
@@ -450,20 +563,9 @@ export function Dashboard() {
         stats={stats}
         sources={sources}
         total={page?.total ?? 0}
-        density={preferences.density}
-        pageSize={filters.page_size}
         onChange={onChange}
         onReset={clearAll}
         onClose={() => update({ settingsOpen: false })}
-        onDensity={(next: Density) => update({ density: next })}
-        onPageSize={(size) => onChange({ page_size: size })}
-        automation={
-          <>
-            <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
-            <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
-            {automation ? <LinkBase url={automation.public_app_url} /> : null}
-          </>
-        }
       />
 
       <div

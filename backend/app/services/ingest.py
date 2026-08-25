@@ -32,6 +32,19 @@ logger = logging.getLogger(__name__)
 _running: set[str] = set()
 _lock = asyncio.Lock()
 
+#: Strong references to in-flight background sweeps.
+#:
+#: ``asyncio.create_task`` leaves the event loop holding only a *weak* reference
+#: to the task, so a sweep whose Task object nobody keeps can be garbage
+#: collected part-way through - and a full sweep spends about thirteen minutes
+#: inside one ``await``, which is a long time to be collectable. The symptom is
+#: not an error: the FetchRun rows simply stay at ``running`` until
+#: ``reap_interrupted_runs`` closes them out an hour later, so the sweep looks
+#: like it is still going and the dashboard's Fetch button stays disabled behind
+#: the single-flight guard. Holding the reference until the task completes is
+#: the documented remedy.
+_background_tasks: set[asyncio.Task] = set()
+
 SCORED_FIELDS = (
     "relevance_score",
     "relevance_category",
@@ -260,6 +273,21 @@ async def _execute(
                 unchanged=stats.unchanged,
                 failed=stats.failed,
             )
+    except asyncio.CancelledError:
+        # The process is going away mid-fetch (a restart, a shutdown). Settle the
+        # row before re-raising: CancelledError is a BaseException, so the
+        # `except Exception` below never saw it, and the `finally` stamped
+        # finished_at while status stayed at the "running" set on entry. That row
+        # is self-contradictory, and operator._sweep_in_flight() reads it as a
+        # live sweep - so the dashboard's Fetch button answered 409 for a full
+        # STALE_RUN_MINUTES after any restart. Observed in production.
+        run.status = "failed"
+        run.error_message = (
+            "Interrupted: the process running this fetch stopped before it finished. "
+            "Ingested notices were committed as they arrived; re-run to pick up the rest."
+        )
+        log_ctx(logger, logging.WARNING, "source fetch interrupted", source=source)
+        raise
     except ConnectorError as exc:
         run.status = "failed"
         run.error_message = str(exc)[:2000]
@@ -336,7 +364,11 @@ async def start_fetch(
     selected, busy, date_from, date_to = _plan(sources, days_back, settings)
     run_ids = _create_runs(selected, date_from, date_to, trigger, batch_id) if selected else {}
     if run_ids:
-        asyncio.create_task(_run_sources(run_ids, date_from, date_to, settings))
+        task = asyncio.create_task(_run_sources(run_ids, date_from, date_to, settings))
+        # See _background_tasks: without a strong reference here the sweep is
+        # collectable mid-flight and dies without raising anything.
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     return {
         "runs": [{"id": rid, "source": source, "status": "queued"} for source, rid in run_ids.items()],
         "run_ids": list(run_ids.values()),

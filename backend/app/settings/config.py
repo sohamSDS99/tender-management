@@ -126,6 +126,17 @@ class Settings(BaseSettings):
     # public services for ~13 minutes, so this is what stops a repeatedly clicked
     # button from hammering them.
     operator_fetch_cooldown_seconds: int = 300
+    # How far back a sweep started from the dashboard looks, in days.
+    #
+    # Deliberately much deeper than FETCH_MIN_LOOKBACK_HOURS, because the two
+    # sweeps answer different questions. The schedule's 72-hour overlap exists to
+    # keep up with the present without missing a late amendment; a human pressing
+    # "Fetch new tenders" is asking the opposite - go and look harder than the
+    # schedule does. Handing the button the schedule's window meant it re-queried
+    # a window the last cron run had already emptied, so it truthfully reported
+    # success and created almost nothing. Measured at one instant on the same
+    # five connectors: 34 notices returned over 72 hours, 119 over 30 days.
+    operator_fetch_days_back: int = 30
     # Re-scoring spends no outbound request but rewrites every stored row.
     operator_rescore_cooldown_seconds: int = 120
 
