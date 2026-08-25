@@ -30,7 +30,9 @@ import {
 import { usePreferences } from '../state/preferences';
 import {
   FALLBACK_BANDS,
+  FALLBACK_SWEEP_DAYS,
   countryLabel,
+  isSweepInFlight,
   deploymentLabel,
   fitLabel,
   makeSourceLabel,
@@ -44,6 +46,7 @@ import { Rail } from '../components/Rail';
 import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
+import { SweepReport } from '../components/SweepReport';
 import { BucketNote, StatTiles } from '../components/StatTiles';
 import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
@@ -80,6 +83,15 @@ export function Dashboard() {
   const [actionMessage, setActionMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(
     null,
   );
+  // The sweep this reader started: which batch it is and how deep it searched.
+  // Tracked because a sweep runs for minutes after the request returns, and the
+  // page previously said "started" once and then never mentioned it again.
+  const [sweep, setSweep] = useState<{ batchId: string | null; daysBack: number } | null>(null);
+  // How far back the next sweep looks. The server owns the default (it is the
+  // number that decides whether Fetch can find anything at all), so this is
+  // seeded from /api/automation rather than kept as a second copy.
+  const [sweepDays, setSweepDays] = useState<number>(FALLBACK_SWEEP_DAYS);
+  const depthTouched = useRef(false);
 
   const { preferences, resolved: theme, update, toggleTheme } = usePreferences();
   const requestId = useRef(0);
@@ -160,14 +172,30 @@ export function Dashboard() {
 
   // --- whole-system actions (D23) -----------------------------------------
   /**
-   * A sweep runs for about thirteen minutes in the background, so the 202 only
-   * means "started". Poll the metadata while it runs rather than leaving the page
-   * claiming the old numbers.
+   * The server owns the sweep depth, so adopt it once it answers — but never
+   * overwrite a choice the reader has already made.
    */
-  const sweeping = automation?.last_run?.status === 'running';
+  useEffect(() => {
+    if (!automation || depthTouched.current) return;
+    setSweepDays(automation.operator_fetch_days_back);
+  }, [automation]);
+
+  const chooseSweepDays = useCallback((days: number) => {
+    depthTouched.current = true;
+    setSweepDays(days);
+  }, []);
+
+  /**
+   * A sweep runs for many minutes in the background, so the 202 only means
+   * "started". Poll the metadata while it runs rather than leaving the page
+   * claiming the old numbers — this is what makes the progress line move.
+   */
+  // `queued` counts: a batch's rows are all queued for the first instant, and
+  // treating that as "finished" stopped the poll before the sweep had started.
+  const sweeping = busy === 'fetch' || isSweepInFlight(automation?.last_run?.status);
   useEffect(() => {
     if (!sweeping) return;
-    const timer = window.setInterval(() => void loadMeta(), 15_000);
+    const timer = window.setInterval(() => void loadMeta(), 8_000);
     return () => window.clearInterval(timer);
   }, [sweeping, loadMeta]);
 
@@ -178,11 +206,15 @@ export function Dashboard() {
       setActionMessage(null);
       try {
         if (kind === 'fetch') {
-          const started = await api.fetchNow(source ? [source] : undefined);
-          setActionMessage({
-            tone: 'ok',
-            text: `Sweep started across ${started.run_ids.length} source${started.run_ids.length === 1 ? '' : 's'}. This takes a few minutes; the page updates as it goes.`,
+          // The depth is the point of the call. Sending nothing let the backend
+          // fall back to the scheduler's 72-hour window, which by the time
+          // anyone presses this button holds nothing it has not already stored.
+          const started = await api.fetchNow({
+            sources: source ? [source] : undefined,
+            daysBack: sweepDays,
           });
+          // SweepReport takes over from here and reports what it finds.
+          setSweep({ batchId: started.batch_id, daysBack: started.days_back });
         } else {
           const result = await api.rescore();
           setActionMessage({
@@ -199,12 +231,15 @@ export function Dashboard() {
           tone: 'bad',
           text: err instanceof ApiError ? err.message : String(err),
         });
+        // A refused sweep is not a running sweep: leaving the report up would
+        // have it narrate a batch that never started.
+        if (kind === 'fetch') setSweep(null);
       } finally {
         setBusy(null);
         setBusySource(null);
       }
     },
-    [loadMeta],
+    [loadMeta, sweepDays],
   );
 
   // --- filters and views --------------------------------------------------
@@ -296,12 +331,20 @@ export function Dashboard() {
    */
   const bucketCounts = useMemo(
     () => ({
-      new: null,
+      // The last sweep's own created-count. This satisfies the rule that a tab's
+      // count must equal the list it opens: the New view filters on
+      // `first_seen_from = <that batch's start>`, and records_created is exactly
+      // the number of rows that batch inserted, so the two are the same
+      // population by construction rather than by coincidence.
+      //
+      // It used to show nothing at all, which meant a sweep that stored 128
+      // notices and one that stored none looked identical on this page.
+      new: automation?.last_run?.records_created ?? null,
       relevant: stats === null ? null : stats.good_fit_or_better + stats.possible_or_review,
       irrelevant: stats?.not_relevant ?? null,
       all: stats?.total_tenders ?? null,
     }),
-    [stats],
+    [stats, automation],
   );
 
   // While a bucket tab is lit it already says what is being filtered, so neither
@@ -357,6 +400,8 @@ export function Dashboard() {
           theme={theme}
           preference={preferences.theme}
           busy={busy}
+          sweepDays={sweepDays}
+          onSweepDays={chooseSweepDays}
           onFetch={() => void runAction('fetch')}
           onRescore={() => void runAction('rescore')}
           onToggleTheme={toggleTheme}
@@ -396,6 +441,17 @@ export function Dashboard() {
             }))}
           />
 
+          {sweep ? (
+            <SweepReport
+              daysBack={sweep.daysBack}
+              batchId={sweep.batchId}
+              lastRun={automation?.last_run ?? null}
+              runs={runs}
+              onShowNew={() => selectView('new')}
+              onDismiss={() => setSweep(null)}
+            />
+          ) : null}
+
           {actionMessage ? (
             <p
               className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
@@ -405,7 +461,7 @@ export function Dashboard() {
             </p>
           ) : null}
 
-          <Notice automation={automation} />
+          <Notice automation={automation} sweeping={sweeping} />
 
           <main>
             {bucketNote ? <BucketNote text={bucketNote} /> : null}

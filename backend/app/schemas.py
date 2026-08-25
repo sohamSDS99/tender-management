@@ -117,6 +117,12 @@ class FetchResponse(UtcModel):
     skipped_sources: list[str]
     window_from: datetime
     window_to: datetime
+    # How deep this sweep is searching, in days. Reported rather than assumed:
+    # the dashboard says it on screen, because "found nothing" means something
+    # very different over three days than over thirty.
+    days_back: int
+    # Groups this sweep's per-source runs, exactly as a scheduled sweep's are.
+    batch_id: str | None = None
 
 
 class SourceStatus(UtcModel):
@@ -213,6 +219,11 @@ class AutomationStatus(UtcModel):
     run_hours_are_custom: bool
     run_hours_min: int
     run_hours_max: int
+    # How deep a sweep started from the dashboard looks, in days. Reported so the
+    # page states it at the point of action instead of keeping a second copy of
+    # the number: "found nothing" over three days and over thirty are different
+    # facts, and only one of them is worth acting on.
+    operator_fetch_days_back: int
     cron_utc: list[str]
     observes_dst: bool
     next_run_at: datetime

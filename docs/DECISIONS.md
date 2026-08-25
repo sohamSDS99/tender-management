@@ -1018,3 +1018,95 @@ with a worker (infrastructure for a problem a cooldown solves).
 * **No inbound Slack.** Slash commands, events and interactivity are not
   implemented, so the app's signing secret and verification token are unused. The
   product only sends (D22).
+
+---
+
+## D24 — An operator sweep asks a different question from the schedule, so it gets a different window
+
+**Decision.** `POST /api/fetch` with no `days_back` now uses
+`OPERATOR_FETCH_DAYS_BACK` (default **30 days**) rather than falling through to
+`ingest.window()`'s floor. The dashboard sends the depth explicitly, shows it on
+the button ("Fetch last 30 days") and offers 3 / 7 / 30 / 90 at the point of
+action. `GET /api/automation` reports the default so the page never keeps a
+second copy of the number. The frozen 72-hour floor inside `window()` is
+untouched and still applies underneath, so this can never make a sweep
+*shallower* than the schedule's.
+
+Every operator sweep also now carries a `batch_id`, like a scheduled one.
+
+**Why.** The button was reported as not working: "it is not coming up with any
+new tender". It was not broken. `FetchRequest.days_back` defaulted to `None`, so
+`window()` returned `max(FETCH_LOOKBACK_DAYS, FETCH_MIN_LOOKBACK_HOURS)` = 72
+hours — *the same window the twice-daily cron sweep already covers*. By the time
+a human clicks the button, that window contains nothing unseen, so the sweep
+queried eight public services, stored almost nothing, and reported success.
+
+Measured on 2026-08-24, same five connectors, four minutes apart:
+
+| window | ted | find_a_tender | contracts_finder | world_bank | received |
+|---|---|---|---|---|---|
+| 72 hours | 5 | 18 | 0 | 11 | **34** |
+| 30 days | 39 | 56 | 8 | 16 | **119** |
+
+The two sweeps are answering different questions. The schedule's overlap is a
+*catch-up* mechanism — deliberately narrow, run often, so a late amendment is
+re-observed. A person pressing the button is doing the opposite: asking the
+system to look harder than it does on its own. Giving both the same window made
+the second one pointless.
+
+Widening it does not risk freshness: verified that a 30-day sweep still returns
+notices published the same day (find_a_tender returned 17–24 Aug), so the page
+caps do not truncate the recent end.
+
+**A second defect, in the same complaint.** Even when a sweep *did* find
+something, the page could not show it. `DEFAULT_FILTERS.minimum_score` is 70 and
+the Top scoring tile filters at the good-fit band — and **no real notice has ever
+scored 70** (all-time maximum 66; every 70+ row in the database is a `SEED-*`
+fixture). So the landing view is structurally incapable of displaying a real
+find. The 12:07 sweep created 8 notices and the page went on showing the same 6
+fixtures. The `New this fetch` tab carried no count, so nothing on screen ever
+said otherwise. Fixed by reporting the sweep: `SweepReport` states what it found
+and offers one click to exactly those notices, and the tab now carries
+`last_run.records_created` — provably the same population it filters, since the
+view filters on `first_seen_from = <that batch's start>`.
+
+**Alternatives rejected.** Lowering `FETCH_MIN_LOOKBACK_HOURS` so both sweeps
+look deeper — that changes frozen windowing semantics and makes every scheduled
+sweep more expensive to fix a problem only the button has. Making the operator
+window a persisted `app_settings` row like the schedule hours (D19) — the depth
+is a per-click intent, not a standing policy, and a stored one would be wrong
+the next time someone wanted a different depth. Dropping the score floor in
+`DEFAULT_FILTERS` so real notices appear on landing — that changes what the
+dashboard is *for*; the bar is correct, the reporting of what fell below it was
+not. Leaving the window and telling the user to widen it by hand — the parameter
+was only reachable by curl.
+
+**Consequences / accepted risk.**
+
+* **An operator sweep is more expensive than it was.** Ten times the window,
+  more pages per source, so a longer sweep. The single-flight (409) and cooldown
+  (429) guards from D23 therefore matter more, not less, and are unchanged and
+  still tested. Nothing can be destroyed by depth: ingest upserts on
+  `(source, source_notice_id)`.
+* **A deep sweep is still page-capped.** `MAX_PAGES_PER_SOURCE` bounds each
+  source, so "the last 90 days" means "as much of it as 20 pages reach". That
+  cap is inside the frozen connectors and is not reported per run — a real gap,
+  recorded rather than papered over.
+* **The 90-day option can outrun a source's own retention.** Nothing breaks; the
+  source simply returns what it has.
+* **An operator sweep still posts no Slack digest**, because only `run_once`
+  notifies. With automation paused, a high scorer found by hand is therefore
+  announced by nobody until sweeps resume — the ledger-driven 72-hour window
+  (D16) covers it only if a scheduled run happens inside that window. Left as
+  is deliberately: wiring a browser click to Slack is a behavioural change, and
+  the live `SLACK_CHANNEL_LABEL` currently disagrees with the ledger's rows,
+  which would re-announce seed fixtures the moment anything posted.
+
+**The background-task bug found on the way.** `start_fetch` discarded the result
+of `asyncio.create_task`, and the event loop holds only a *weak* reference to a
+task — so a sweep spending thirteen minutes inside one `await` was collectable
+mid-flight, and would die leaving its rows at `running` until
+`reap_interrupted_runs` closed them out an hour later. `ingest._background_tasks`
+now holds a strong reference until completion. This is a bug fix in run
+orchestration, not a change to the windowing, upsert, hashing or scoring
+semantics that `app/services/ingest.py` freezes.

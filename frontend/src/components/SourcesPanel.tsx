@@ -1,5 +1,5 @@
 import type { SourceStatus } from '../types';
-import { formatTime, runTone } from '../labels';
+import { formatTime, sourceHealth } from '../labels';
 import { Icon } from './Icon';
 
 const PIP = {
@@ -7,6 +7,7 @@ const PIP = {
   warning: ' pip--warning',
   critical: ' pip--critical',
   idle: ' pip--idle',
+  sweeping: ' pip--sweeping',
 } as const;
 
 const CARD = {
@@ -14,13 +15,10 @@ const CARD = {
   warning: ' src--warning',
   critical: ' src--critical',
   idle: ' src--idle',
+  sweeping: ' src--sweeping',
 } as const;
 
-function tone(source: SourceStatus): 'good' | 'warning' | 'critical' | 'idle' {
-  if (source.unavailable_reason) return 'critical';
-  if (!source.enabled) return 'idle';
-  return runTone(source.last_status);
-}
+const tone = sourceHealth;
 
 /**
  * Source health, collapsed to one line until asked for.
@@ -51,6 +49,10 @@ export function SourcesPanel({
 
   const healthy = sources.filter((s) => tone(s) === 'good').length;
   const problems = sources.filter((s) => tone(s) === 'critical' || tone(s) === 'warning');
+  // Counted separately so a sweep in progress can never read as a failure. This
+  // line used to say "0 of 8 sources healthy" for the whole of a sweep, because
+  // every source had just been set to `queued` and that is not `good`.
+  const sweeping = sources.filter((s) => tone(s) === 'sweeping');
 
   return (
     <section className={`sources${open ? ' is-open' : ''}`} aria-label="Source health">
@@ -66,9 +68,16 @@ export function SourcesPanel({
           ))}
         </span>
         <span>
-          <b>
-            {healthy} of {sources.length} sources healthy
-          </b>
+          {sweeping.length > 0 ? (
+            <b>
+              Sweeping {sweeping.length} of {sources.length} sources now
+            </b>
+          ) : (
+            <b>
+              {healthy} of {sources.length} sources healthy
+            </b>
+          )}
+          {sweeping.length > 0 && healthy > 0 ? ` · ${healthy} already reported` : ''}
           {problems.length > 0
             ? ` · ${problems.map((s) => `${s.display_name} ${tone(s) === 'critical' ? 'unavailable' : 'partial'}`).join(' · ')}`
             : ''}
@@ -83,7 +92,9 @@ export function SourcesPanel({
             const state = tone(source);
             const status = source.unavailable_reason
               ? 'unavailable'
-              : (source.last_status ?? 'never run');
+              : state === 'sweeping'
+                ? 'sweeping now'
+                : (source.last_status ?? 'never run');
             return (
               <article key={source.name} className={`src${CARD[state]}`}>
                 <header>
