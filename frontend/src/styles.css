@@ -2876,3 +2876,12 @@ html[data-density='compact'] .score {
   padding-inline: 0;
   text-align: center;
 }
+
+/* What went wrong last time, which may be days old and already fixed. Grey,
+   not red: an alarm is for a problem that exists now. */
+.src__was {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}

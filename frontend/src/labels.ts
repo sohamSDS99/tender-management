@@ -429,3 +429,26 @@ export function relativeTime(value: string | null | undefined, now: Date = new D
     return past ? `${amount} ${unit}s ago` : `in ${amount} ${unit}s`;
   }
 }
+
+/**
+ * A time, or a date and time once it is no longer today.
+ *
+ * `formatTime` alone renders a run from four days ago as "14:05", which reads
+ * as this afternoon. That is how a source skipped last Friday looked like a
+ * source failing right now.
+ */
+export function formatWhen(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: DHAKA });
+  if (day(date) === day(new Date())) return formatTime(value);
+  return date.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: DHAKA,
+  });
+}

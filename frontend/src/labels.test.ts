@@ -11,6 +11,7 @@ import {
   scoreTone,
   sourceHealth,
   sweepSummary,
+  formatWhen,
 } from './labels';
 
 /**
@@ -266,5 +267,31 @@ describe('isSweepInFlight', () => {
   it('no batch at all is not in flight', () => {
     expect(isSweepInFlight(null)).toBe(false);
     expect(isSweepInFlight(undefined)).toBe(false);
+  });
+});
+
+describe('formatWhen', () => {
+  it('shows just the time for a run today', () => {
+    const now = new Date();
+    // Midday Dhaka today, so the date-equality check is unambiguous either side
+    // of a UTC boundary.
+    const today = new Date(
+      `${now.toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' })}T06:00:00Z`,
+    );
+    expect(formatWhen(today.toISOString())).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it('adds the date once a run is no longer today', () => {
+    // Regression: a source skipped four days ago rendered as "14:05", which
+    // reads as this afternoon — so a working source looked like it had just
+    // failed.
+    const old = new Date(Date.now() - 4 * 86_400_000);
+    const rendered = formatWhen(old.toISOString());
+    expect(rendered).not.toMatch(/^\d{2}:\d{2}$/);
+    expect(rendered).toMatch(/\d+ \w{3}/);
+  });
+
+  it('has nothing to say about a run that never happened', () => {
+    expect(formatWhen(null)).toBe('—');
   });
 });
