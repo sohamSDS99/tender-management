@@ -1,6 +1,7 @@
 import type { SourceStatus } from '../types';
 import { formatTime, sourceHealth } from '../labels';
 import { Icon } from './Icon';
+import { SourceCard } from './SourceCard';
 
 const PIP = {
   good: '',
@@ -10,24 +11,20 @@ const PIP = {
   sweeping: ' pip--sweeping',
 } as const;
 
-const CARD = {
-  good: ' src--good',
-  warning: ' src--warning',
-  critical: ' src--critical',
-  idle: ' src--idle',
-  sweeping: ' src--sweeping',
-} as const;
-
 const tone = sourceHealth;
 
 /**
  * Source health, collapsed to one line until asked for.
  *
- * A source failing never fails the sweep — each one gets its own run row — so the
- * summary has to distinguish "some sources are unhealthy" from "the sweep broke",
- * and name which and why. The per-source fetch button exists because a single
- * connector recovering is the common case after a key or an outage is fixed, and
- * re-running eight sources to test one is thirteen wasted minutes.
+ * Stays on the dashboard even though Settings now has a Sources page, because
+ * the two answer different questions. This one is "where is this data coming
+ * from", which a reader has on arrival (D20); the settings page is "something is
+ * broken, what and why", which they go looking for. Both render the same
+ * SourceCard, so neither can learn something the other does not.
+ *
+ * A source failing never fails the sweep — each one gets its own run row — so
+ * the summary has to distinguish "some sources are unhealthy" from "the sweep
+ * broke", and name which and why.
  */
 export function SourcesPanel({
   sources,
@@ -88,54 +85,14 @@ export function SourcesPanel({
 
       {open ? (
         <div className="sources__grid">
-          {sources.map((source) => {
-            const state = tone(source);
-            const status = source.unavailable_reason
-              ? 'unavailable'
-              : state === 'sweeping'
-                ? 'sweeping now'
-                : (source.last_status ?? 'never run');
-            return (
-              <article key={source.name} className={`src${CARD[state]}`}>
-                <header>
-                  <span className="src__name">{source.display_name}</span>
-                  <span className="src__status">{status}</span>
-                </header>
-                <p className="src__meta">
-                  {source.tender_count.toLocaleString('en-GB')} stored
-                  {source.last_run_at ? ` · ${formatTime(source.last_run_at)}` : ' · never run'}
-                  {source.keyword_prefiltered ? ' · keyword prefilter applied' : ''}
-                </p>
-                {source.unavailable_reason ? (
-                  <p className="src__err">{source.unavailable_reason}</p>
-                ) : source.last_error ? (
-                  <p className="src__err">{source.last_error.slice(0, 160)}</p>
-                ) : null}
-                <div className="src__foot">
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    disabled={
-                      Boolean(source.unavailable_reason) ||
-                      !source.enabled ||
-                      source.running ||
-                      busySource !== null
-                    }
-                    onClick={() => onFetchSource(source.name)}
-                    title={
-                      source.unavailable_reason
-                        ? 'This source cannot run until its configuration is fixed'
-                        : `Query ${source.display_name} now`
-                    }
-                  >
-                    {source.running || busySource === source.name
-                      ? 'Fetching…'
-                      : 'Fetch this source'}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
+          {sources.map((source) => (
+            <SourceCard
+              key={source.name}
+              source={source}
+              busySource={busySource}
+              onFetch={onFetchSource}
+            />
+          ))}
         </div>
       ) : null}
     </section>

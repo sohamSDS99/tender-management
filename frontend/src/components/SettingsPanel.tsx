@@ -1,20 +1,15 @@
-import type { ReactNode } from 'react';
 import type {
   CountBucket,
-  Density,
   DeploymentFit,
   FitStatus,
   SourceStatus,
   Stats,
   TenderFilters,
-  Theme,
 } from '../types';
 import { DEPLOYMENT_FITS, FIT_STATUSES, isDefaultFilters } from '../state/urlFilters';
 import { countryLabel, deploymentLabel, fitLabel } from '../labels';
 import { day } from '../state/views';
 import { Icon } from './Icon';
-
-const PAGE_SIZES = [10, 25, 50, 100];
 
 /**
  * Named starting points. Each is a whole filter set, not an additive toggle, so
@@ -66,16 +61,16 @@ const PRESETS: {
 ];
 
 /**
- * Settings: filters, display, and the automation controls.
+ * The filters, and only the filters.
  *
- * Slides out of the permanent left rail. It carries no blocking scrim on purpose:
- * it covers the left of the page, but the results stay visible and clickable to
- * its right, so a filter can be watched taking effect while it is still being set.
- * Escape closes it, as does the rail tab it came out of.
+ * Display and Automation moved out to their own settings pages; what is left is
+ * the one group that has to stay here. The panel carries no blocking scrim on
+ * purpose: it covers the left of the page, but the results stay visible and
+ * clickable to its right, so a filter can be watched taking effect while it is
+ * still being set. That is the entire argument for a panel over a page, and it
+ * only applies to controls that change what the list contains.
  *
- * The automation controls are passed in rather than built here: pausing the sweep
- * and setting its times are already-shipped, already-tested components whose
- * behaviour is deliberately unchanged (D19, D21).
+ * Reached from Settings -> Filters in the rail menu. Escape closes it.
  */
 export function SettingsPanel({
   open,
@@ -83,33 +78,18 @@ export function SettingsPanel({
   stats,
   sources,
   total,
-  theme,
-  density,
-  pageSize,
-  automation,
   onChange,
   onReset,
   onClose,
-  onTheme,
-  onDensity,
-  onPageSize,
 }: {
   open: boolean;
   filters: TenderFilters;
   stats: Stats | null;
   sources: SourceStatus[];
   total: number;
-  theme: Theme;
-  density: Density;
-  pageSize: number;
-  /** The trigger switch and schedule editor, unchanged. */
-  automation: ReactNode;
   onChange: (patch: Partial<TenderFilters>) => void;
   onReset: () => void;
   onClose: () => void;
-  onTheme: (theme: Theme) => void;
-  onDensity: (density: Density) => void;
-  onPageSize: (size: number) => void;
 }) {
   const bands = {
     good: stats?.score_bands?.good_fit ?? 70,
@@ -136,8 +116,8 @@ export function SettingsPanel({
     >
       <header className="panelhead">
         <div>
-          <h2>Settings</h2>
-          <p>Changes apply immediately</p>
+          <h2>Filters</h2>
+          <p>Changes apply immediately, and the results stay live beside this panel</p>
         </div>
         <span className="spacer" />
         <button
@@ -418,63 +398,6 @@ export function SettingsPanel({
               <span />
             </label>
           </div>
-        </section>
-
-        <section className="section">
-          <h3>Display</h3>
-          <div className="switchrow">
-            <p>Results per page</p>
-            <div className="seg">
-              {PAGE_SIZES.map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  className={pageSize === size ? 'is-on' : undefined}
-                  aria-pressed={pageSize === size}
-                  onClick={() => onPageSize(size)}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="switchrow">
-            <p>Card density</p>
-            <div className="seg">
-              {(['comfortable', 'compact'] as Density[]).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={density === value ? 'is-on' : undefined}
-                  aria-pressed={density === value}
-                  onClick={() => onDensity(value)}
-                >
-                  {value === 'comfortable' ? 'Comfortable' : 'Compact'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="switchrow">
-            <p>Theme</p>
-            <div className="seg">
-              {(['dark', 'light', 'system'] as Theme[]).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={theme === value ? 'is-on' : undefined}
-                  aria-pressed={theme === value}
-                  onClick={() => onTheme(value)}
-                >
-                  {value === 'dark' ? 'Dark' : value === 'light' ? 'Light' : 'System'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="section">
-          <h3>Automation</h3>
-          {automation}
         </section>
       </div>
 

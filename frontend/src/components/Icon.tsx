@@ -2,7 +2,7 @@
  * One icon set, one stroke weight (1.6), one 24-grid.
  *
  * Drawn rather than pulled from a library: the app ships only react and
- * react-dom, and these fourteen paths are smaller than any icon package. Every
+ * react-dom, and these paths are smaller than any icon package. Every
  * icon is decorative — the meaning is always in adjacent text — so they are
  * aria-hidden and never the sole carrier of a state.
  */
@@ -27,7 +27,9 @@ export type IconName =
   | 'refresh'
   | 'info'
   | 'chevronDown'
-  | 'settings';
+  | 'settings'
+  | 'display'
+  | 'grid';
 
 const PATHS: Record<IconName, string[]> = {
   check: ['M4.5 12.5l4.5 4.5L19.5 6.5'],
@@ -62,6 +64,12 @@ const PATHS: Record<IconName, string[]> = {
   refresh: ['M20.5 12a8.5 8.5 0 1 1-2.8-6.3', 'M20.5 3.5v6h-6'],
   info: ['M12 16v-5', 'M12 8h.01', 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z'],
   chevronDown: ['m6 9.5 6 6 6-6'],
+  display: [
+    'M4.5 4.5h15a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z',
+    'M9 19.5h6',
+    'M12 15.5v4',
+  ],
+  grid: ['M4.5 4.5h6v6h-6z', 'M13.5 4.5h6v6h-6z', 'M4.5 13.5h6v6h-6z', 'M13.5 13.5h6v6h-6z'],
   settings: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 4.5v5', 'M8 14.5v5'],
 };
 
