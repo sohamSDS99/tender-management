@@ -29,6 +29,12 @@ import {
 } from '../state/views';
 import { usePreferences } from '../state/preferences';
 import {
+  categoryFor,
+  settingsFromSearch,
+  withSettings,
+  type SettingsKey,
+} from '../state/settingsNav';
+import {
   FALLBACK_BANDS,
   FALLBACK_SWEEP_DAYS,
   countryLabel,
@@ -38,20 +44,22 @@ import {
   makeSourceLabel,
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
-import { LinkBase } from '../components/LinkBase';
 import { Masthead } from '../components/Masthead';
 import { Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
 import { Rail } from '../components/Rail';
 import { RunsTable } from '../components/RunsTable';
+import { SettingsMenu } from '../components/SettingsMenu';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
 import { SweepReport } from '../components/SweepReport';
+import { AutomationSettings } from '../components/settings/AutomationSettings';
+import { DisplaySettings } from '../components/settings/DisplaySettings';
+import { SourcesSettings } from '../components/settings/SourcesSettings';
+import { SystemSettings } from '../components/settings/SystemSettings';
 import { BucketNote, StatTiles } from '../components/StatTiles';
 import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
-import { ScheduleEditor } from '../components/ScheduleEditor';
-import { TriggerSwitch } from '../components/TriggerSwitch';
 
 /**
  * The whole filter set lives in the URL, so any view is shareable and survives a
@@ -59,6 +67,8 @@ import { TriggerSwitch } from '../components/TriggerSwitch';
  * `?tender=<id>`.
  */
 const initial = filtersFromSearch(window.location.search);
+/** Which settings page the URL asks for, so one survives a refresh or a share. */
+const initialSettings = settingsFromSearch(window.location.search);
 
 export function Dashboard() {
   const [filters, setFilters] = useState<TenderFilters>(initial.filters);
@@ -93,23 +103,32 @@ export function Dashboard() {
   const [sweepDays, setSweepDays] = useState<number>(FALLBACK_SWEEP_DAYS);
   const depthTouched = useRef(false);
 
+  // Settings navigation: which full-width page is showing, and whether the
+  // category menu is open. The filters panel keeps its own stored preference,
+  // because it is the one surface that stays open while you work.
+  const [settingsPage, setSettingsPage] = useState<SettingsKey | null>(initialSettings);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const { preferences, resolved: theme, update, toggleTheme } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
   useEffect(() => {
-    const search = searchFromFilters(filters, selectedId);
+    // The settings page rides on top of the filter codec rather than inside it,
+    // so there is still exactly one place that knows how filters serialise.
+    const search = withSettings(searchFromFilters(filters, selectedId), settingsPage);
     const next = `${window.location.pathname}${search ? `?${search}` : ''}`;
     if (next !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(null, '', next);
     }
-  }, [filters, selectedId]);
+  }, [filters, selectedId, settingsPage]);
 
   useEffect(() => {
     const onPop = () => {
       const parsed = filtersFromSearch(window.location.search);
       setFilters(parsed.filters);
       setSelectedId(parsed.tenderId);
+      setSettingsPage(settingsFromSearch(window.location.search));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -380,6 +399,30 @@ export function Dashboard() {
 
   const settingsOpen = preferences.settingsOpen;
 
+  /**
+   * Open a category on the surface it belongs to.
+   *
+   * Filters get the side panel because the results have to stay visible while
+   * they are being set; everything else takes the width. The two are mutually
+   * exclusive on purpose - the panel is fixed against the rail and would sit on
+   * top of a page, hiding the very thing the reader just asked for.
+   */
+  const selectCategory = useCallback(
+    (key: SettingsKey) => {
+      setMenuOpen(false);
+      if (categoryFor(key)?.surface === 'panel') {
+        setSettingsPage(null);
+        update({ settingsOpen: true });
+      } else {
+        update({ settingsOpen: false });
+        setSettingsPage(key);
+      }
+    },
+    [update],
+  );
+
+  const closeSettingsPage = useCallback(() => setSettingsPage(null), []);
+
   // Escape closes the slide-out — but not while the detail drawer is up, which
   // owns Escape for itself and is stacked above it.
   useEffect(() => {
@@ -391,135 +434,184 @@ export function Dashboard() {
     return () => window.removeEventListener('keydown', onKey);
   }, [settingsOpen, selectedId, update]);
 
+  const settingsSurface =
+    settingsPage === 'display' ? (
+      <DisplaySettings
+        theme={preferences.theme}
+        density={preferences.density}
+        pageSize={filters.page_size}
+        resolvedTheme={theme}
+        onTheme={(next: Theme) => update({ theme: next })}
+        onDensity={(next: Density) => update({ density: next })}
+        onPageSize={(size) => onChange({ page_size: size })}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'automation' ? (
+      <AutomationSettings
+        automation={automation}
+        onSaved={() => void loadMeta()}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'sources' ? (
+      <SourcesSettings
+        sources={sources}
+        busySource={busySource}
+        onFetchSource={(name) => void runAction('fetch', name)}
+        onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'system' ? (
+      <SystemSettings automation={automation} stats={stats} onBack={closeSettingsPage} />
+    ) : null;
+
   return (
     <>
       <div className="shell">
-        <Masthead
-          automation={automation}
-          stats={stats}
-          theme={theme}
-          preference={preferences.theme}
-          busy={busy}
-          sweepDays={sweepDays}
-          onSweepDays={chooseSweepDays}
-          onFetch={() => void runAction('fetch')}
-          onRescore={() => void runAction('rescore')}
-          onToggleTheme={toggleTheme}
-        />
-
-        <StatTiles
-          stats={stats}
-          sources={sources}
-          activeTile={activeTile}
-          onApply={applyTile}
-          onShowSources={() => setSourcesOpen(true)}
-        />
-
-        <div className="col">
-          <SourcesPanel
-            sources={sources}
-            open={sourcesOpen}
-            onToggle={setSourcesOpen}
-            lastSweepAt={automation?.last_run?.started_at ?? null}
-            busySource={busySource}
-            onFetchSource={(name) => void runAction('fetch', name)}
-          />
-
-          <Toolbar
-            filters={filters}
+        {settingsSurface ? null : (
+          <Masthead
+            automation={automation}
             stats={stats}
-            viewContext={viewContext}
-            activeView={currentView}
-            bucketCounts={bucketCounts}
-            onSearch={(query) => onChange({ query })}
-            onSort={(sort) => onChange({ sort })}
-            onSelectView={selectView}
-            onClearAll={clearAll}
-            chips={extraChips.map((chip) => ({
-              label: chip.label,
-              onRemove: () => onChange(chip.clear),
-            }))}
+            theme={theme}
+            preference={preferences.theme}
+            busy={busy}
+            sweepDays={sweepDays}
+            onSweepDays={chooseSweepDays}
+            onFetch={() => void runAction('fetch')}
+            onRescore={() => void runAction('rescore')}
+            onToggleTheme={toggleTheme}
           />
+        )}
 
-          {sweep ? (
-            <SweepReport
-              daysBack={sweep.daysBack}
-              batchId={sweep.batchId}
-              lastRun={automation?.last_run ?? null}
-              runs={runs}
-              onShowNew={() => selectView('new')}
-              onDismiss={() => setSweep(null)}
+        {settingsSurface}
+
+        {settingsSurface ? null : (
+          <>
+            <StatTiles
+              stats={stats}
+              sources={sources}
+              activeTile={activeTile}
+              onApply={applyTile}
+              onShowSources={() => setSourcesOpen(true)}
             />
-          ) : null}
 
-          {actionMessage ? (
-            <p
-              className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
-              role="status"
-            >
-              {actionMessage.text}
-            </p>
-          ) : null}
+            <div className="col">
+              <SourcesPanel
+                sources={sources}
+                open={sourcesOpen}
+                onToggle={setSourcesOpen}
+                lastSweepAt={automation?.last_run?.started_at ?? null}
+                busySource={busySource}
+                onFetchSource={(name) => void runAction('fetch', name)}
+              />
 
-          <Notice automation={automation} sweeping={sweeping} />
+              <Toolbar
+                filters={filters}
+                stats={stats}
+                viewContext={viewContext}
+                activeView={currentView}
+                bucketCounts={bucketCounts}
+                onSearch={(query) => onChange({ query })}
+                onSort={(sort) => onChange({ sort })}
+                onSelectView={selectView}
+                onClearAll={clearAll}
+                chips={extraChips.map((chip) => ({
+                  label: chip.label,
+                  onRemove: () => onChange(chip.clear),
+                }))}
+              />
 
-          <main>
-            {bucketNote ? <BucketNote text={bucketNote} /> : null}
+              {sweep ? (
+                <SweepReport
+                  daysBack={sweep.daysBack}
+                  batchId={sweep.batchId}
+                  lastRun={automation?.last_run ?? null}
+                  runs={runs}
+                  onShowNew={() => selectView('new')}
+                  onDismiss={() => setSweep(null)}
+                />
+              ) : null}
 
-            <div className="results__head">
-              <h2 aria-live="polite">
-                {/* Suppressed while erroring: the last successful count is stale,
+              {actionMessage ? (
+                <p
+                  className={`notice${actionMessage.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
+                  role="status"
+                >
+                  {actionMessage.text}
+                </p>
+              ) : null}
+
+              <Notice automation={automation} sweeping={sweeping} />
+
+              <main>
+                {bucketNote ? <BucketNote text={bucketNote} /> : null}
+
+                <div className="results__head">
+                  <h2 aria-live="polite">
+                    {/* Suppressed while erroring: the last successful count is stale,
                       and showing "6 tenders" above "cannot reach the API"
                       contradicts itself. */}
+                    {page && !error ? (
+                      <>
+                        {page.total.toLocaleString('en-GB')}{' '}
+                        {page.total === 1 ? 'tender' : 'tenders'}
+                        {page.pages > 1 ? (
+                          <span className="muted">
+                            {' '}
+                            · page {page.page} of {page.pages}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      ' '
+                    )}
+                  </h2>
+                </div>
+
+                <TenderList
+                  tenders={items}
+                  loading={loading}
+                  error={error}
+                  unreachable={unreachable}
+                  selectedId={selectedId}
+                  newSince={viewContext.lastRunAt}
+                  filterCount={activeFilterCount(filters)}
+                  total={page?.total ?? 0}
+                  storedTotal={stats?.total_tenders ?? 0}
+                  bands={bands}
+                  sourceLabel={sourceLabel}
+                  categoryLabel={categoryLabel}
+                  onSelect={setSelectedId}
+                  onRetry={() => setReloadToken((v) => v + 1)}
+                  onClearFilters={clearAll}
+                  onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
+                  onShowAll={() => selectView('all')}
+                />
+
                 {page && !error ? (
-                  <>
-                    {page.total.toLocaleString('en-GB')} {page.total === 1 ? 'tender' : 'tenders'}
-                    {page.pages > 1 ? (
-                      <span className="muted">
-                        {' '}
-                        · page {page.page} of {page.pages}
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  ' '
-                )}
-              </h2>
+                  <Pager
+                    page={page}
+                    onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))}
+                  />
+                ) : null}
+              </main>
+
+              <RunsTable runs={runs} sourceLabel={sourceLabel} />
             </div>
-
-            <TenderList
-              tenders={items}
-              loading={loading}
-              error={error}
-              unreachable={unreachable}
-              selectedId={selectedId}
-              newSince={viewContext.lastRunAt}
-              filterCount={activeFilterCount(filters)}
-              total={page?.total ?? 0}
-              storedTotal={stats?.total_tenders ?? 0}
-              bands={bands}
-              sourceLabel={sourceLabel}
-              categoryLabel={categoryLabel}
-              onSelect={setSelectedId}
-              onRetry={() => setReloadToken((v) => v + 1)}
-              onClearFilters={clearAll}
-              onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-              onShowAll={() => selectView('all')}
-            />
-
-            {page && !error ? (
-              <Pager page={page} onGo={(next) => setFilters((prev) => ({ ...prev, page: next }))} />
-            ) : null}
-          </main>
-
-          <RunsTable runs={runs} sourceLabel={sourceLabel} />
-        </div>
+          </>
+        )}
       </div>
 
       <Rail
-        settingsOpen={settingsOpen}
-        activeFilterCount={activeFilterCount(filters)}
-        onToggleSettings={() => update({ settingsOpen: !settingsOpen })}
+        menuOpen={menuOpen}
+        activeCount={activeFilterCount(filters)}
+        onToggleMenu={() => setMenuOpen((v) => !v)}
+      />
+
+      <SettingsMenu
+        open={menuOpen}
+        activeKey={settingsPage ?? (settingsOpen ? 'filters' : null)}
+        filterCount={activeFilterCount(filters)}
+        onSelect={selectCategory}
+        onClose={() => setMenuOpen(false)}
       />
 
       <SettingsPanel
@@ -528,22 +620,9 @@ export function Dashboard() {
         stats={stats}
         sources={sources}
         total={page?.total ?? 0}
-        theme={preferences.theme}
-        density={preferences.density}
-        pageSize={filters.page_size}
         onChange={onChange}
         onReset={clearAll}
         onClose={() => update({ settingsOpen: false })}
-        onTheme={(next: Theme) => update({ theme: next })}
-        onDensity={(next: Density) => update({ density: next })}
-        onPageSize={(size) => onChange({ page_size: size })}
-        automation={
-          <>
-            <TriggerSwitch automation={automation} onSaved={() => void loadMeta()} />
-            <ScheduleEditor automation={automation} onSaved={() => void loadMeta()} />
-            {automation ? <LinkBase url={automation.public_app_url} /> : null}
-          </>
-        }
       />
 
       <div
