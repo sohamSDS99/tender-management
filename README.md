@@ -680,7 +680,7 @@ tender-monitor/
 │   │   ├── pages/Dashboard.tsx     orchestration
 │   │   ├── api/client.ts           the API client
 │   │   └── labels.ts  styles.css  types/index.ts
-│   └── package.json  vite.config.ts  nginx.conf  Dockerfile
+│   └── package.json  vite.config.ts  nginx.conf.template  Dockerfile
 ├── config/relevance_profiles.yaml  all keywords, weights, patterns, caps (frozen, and never
 │                                   rewritten — overrides live in app_settings)
 ├── docs/
