@@ -185,3 +185,71 @@ def test_preview_scores_a_real_corpus(client, db_session):
     body = response.json()
     assert body["examined"] == 1
     assert body["total"] == 1
+
+
+# --- profiles as data ------------------------------------------------------
+
+
+def test_a_new_profile_can_be_added(db_session):
+    save_overrides(
+        db_session,
+        {"profiles": {"waste_management": {"label": "Waste management", "strong": ["waste tracking"]}}},
+    )
+    rules = read_rules(db_session)
+    added = next(p for p in rules["profiles"] if p["key"] == "waste_management")
+    assert added["label"] == "Waste management"
+    assert added["strong"] == ["waste tracking"]
+    # The file's own profiles are untouched by adding one.
+    assert any(p["key"] == "sds_management" for p in rules["profiles"])
+
+
+def test_a_new_profile_reaches_the_merged_config(db_session):
+    save_overrides(
+        db_session,
+        {"profiles": {"waste_management": {"label": "Waste management", "strong": ["waste tracking"]}}},
+    )
+    merged = apply_overrides(db_session, {"profiles": {}, "weights": {}})
+    assert "waste_management" in merged["profiles"]
+
+
+def test_a_profile_from_the_file_can_be_removed(db_session):
+    before = {p["key"] for p in read_rules(db_session)["profiles"]}
+    assert "sds_distribution" in before
+
+    save_overrides(db_session, {"removed_profiles": ["sds_distribution"]})
+    after = {p["key"] for p in read_rules(db_session)["profiles"]}
+    assert "sds_distribution" not in after
+    assert "sds_management" in after, "removing one leaves the rest alone"
+
+
+def test_removing_a_profile_takes_it_out_of_the_merged_config(db_session):
+    save_overrides(db_session, {"removed_profiles": ["sds_distribution"]})
+    merged = apply_overrides(db_session, {"profiles": {}, "weights": {}})
+    assert "sds_distribution" not in merged["profiles"]
+
+
+def test_a_removal_can_be_undone(db_session):
+    # The file is never rewritten, so a removal is a tombstone and lifting it
+    # brings the original back exactly as the file has it.
+    save_overrides(db_session, {"removed_profiles": ["sds_distribution"]})
+    save_overrides(db_session, {"removed_profiles": []})
+    assert "sds_distribution" in {p["key"] for p in read_rules(db_session)["profiles"]}
+
+
+def test_a_profile_needs_a_usable_key(db_session):
+    with pytest.raises(InvalidRules):
+        save_overrides(db_session, {"profiles": {"Not A Key!": {"label": "x"}}})
+
+
+def test_a_new_profile_needs_a_label(db_session):
+    with pytest.raises(InvalidRules):
+        save_overrides(db_session, {"profiles": {"waste_management": {"strong": ["x"]}}})
+
+
+def test_phrases_in_a_new_profile_are_normalised_too(db_session):
+    save_overrides(
+        db_session,
+        {"profiles": {"waste_mgmt": {"label": "Waste", "strong": ["Waste-Tracking Platform"]}}},
+    )
+    added = next(p for p in read_rules(db_session)["profiles"] if p["key"] == "waste_mgmt")
+    assert added["strong"] == ["waste tracking platform"]

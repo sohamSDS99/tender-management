@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import func, select
@@ -34,6 +35,9 @@ WEIGHT_KEYS = ("topic", "product_fit", "procurement_intent")
 #: into two bands at once and the fit status it reports becomes arbitrary.
 BAND_ORDER = ("excellent_fit", "good_fit", "possible_fit", "weak_fit")
 PHRASE_TIERS = ("strong", "medium", "weak")
+#: A profile key has to be a safe identifier: it is a YAML key, a dict key and
+#: part of a category label, and a stray space or dot breaks all three.
+_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
 
 class InvalidRules(ValueError):
@@ -97,10 +101,22 @@ def _validate(overrides: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]
         known = set(base.get("profiles", {}))
         out: dict[str, Any] = {}
         for key, tiers in profiles.items():
-            if key not in known:
-                raise InvalidRules(f"'{key}' is not a profile in the relevance file.")
-            entry: dict[str, list[str]] = {}
+            if not _KEY_RE.match(key):
+                raise InvalidRules(
+                    f"'{key}' is not a usable name. Use lower-case letters, digits and "
+                    "underscores, starting with a letter."
+                )
+            entry: dict[str, Any] = {}
+            label = str(tiers.get("label") or "").strip()
+            if key not in known and not label:
+                # A profile from the file already has one; a new one has nothing
+                # to show on screen or to name a match with.
+                raise InvalidRules(f"'{key}' is new, so it needs a name.")
+            if label:
+                entry["label"] = label
             for tier, phrases in tiers.items():
+                if tier == "label":
+                    continue
                 if tier not in PHRASE_TIERS:
                     raise InvalidRules(f"'{tier}' is not one of strong, medium, weak.")
                 seen: list[str] = []
@@ -111,6 +127,14 @@ def _validate(overrides: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]
                 entry[tier] = seen
             out[key] = entry
         clean["profiles"] = out
+
+    # Tombstones. The file is never rewritten, so removing one of its profiles
+    # is recorded rather than performed - which is also what makes it undoable.
+    if "removed_profiles" in overrides:
+        removed = overrides.get("removed_profiles") or []
+        if not isinstance(removed, list):
+            raise InvalidRules("removed_profiles must be a list of profile names.")
+        clean["removed_profiles"] = [str(k) for k in removed]
 
     return clean
 
@@ -156,11 +180,16 @@ def apply_overrides(db: Session, config: dict[str, Any]) -> dict[str, Any]:
         merged["weights"] = {**config.get("weights", {}), **overrides["weights"]}
     if "bands" in overrides:
         merged["bands"] = {**config.get("bands", {}), **overrides["bands"]}
-    if "profiles" in overrides:
+    if "profiles" in overrides or "removed_profiles" in overrides:
         profiles = {k: dict(v) for k, v in config.get("profiles", {}).items()}
-        for key, tiers in overrides["profiles"].items():
-            if key in profiles:
-                profiles[key] = {**profiles[key], **tiers}
+        for key, tiers in (overrides.get("profiles") or {}).items():
+            # Merge into one from the file, or add it outright. A new profile
+            # needs the tiers present even when empty, or the engine reads a
+            # missing key rather than an empty list.
+            base_entry = profiles.get(key, {tier: [] for tier in PHRASE_TIERS})
+            profiles[key] = {**base_entry, **tiers}
+        for key in overrides.get("removed_profiles") or []:
+            profiles.pop(key, None)
         merged["profiles"] = profiles
     return merged
 
@@ -181,6 +210,12 @@ def read_rules(db: Session) -> dict[str, Any]:
             for key, profile in config.get("profiles", {}).items()
         ],
         "overridden": sorted(_stored(db)),
+        #: Which of the file's own profiles are currently switched off, so the
+        #: UI can offer them back rather than making a removal permanent.
+        "removed_profiles": list(_stored(db).get("removed_profiles") or []),
+        #: What the file itself defines, so the UI can tell a profile it may
+        #: restore from one it would delete outright.
+        "file_profiles": sorted(load_config().get("profiles", {})),
     }
 
 

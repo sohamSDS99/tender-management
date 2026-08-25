@@ -235,12 +235,21 @@ export interface MatchingRules {
   profiles: MatchingProfile[];
   /** Which sections currently differ from the file. */
   overridden: string[];
+  /** File profiles currently switched off — restorable, not gone. */
+  removed_profiles: string[];
+  /** What the file itself defines, so a removal can be told from a deletion. */
+  file_profiles: string[];
 }
+
+export type ProfilePatch = Partial<Record<'strong' | 'medium' | 'weak', string[]>> & {
+  label?: string;
+};
 
 export type MatchingRulesPatch = {
   weights?: Record<string, number>;
   bands?: Record<string, number>;
-  profiles?: Record<string, Partial<Record<'strong' | 'medium' | 'weak', string[]>>>;
+  profiles?: Record<string, ProfilePatch>;
+  removed_profiles?: string[];
 };
 
 export interface RulesPreview {

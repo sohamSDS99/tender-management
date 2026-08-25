@@ -3013,3 +3013,38 @@ html[data-density='compact'] .score {
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* The profile table. A capability is a row you can open, rename the contents
+   of, or take out entirely. */
+.ptable--profiles .proflist__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  width: auto;
+}
+.ptable--profiles .proflist__head svg {
+  color: var(--ink-muted);
+  transition: transform 0.15s var(--ease);
+}
+.ptable--profiles .proflist__head[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.ptable__counts {
+  color: var(--ink-muted);
+  font-size: 0.735rem;
+  font-variant-numeric: tabular-nums;
+}
+.ptable__drawer > td {
+  padding: 0 8px 14px 26px;
+  background: var(--surface-2);
+}
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { MatchingProfile, MatchingRules, RulesPreview } from '../types';
 import { api } from '../api/client';
 import { Icon } from './Icon';
@@ -37,6 +37,9 @@ export function MatchingRulesSettings({
   const [bands, setBands] = useState<Record<string, number>>({});
   const [profiles, setProfiles] = useState<MatchingProfile[]>([]);
   const [openProfile, setOpenProfile] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<string[]>([]);
+  const [fileProfiles, setFileProfiles] = useState<string[]>([]);
+  const [newProfile, setNewProfile] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<RulesPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -52,6 +55,8 @@ export function MatchingRulesSettings({
         setWeights(data.weights);
         setBands(data.bands);
         setProfiles(data.profiles);
+        setRemoved(data.removed_profiles ?? []);
+        setFileProfiles(data.file_profiles ?? []);
       })
       .catch((error: unknown) =>
         setMessage({ tone: 'bad', text: error instanceof Error ? error.message : 'Could not load.' }),
@@ -61,6 +66,36 @@ export function MatchingRulesSettings({
     };
   }, []);
 
+  const slug = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+
+  const newKey = slug(newProfile);
+  const canAddProfile =
+    newKey.length > 1 && /^[a-z]/.test(newKey) && !profiles.some((p) => p.key === newKey);
+
+  const addProfile = () => {
+    if (!canAddProfile) return;
+    setProfiles((prev) => [
+      ...prev,
+      { key: newKey, label: newProfile.trim(), strong: [], medium: [], weak: [] },
+    ]);
+    setRemoved((prev) => prev.filter((k) => k !== newKey));
+    setOpenProfile(newKey);
+    setNewProfile('');
+  };
+
+  const removeProfile = (key: string) => {
+    setProfiles((prev) => prev.filter((p) => p.key !== key));
+    // Only a profile the file defines needs a tombstone; one added here just
+    // stops being sent.
+    if (fileProfiles.includes(key)) setRemoved((prev) => [...new Set([...prev, key])]);
+    if (openProfile === key) setOpenProfile(null);
+  };
+
+  const restoreProfile = (key: string) => setRemoved((prev) => prev.filter((k) => k !== key));
+
+  const restorable = removed.filter((key) => fileProfiles.includes(key));
+
   const total = WEIGHTS.reduce((sum, w) => sum + (weights[w.key] ?? 0), 0);
   const balanced = Math.abs(total - 1) < 0.005;
 
@@ -69,9 +104,12 @@ export function MatchingRulesSettings({
     setMessage(null);
     try {
       const asProfiles = Object.fromEntries(
-        profiles.map((p) => [p.key, { strong: p.strong, medium: p.medium, weak: p.weak }]),
+        profiles.map((p) => [
+          p.key,
+          { label: p.label, strong: p.strong, medium: p.medium, weak: p.weak },
+        ]),
       );
-      const result = await api.saveMatchingRules({ weights, bands, profiles: asProfiles });
+      const result = await api.saveMatchingRules({ weights, bands, profiles: asProfiles, removed_profiles: removed });
       setMessage({
         tone: 'ok',
         text: `Saved. ${result.rescored.toLocaleString('en-GB')} notices re-scored under the new rules.`,
@@ -90,9 +128,12 @@ export function MatchingRulesSettings({
     setMessage(null);
     try {
       const asProfiles = Object.fromEntries(
-        profiles.map((p) => [p.key, { strong: p.strong, medium: p.medium, weak: p.weak }]),
+        profiles.map((p) => [
+          p.key,
+          { label: p.label, strong: p.strong, medium: p.medium, weak: p.weak },
+        ]),
       );
-      setConfirming(await api.previewMatchingRules({ weights, bands, profiles: asProfiles }));
+      setConfirming(await api.previewMatchingRules({ weights, bands, profiles: asProfiles, removed_profiles: removed }));
     } catch (error) {
       setMessage({
         tone: 'bad',
@@ -112,6 +153,8 @@ export function MatchingRulesSettings({
       setWeights(fresh.weights);
       setBands(fresh.bands);
       setProfiles(fresh.profiles);
+      setRemoved(fresh.removed_profiles ?? []);
+      setFileProfiles(fresh.file_profiles ?? []);
       setMessage({
         tone: 'ok',
         text: `Back to the file's defaults. ${result.rescored.toLocaleString('en-GB')} notices re-scored.`,
@@ -209,36 +252,108 @@ export function MatchingRulesSettings({
         rather than the description. Those points make the topic score, which is 55% of the final
         one.
       </p>
-      <ul className="proflist">
-        {profiles.map((profile) => {
-          const open = openProfile === profile.key;
-          return (
-            <li key={profile.key} className={open ? 'is-open' : undefined}>
-              <button
-                type="button"
-                className="proflist__head"
-                aria-expanded={open}
-                onClick={() => setOpenProfile(open ? null : profile.key)}
-              >
-                <b>{profile.label}</b>
-                <span>
-                  {profile.strong.length} strong · {profile.medium.length} medium ·{' '}
-                  {profile.weak.length} weak
-                </span>
-                <Icon name="chevronDown" size={14} />
+      <div className="phrases__add">
+        <input
+          className="input input--sm"
+          value={newProfile}
+          placeholder="New capability, e.g. Waste management"
+          aria-label="New capability name"
+          onChange={(event) => setNewProfile(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              addProfile();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          disabled={!canAddProfile}
+          title={canAddProfile ? undefined : 'Give it a name that is not already used'}
+          onClick={addProfile}
+        >
+          Add capability
+        </button>
+      </div>
+
+      <table className="ptable ptable--profiles">
+        <thead>
+          <tr>
+            <th scope="col">Capability</th>
+            <th scope="col">Phrases</th>
+            <th scope="col" className="ptable__act">
+              <span className="sr">Remove</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {profiles.map((profile) => {
+            const open = openProfile === profile.key;
+            return (
+              <Fragment key={profile.key}>
+                <tr>
+                  <td>
+                    <button
+                      type="button"
+                      className="proflist__head"
+                      aria-expanded={open}
+                      onClick={() => setOpenProfile(open ? null : profile.key)}
+                    >
+                      <Icon name="chevronDown" size={13} />
+                      <b>{profile.label}</b>
+                    </button>
+                  </td>
+                  <td className="mono ptable__counts">
+                    {profile.strong.length} strong · {profile.medium.length} medium ·{' '}
+                    {profile.weak.length} weak
+                  </td>
+                  <td className="ptable__act">
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      aria-label={`Remove capability: ${profile.label}`}
+                      onClick={() => removeProfile(profile.key)}
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </td>
+                </tr>
+                {open ? (
+                  <tr className="ptable__drawer">
+                    <td colSpan={3}>
+                      <PhraseTable
+                        profile={profile}
+                        onChange={(next) =>
+                          setProfiles((prev) => prev.map((p) => (p.key === next.key ? next : p)))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* A profile from the file is switched off, not deleted — the file is
+          never rewritten, so offering it back costs nothing and losing it
+          silently would be the worse failure. */}
+      {restorable.length > 0 ? (
+        <p className="screen__hint">
+          Switched off:{' '}
+          {restorable.map((key, index) => (
+            <Fragment key={key}>
+              {index > 0 ? ', ' : ''}
+              <button type="button" className="linkish" onClick={() => restoreProfile(key)}>
+                {key.replace(/_/g, ' ')}
               </button>
-              {open ? (
-                <PhraseTable
-                  profile={profile}
-                  onChange={(next) =>
-                    setProfiles((prev) => prev.map((p) => (p.key === next.key ? next : p)))
-                  }
-                />
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+            </Fragment>
+          ))}
+          . These come from the relevance file and can be brought back.
+        </p>
+      ) : null}
 
       <div className="screen__actions">
         {confirming ? (
