@@ -211,13 +211,11 @@ export interface TenderFilters {
   page_size: number;
 }
 
-export type Theme = 'light' | 'dark' | 'system';
 
 /** Card height. Applied as `html[data-density]`, which the stylesheet keys off. */
 export type Density = 'comfortable' | 'compact';
 
 export interface Preferences {
-  theme: Theme;
   density: Density;
   /** Whether the left Settings panel is showing. Persisted so it survives a reload. */
   settingsOpen: boolean;
