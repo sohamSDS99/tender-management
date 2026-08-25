@@ -1,0 +1,43 @@
+# Rendered at container start by the nginx image's entrypoint, which runs
+# envsubst over /etc/nginx/templates/*.template. Only PORT, BACKEND_ORIGIN and
+# NGINX_RESOLVER are substituted; nginx's own $uri / $host / $upstream stay
+# literal because they are not environment variables.
+#
+# Defaults live in frontend/Dockerfile and reproduce the docker-compose layout
+# exactly (port 80, API at http://backend:8000). A hosted deployment overrides
+# them: the platform picks the port, and the API answers on another hostname.
+#
+# The upstream goes through a variable deliberately - see
+# docker-entrypoint.d/15-resolver.envsh for why, and for where the resolver
+# address comes from.
+server {
+    listen ${PORT};
+    listen [::]:${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    gzip on;
+    gzip_types text/css application/javascript application/json;
+
+    resolver ${NGINX_RESOLVER} valid=10s;
+
+    # Single-page app
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # The API is reached through relative URLs, so no CORS setup is needed.
+    location /api/ {
+        set $upstream ${BACKEND_ORIGIN};
+        proxy_pass $upstream$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+    }
+
+    location /health {
+        set $upstream ${BACKEND_ORIGIN};
+        proxy_pass $upstream/health;
+        proxy_set_header Host $host;
+    }
+}

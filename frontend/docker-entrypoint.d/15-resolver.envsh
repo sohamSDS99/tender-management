@@ -1,0 +1,24 @@
+# Sourced by the nginx image's entrypoint, before the template is rendered.
+#
+# nginx.conf.template passes the upstream through a variable, which makes nginx
+# resolve it per request instead of once at startup. That is what keeps this
+# container serving the dashboard when the API is down, restarting, or not
+# created yet - with a literal hostname nginx refuses to start at all and the
+# whole site crash-loops behind an API outage.
+#
+# The variable form needs an explicit resolver, and the right address differs
+# per host (Docker uses 127.0.0.11, a platform private network uses its own,
+# usually IPv6). Read it from the container's own resolv.conf rather than
+# hardcoding one. nginx wants IPv6 addresses bracketed.
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+    for _ns in $(awk '/^nameserver/ { print $2 }' /etc/resolv.conf 2>/dev/null); do
+        case "$_ns" in
+            *:*) NGINX_RESOLVER="${NGINX_RESOLVER:+$NGINX_RESOLVER }[$_ns]" ;;
+            *)   NGINX_RESOLVER="${NGINX_RESOLVER:+$NGINX_RESOLVER }$_ns" ;;
+        esac
+    done
+    unset _ns
+    # No nameserver to read: Docker's embedded DNS is the safe assumption.
+    NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+fi
+export NGINX_RESOLVER
