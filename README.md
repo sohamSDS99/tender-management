@@ -151,57 +151,73 @@ alembic upgrade head
 Every stored datetime is **naive UTC**. Dhaka is presentation and scheduling only; never write an
 aware datetime to the database.
 
-## 3. Getting the free SAM.gov API key
+## 3. SAM.gov needs no API key
 
-SAM.gov is the only source that needs a credential, and it is free:
+**Nothing to do here.** SAM.gov used to be the one source that needed a credential; it no longer
+is. The default transport is the daily bulk extract, which is keyless, unmetered and richer than
+the API. If you have inherited a `SAM_GOV_API_KEY`, you can delete it.
 
-1. Create an account at <https://sam.gov> (Entity registration is **not** required to get a
-   key — but see the quota note below, which is what entity registration buys you).
-2. Sign in, open **Account Details → API Keys**, and request a *public* API key
-   (<https://sam.gov/content/api-keys>).
-3. Either put it in `.env` (`SAM_GOV_API_KEY=xxxxxxxx`) and restart, or paste it into
-   **Settings → Sources** in the dashboard, which stores it in `app_settings`, beats the
-   environment variable, and applies on the next sweep without a restart.
+### Why the key went away
 
-Without the key, the connector reports `unavailable` in `/api/sources` and on the source card,
-its runs are recorded with status `skipped`, and every other source keeps working.
-
-Keys are **write-only** over the API: `/api/sources` returns a `credential_hint`, never a stored
-value. Nothing about reading a secret can be rate-limited, so that read path does not exist —
-see section 6.
-
-### The quota is the real constraint, not the key
-
-SAM meters Get Opportunities **per day, by account role**, and the free tier is far smaller than
-it looks:
+SAM meters its Get Opportunities API **per day, by account role**, and the free tier is far
+smaller than it looks:
 
 | Account | Requests/day |
 | --- | --- |
 | Non-federal, **no role** — what a personal key gets | **10** |
 | Non-federal **with a role** (requires entity association) | 1 000 |
-| Federal system account | higher still |
+| Federal system account | 10 000 |
 
-Ten a day is the whole budget, shared across every sweep. Exceeding it returns `HTTP 429` with
-`code 900804 "Message throttled out"` and a `Retry-After` pointing at the next `00:00 UTC` — and
-because the reset is daily, one over-eager sweep locks the source out for the rest of the day.
-This connector once spent up to 80 requests in a single sweep (20 pages plus 60 description
-fetches), which meant a valid key looked broken: in production SAM never returned a single `200`.
+Ten a day is the whole budget, shared across every sweep. There is **no paid tier** — GSA grants
+rate increases only to federal system accounts — so the only way up is registering an entity and
+having its Entity Administrator approve a role, which for a non-US company means an NCAGE code,
+then a UEI, then registration. Worth doing to **bid**; absurd as a prerequisite for reading.
 
-So `SAM_MAX_PAGES` defaults to `1` and `SAM_MAX_DESCRIPTION_FETCHES` to `0` — one request per
-sweep, two a day against a budget of ten. If the account holds a role, set them to `20` and `60`
-to restore full depth and description text.
+Exceeding the quota returns `HTTP 429` with `code 900804 "Message throttled out"` and a
+`Retry-After` pointing at the next `00:00 UTC`. This connector once spent up to 80 requests in a
+single sweep — 20 pages plus 60 per-notice description fetches — so the first sweep of any day
+exhausted the allowance and a perfectly valid key looked broken. In production SAM never returned
+a single `200`.
 
-Raising the quota means associating the account with an entity that is registered in SAM.gov, and
-the role request is approved by that entity's Entity Administrator. For an entity incorporated
-outside the US that means an NCAGE code first, then a UEI, then registration — worth doing to
-**bid**, not worth doing to read.
+### What replaced it
+
+SAM publishes every active opportunity as one CSV, once a day, with no key, no login and no quota:
+
+```
+https://sam.gov/api/prod/fileextractservices/v1/api/download/
+  Contract%20Opportunities/datagov/ContractOpportunitiesFullCSV.csv?privacy=Public
+```
+
+It is better than the API on every axis that matters here:
+
+| | metered API | bulk extract |
+| --- | --- | --- |
+| Credential | free key, 10 requests/day | **none** |
+| Cost of a sweep | 1 request, and 1 more per description | **1 download** |
+| Description text | a second request per notice | **inline** |
+| Notice types | `ptype=o,p,k,r` | filtered to the same four |
+| Window | any past window | **only what is active now** |
+
+The file was 242 MB in August 2026, gzipped in transit, and is streamed to a temporary file
+before parsing — descriptions are free text and routinely contain newlines inside quoted fields,
+so splitting the stream on newlines yields corrupt rows. `SAM_EXTRACT_MAX_BYTES` guards against
+an unbounded stream. Like CanadaBuys and AusTender, it needs a browser-shaped `User-Agent`; the
+default `USER_AGENT` satisfies it.
+
+The API path is kept for the two things the extract cannot do — query a **past** window, and see
+**closed** notices. `SAM_USE_BULK_EXTRACT=false` switches back to it, and then a key is required
+again and `SAM_MAX_PAGES` / `SAM_MAX_DESCRIPTION_FETCHES` (1 and 0) keep it inside the quota.
+
+Any key you do set is **write-only** over the API: `/api/sources` returns a `credential_hint`,
+never a stored value. Nothing about reading a secret can be rate-limited, so that read path does
+not exist — see section 6.
 
 ## 4. Sources and their limitations
 
 | Source | Endpoint / feed | Auth | Pagination | Notes and limitations |
 | --- | --- | --- | --- | --- |
 | **EU TED** | `POST https://api.ted.europa.eu/v3/notices/search` | none | iteration token | Expert-search full-text query (`FT ~ "…"`) over `publication-date`. TED applies language stemming, so some hits are only loosely related — the relevance engine filters them. Stage is derived from the notice-type code (`pin*`→planning, `cn*`→tender, `can*`→award). |
-| **US SAM.gov** | `GET https://api.sam.gov/opportunities/v2/search` | **free key** | `limit`/`offset` | `ptype=o,p,k,r` (solicitation, presolicitation, combined, sources sought). **Metered per day, not per sweep** — 10 requests/day on a role-less non-federal account — so a sweep is capped at `SAM_MAX_PAGES` (1) and `SAM_MAX_DESCRIPTION_FETCHES` (0). Descriptions live behind a per-notice link and are therefore not fetched by default: a notice is scored on title and contracting path alone. Estimated values are not published by this API. |
+| **US SAM.gov** | `ContractOpportunitiesFullCSV.csv` daily extract (API v2 optional) | **none** | whole file | The extract is every *currently active* opportunity — one keyless, unmetered download (242 MB, gzipped, streamed to disk before parsing) carrying the description **inline**. Filtered to the four notice types the API asked for with `ptype=o,p,k,r`, then to the sweep window on `PostedDate`. It cannot see closed notices or query a past window; `SAM_USE_BULK_EXTRACT=false` falls back to the metered API (10 requests/day on a role-less account — see section 3). Estimated values are published by neither. |
 | **UK Find a Tender** | `GET .../api/1.0/ocdsReleasePackages` | none | `links.next` cursor | `updatedFrom`/`updatedTo`. Planning, tender and award releases are all captured; tender stage is the primary opportunity. No server-side keyword search → local prefilter. |
 | **UK Contracts Finder** | `GET .../Published/Notices/OCDS/Search` | none | `links.next` cursor | `publishedFrom`/`publishedTo`, `stages=tender,planning`. Stores the OCDS id and the source notice id. No server-side keyword search → local prefilter. |
 | **World Bank** | `GET https://search.worldbank.org/api/procnotices` | none | `os`/`rows` | Uses the documented `qterm` keyword parameter (one request per phrase, see `app/connectors/world_bank.py`). Contract awards and drafts are dropped. Notices are kept when published in the window **or** still open for submission. No date filter exists on this endpoint, so the window is applied client-side. |
@@ -642,8 +658,10 @@ owns the visual world; this is what they add up to.
 | Symptom | Fix |
 | --- | --- |
 | `Cannot reach the API. Is the backend running?` in the UI | Start the backend (`uvicorn app.main:app --port 8000`) or `docker compose up backend`. In dev the Vite proxy expects it on port 8000 — override with `VITE_PROXY_TARGET`. |
-| SAM.gov card says *unavailable* | `SAM_GOV_API_KEY` is missing. Add it to `.env` and restart, or paste it in **Settings → Sources**. Every other source keeps working. |
-| SAM.gov fails with `HTTP 429` and the key is definitely right | The daily quota is spent, not the key wrong. A role-less account gets **10 requests/day**, resetting at `00:00 UTC`; the body says `900804 "Message throttled out"`. Keep `SAM_MAX_PAGES=1` / `SAM_MAX_DESCRIPTION_FETCHES=0` and see section 3. |
+| SAM.gov card says *unavailable* | Only possible with `SAM_USE_BULK_EXTRACT=false`, which needs `SAM_GOV_API_KEY`. On the default extract transport no credential is involved, so this state cannot occur. |
+| SAM.gov fails with `HTTP 429` | You are on the API path. The daily quota is spent, not the key wrong: a role-less account gets **10 requests/day**, resetting at `00:00 UTC`, and the body says `900804 "Message throttled out"`. The fix is the bulk extract (`SAM_USE_BULK_EXTRACT=true`, the default) — nothing you can pay for lifts the quota. See section 3. |
+| SAM.gov fails with `bulk extract exceeded N bytes` | The extract outgrew `SAM_EXTRACT_MAX_BYTES`. It was 242 MB in August 2026; raise the guard. |
+| SAM.gov extract fails with `HTTP 403` | The presigned S3 redirect rejects unusual `User-Agent` strings, exactly as CanadaBuys does. Keep the default `USER_AGENT`. |
 | CanadaBuys or AusTender run fails with HTTP 403 | Both sit behind a WAF that rejects unusual `User-Agent` strings. Keep the default `USER_AGENT` (`Mozilla/5.0 (compatible; tender-monitor/0.1)`). |
 | PNCP run fails with `transport error: ReadTimeout` | PNCP is slow. It already uses a 60 s timeout and retries; reduce `PNCP_MAX_PAGES`/`PNCP_MODALIDADES` or raise `REQUEST_TIMEOUT_SECONDS`. A failure there never affects other sources. |
 | A fetch returns 0 new tenders | Check the **window** before the connectors: a 72-hour sweep re-queries what the last scheduled run already emptied. Widen it (`{"days_back": 30}`), or run `python -m app.seed` for demo data. Beyond that it is normal — SDS/EHS software tenders are rare. |

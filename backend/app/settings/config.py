@@ -84,6 +84,22 @@ class Settings(BaseSettings):
     # the old depth.
     sam_max_pages: int = 1
     sam_max_description_fetches: int = 0
+    # There is no paid tier that lifts the quota above - GSA grants rate
+    # increases only to federal system accounts - but there is a way around it
+    # entirely. SAM publishes every active opportunity as one CSV once a day,
+    # with no API key, no login and no quota, and that file carries the notice
+    # description inline. So the metered API is no longer the default: the
+    # extract is both unlimited and richer, because the API makes you spend a
+    # second request per notice to read a description at all.
+    #
+    # The API path is kept for the two things the extract cannot do: query a
+    # past window (the file holds only what is active *now*), and see closed
+    # notices. Set this false to go back to it.
+    sam_use_bulk_extract: bool = True
+    # The file was 242 MB in August 2026 and only grows. This is a guard against
+    # an unbounded stream, not a tuning knob; it is deliberately far above the
+    # real size, and the download is gzipped in transit.
+    sam_extract_max_bytes: int = 400_000_000
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True

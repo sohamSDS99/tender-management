@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.models import AppSetting
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
@@ -21,6 +24,22 @@ from app.settings import Settings
 
 def _settings(**kw) -> Settings:
     return Settings(_env_file=None, database_url="sqlite://", **kw)
+
+
+@pytest.fixture
+def api_path_client(db_session, monkeypatch, settings):
+    """A client whose SAM connector uses the metered API rather than the extract.
+
+    SAM is the only built-in that takes a credential, and on the default
+    transport - the free bulk extract - it needs none, so it can no longer
+    demonstrate what a stored key changes. Pinning this client to the API path
+    keeps these tests about the credential mechanism instead of about SAM.
+    """
+    from tests.conftest import CRON_SECRET, _build_app
+
+    api_settings = settings.model_copy(update={"sam_use_bulk_extract": False})
+    app = _build_app(db_session, monkeypatch, api_settings)
+    return TestClient(app, headers={"X-Cron-Secret": CRON_SECRET})
 
 
 def test_a_stored_credential_beats_the_environment(db_session):
@@ -65,7 +84,10 @@ def test_clearing_a_credential_falls_back_to_the_environment(db_session):
     set_credential(db_session, "sam", "STORED")
     set_credential(db_session, "sam", "")
     assert stored_credential(db_session, "sam") is None
-    assert settings_with_stored_credentials(db_session, _settings(sam_gov_api_key="ENV")).sam_gov_api_key == "ENV"
+    assert (
+        settings_with_stored_credentials(db_session, _settings(sam_gov_api_key="ENV")).sam_gov_api_key
+        == "ENV"
+    )
 
 
 def test_writing_a_credential_never_logs_its_value(db_session, caplog):
@@ -119,18 +141,18 @@ def test_put_is_refused_when_operator_actions_are_off(db_session, monkeypatch, s
     assert "ALLOW_OPERATOR_ACTIONS" in response.json()["detail"]
 
 
-def test_a_stored_key_clears_the_sources_unavailable_reason(client, db_session):
+def test_a_stored_key_clears_the_sources_unavailable_reason(api_path_client, db_session):
     """The point of setting a key here: the source stops reporting it is missing.
 
     unavailable_reason() is computed from the settings the connector is built
     with, so a listing built from raw Settings would keep saying the key is not
     set while showing its hint beside it.
     """
-    before = next(s for s in client.get("/api/sources").json() if s["name"] == "sam")
+    before = next(s for s in api_path_client.get("/api/sources").json() if s["name"] == "sam")
     assert before["unavailable_reason"] is not None
 
     set_credential(db_session, "sam", "A-REAL-LOOKING-KEY")
-    after = next(s for s in client.get("/api/sources").json() if s["name"] == "sam")
+    after = next(s for s in api_path_client.get("/api/sources").json() if s["name"] == "sam")
     assert after["unavailable_reason"] is None
     assert after["credential_configured"] is True
 
@@ -147,7 +169,14 @@ def test_a_stored_key_puts_the_source_back_into_the_sweep(db_session, monkeypatc
 
     monkeypatch.setattr(ingest, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(db_session, "close", lambda: None)
-    settings = Settings(_env_file=None, database_url="sqlite://", sam_gov_api_key="")
+    # The API path, where a key is what decides availability. On the default
+    # bulk-extract transport SAM is in the sweep with or without one.
+    settings = Settings(
+        _env_file=None,
+        database_url="sqlite://",
+        sam_gov_api_key="",
+        sam_use_bulk_extract=False,
+    )
 
     selected, _busy, _from, _to = ingest._plan(None, 7, settings)
     assert "sam" not in selected, "no key anywhere, so it stays out"
@@ -193,9 +222,10 @@ def test_clearing_a_secret_falls_back_to_the_environment(db_session):
 
     set_secret(db_session, "slack_bot_token", "xoxb-STORED")
     set_secret(db_session, "slack_bot_token", "")
-    assert settings_with_stored_credentials(
-        db_session, _settings(slack_bot_token="xoxb-ENV")
-    ).slack_bot_token == "xoxb-ENV"
+    assert (
+        settings_with_stored_credentials(db_session, _settings(slack_bot_token="xoxb-ENV")).slack_bot_token
+        == "xoxb-ENV"
+    )
 
 
 def test_a_secret_value_is_never_logged(db_session, caplog):

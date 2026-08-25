@@ -199,9 +199,70 @@ SAM_EMPTY = {"totalRecords": 2, "limit": 1, "offset": 1, "opportunitiesData": []
 
 
 async def test_sam_is_disabled_without_api_key(settings):
+    """Only on the API path. The bulk extract needs no credential - see below."""
+    settings = settings.model_copy(update={"sam_use_bulk_extract": False})
     connector = SamGovConnector(settings)
+    assert connector.requires_api_key is True
     assert connector.unavailable_reason() is not None
     assert "SAM_GOV_API_KEY" in connector.unavailable_reason()
+
+
+async def test_sam_bulk_extract_needs_no_key_and_is_the_default(settings):
+    """The free daily extract, which is how SAM works at all on a role-less key.
+
+    The metered API allows 10 requests a day, which one sweep used to exhaust.
+    This file is keyless, unmetered, and carries the description inline - so it
+    is the default, and a missing SAM_GOV_API_KEY no longer disables the source.
+    """
+    connector = SamGovConnector(settings)
+    assert connector.requires_api_key is False
+    assert connector.unavailable_reason() is None, "no key is needed for the extract"
+
+
+async def test_sam_bulk_extract_filters_type_window_and_topic(settings):
+    """One request, one file, and only the rows that belong in the window.
+
+    The fixture carries the live extract's real 47-column header and four rows:
+    one keeper, one right-topic-wrong-notice-type (the API's ptype filter), one
+    right-topic-outside-the-window, and one in-window irrelevant row.
+    """
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200, content=fixture_text("sam_extract.csv").encode())
+
+    tenders = await fetch(SamGovConnector(settings, transport=transport(handler)))
+
+    assert len(urls) == 1, "the whole sweep is one download"
+    assert "api.sam.gov" not in urls[0], "the metered API must not be touched"
+    assert [t.source_notice_id for t in tenders] == ["aa11bb22cc33dd44ee55ff6677889900"]
+
+    tender = tenders[0]
+    assert tender.source == "sam"
+    assert tender.reference_number == "W91QVN-26-R-0042"
+    # Three columns rebuilt into the dotted path the API used to return whole.
+    assert tender.buyer_name == "DEPT OF DEFENSE.DEPT OF THE ARMY.W07V ENDIST NEW ORLEANS"
+    assert tender.buyer_country == "US"
+    assert tender.deadline == datetime(2026, 9, 15, 21, 0)
+    assert tender.status == "open"
+    assert {"scheme": "NAICS", "code": "541511"} in tender.classification_codes
+    assert {"scheme": "PSC", "code": "7A20"} in tender.classification_codes
+    # The description arrives inline - the whole reason this transport is better
+    # than the API, which charged a second request per notice for it.
+    assert "cloud based SDS management system" in tender.description
+    assert "chemical inventory tracking" in tender.description, "quoted newlines survived"
+
+
+async def test_sam_bulk_extract_refuses_to_grow_without_bound(settings):
+    """A 242 MB download needs a ceiling, not trust."""
+    settings = settings.model_copy(update={"sam_extract_max_bytes": 32})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=fixture_text("sam_extract.csv").encode())
+
+    with pytest.raises(ConnectorError, match="exceeded"):
+        await fetch(SamGovConnector(settings, transport=transport(handler)))
 
 
 def _sam_handler(urls: list[str]):
@@ -226,6 +287,7 @@ async def test_sam_default_budget_is_one_request(keyed_settings):
     fetched.
     """
     urls: list[str] = []
+    keyed_settings = keyed_settings.model_copy(update={"sam_use_bulk_extract": False})
     tenders = await fetch(SamGovConnector(keyed_settings, transport=transport(_sam_handler(urls))))
 
     assert len(urls) == 1, f"one sweep must cost one request, spent {len(urls)}"
@@ -236,7 +298,13 @@ async def test_sam_default_budget_is_one_request(keyed_settings):
 
 async def test_sam_pagination_description_fetch_and_key_never_leaks(keyed_settings):
     urls: list[str] = []
-    keyed_settings = keyed_settings.model_copy(update={"sam_max_pages": 5, "sam_max_description_fetches": 60})
+    keyed_settings = keyed_settings.model_copy(
+        update={
+            "sam_use_bulk_extract": False,
+            "sam_max_pages": 5,
+            "sam_max_description_fetches": 60,
+        }
+    )
 
     tenders = await fetch(SamGovConnector(keyed_settings, transport=transport(_sam_handler(urls))))
     assert len(tenders) == 1
@@ -545,7 +613,8 @@ def test_registry_exposes_every_required_source(settings):
     with pytest.raises(KeyError):
         build_connector("nope", settings)
     catalog = {entry["name"]: entry for entry in source_catalog(settings)}
-    assert catalog["sam"]["requires_api_key"] is True
+    # False because the bulk extract is the default transport and needs no key.
+    assert catalog["sam"]["requires_api_key"] is False
     assert catalog["ted"]["requires_api_key"] is False
     assert all(entry["notes"] for entry in catalog.values())
 

@@ -102,8 +102,11 @@ def test_openapi_documents_every_endpoint(client):
 def test_sources_report_status_and_key_requirements(client, seeded):
     entries = {e["name"]: e for e in client.get("/api/sources").json()}
     assert len(entries) == 8
-    assert entries["sam"]["requires_api_key"] is True
-    assert entries["sam"]["unavailable_reason"]
+    # The bulk extract is the default transport, so SAM needs no credential and
+    # is available without one. tests/test_connectors.py covers the API path,
+    # where a missing key does still disable it.
+    assert entries["sam"]["requires_api_key"] is False
+    assert entries["sam"]["unavailable_reason"] is None
     assert entries["ted"]["tender_count"] == 1
     assert entries["ted"]["last_status"] == "success"
     assert entries["ted"]["last_success_at"] is not None
