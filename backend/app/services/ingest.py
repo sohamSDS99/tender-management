@@ -22,6 +22,7 @@ from app.connectors.registry import build_connector, enabled_sources
 from app.db import SessionLocal
 from app.logging_config import log_ctx
 from app.models import FetchRun, Tender, utcnow
+from app.services.credentials import settings_with_stored_credentials
 from app.services.relevance import RelevanceEngine, get_engine
 from app.settings import Settings, get_settings
 
@@ -231,7 +232,9 @@ async def _execute(
     run.started_at = utcnow()
     db.commit()
     try:
-        connector = build_connector(source, settings)
+        # The stored credential wins over .env and applies without a restart,
+        # so a key pasted into the dashboard takes effect on the next sweep.
+        connector = build_connector(source, settings_with_stored_credentials(db, settings))
         reason = connector.unavailable_reason()
         if reason:
             run.status = "skipped"
