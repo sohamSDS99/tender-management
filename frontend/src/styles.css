@@ -2308,3 +2308,112 @@ html[data-theme='light'] .sk::after {
     transition: none;
   }
 }
+
+/* ============================================================
+   SWEEP DEPTH + SWEEP REPORT
+   Built entirely from the palette tokens, so the light override
+   at html[data-theme='light'] needs no second copy of any rule.
+   ============================================================ */
+
+/* The window the Fetch button will search, stated at the point of action.
+   Out of sight, this is the number that let a sweep search a window the
+   scheduler had already emptied and report success. */
+.depth {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.depth__label {
+  font-size: 0.74rem;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.seg--sm button {
+  padding: 5px 9px;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* A source mid-sweep is busy, not broken. Informational blue rather than a
+   status colour, because the verdict genuinely is not in yet. */
+.pip--sweeping {
+  background: var(--blue-ink);
+}
+.src--sweeping {
+  border-left-color: var(--blue-ink);
+}
+
+.sweep {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.sweep__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.sweep__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-xs);
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+}
+.sweep--good .sweep__icon {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
+.sweep--quiet .sweep__icon {
+  background: var(--surface-3);
+  color: var(--ink-muted);
+}
+.sweep__line {
+  flex: 1;
+  margin: 3px 0 0;
+  font-size: 0.86rem;
+  font-weight: 550;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sweep__meta {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sweep__bad {
+  color: var(--amber-ink);
+}
+/* No width transition, for the same reason the score meters have none: a layout
+   property is the one thing this design never animates. */
+.sweep__track {
+  height: 6px;
+  margin-top: 10px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sweep__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--brand);
+}
+.sweep__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}

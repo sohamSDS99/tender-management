@@ -598,6 +598,72 @@ wastes a full sweep's worth of requests. See `docs/DECISIONS.md` D21.
 
 ---
 
+## 5d. Run a deeper sweep by hand
+
+Use this when you want notices the schedule has not reached — after a pause, when
+a source has been fixed, or when someone asks "is there anything we missed?".
+
+1. On the dashboard, pick a depth next to the button: **3d / 7d / 30d / 90d**.
+2. Press **Fetch last N days**.
+3. The panel under the toolbar reports the sweep as it runs, then what it found,
+   with a button that filters the list to exactly the new notices.
+
+**Why the button's default is 30 days and not 3.** The two sweeps answer different
+questions. The schedule looks back 72 hours (`FETCH_MIN_LOOKBACK_HOURS`) because
+its job is to keep up with the present without missing a late amendment. A person
+pressing the button is asking the opposite — look further than you do on your own.
+They used to share the 72-hour window, so by the time anyone clicked, it held
+nothing unseen: the sweep queried eight public services, stored nothing, and
+reported success. Measured minutes apart on the same five connectors, 34 notices
+came back over 72 hours and 119 over 30 days. See `docs/DECISIONS.md` D24.
+
+Same thing from the command line — `days_back` is what matters, and the 72-hour
+floor is enforced underneath whatever you pass:
+
+```bash
+curl -X POST http://localhost:8000/api/fetch \
+  -H 'Content-Type: application/json' -d '{"days_back": 30}'
+
+curl -s 'http://localhost:8081/api/fetch-runs?limit=8' | python3 -m json.tool
+```
+
+**Expect very few of them to score.** A deep sweep brings in volume, not
+relevance: the engine is looking for SDS/EHS software procurement, which is rare.
+A 30-day sweep on 2026-08-24 stored 46 new notices and the highest scored 35. That
+is the system working — use the **New this fetch** tab, which filters at any
+score, rather than the default view, whose floor of 70 no real notice has ever
+reached.
+
+**Change the default** with `OPERATOR_FETCH_DAYS_BACK` in `.env`, then
+`docker compose up -d backend`. Raising it costs time, not correctness — every
+write is an upsert on `(source, source_notice_id)`.
+
+**One caveat.** `MAX_PAGES_PER_SOURCE` bounds each source, so "the last 90 days"
+means "as much of it as 20 pages of results reach". A deep sweep is not a
+guarantee of complete coverage for that period, and the run report does not say
+when a source hit its cap.
+
+### Do not restart the stack during a sweep
+
+`docker compose up -d --build` recreates the backend, and `up -d frontend`
+restarts it too because of `depends_on`. Either kills an in-flight sweep. Notices
+already stored are safe — they are committed per notice as they arrive — but the
+interrupted source records a `failed` run, and the sweep has to be re-run for it.
+Check first:
+
+```bash
+docker compose exec -T db psql -U tender -d tenders -c \
+  "select source, status from fetch_runs where finished_at is null;"
+```
+
+To rebuild only the web container without touching the API, use `--no-deps`:
+
+```bash
+docker compose up -d --build --no-deps frontend
+```
+
+---
+
 ## 6. GitHub Actions
 
 Two workflows, both registered and visible in the Actions tab:

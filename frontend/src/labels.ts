@@ -170,6 +170,95 @@ export function runTone(status: string | null): 'good' | 'warning' | 'critical' 
   return 'idle';
 }
 
+/**
+ * Is a sweep still going, judged from a batch status?
+ *
+ * `queued` matters as much as `running` and is the easier one to forget. Every
+ * FetchRun row is created `queued` and only becomes `running` when its connector
+ * starts, so a batch reads `queued` for the first instant of its life. Testing
+ * only for `running` leaves a window where the page decides the sweep is over
+ * before it has begun — it would stop polling, and the progress it just promised
+ * to keep up to date would freeze until something else happened to reload.
+ */
+export function isSweepInFlight(status: string | null | undefined): boolean {
+  return status === 'running' || status === 'queued';
+}
+
+export type SourceHealth = 'good' | 'warning' | 'critical' | 'idle' | 'sweeping';
+
+/**
+ * How a source is doing, with "busy" told apart from "broken".
+ *
+ * This exists because the summary line read **"0 of 8 sources healthy"** during a
+ * sweep. Starting a sweep sets every source to `queued`, `runTone` maps anything
+ * it does not recognise to `idle`, and the healthy count only counts `good` — so
+ * the page announced total connector failure at the exact moment the system was
+ * working. That is the most alarming string on the dashboard, and it was false.
+ *
+ * `sweeping` is its own state rather than a flavour of healthy: mid-sweep we
+ * genuinely do not know yet how the source will do, and claiming either answer
+ * would be a guess.
+ */
+export function sourceHealth(source: {
+  enabled: boolean;
+  unavailable_reason: string | null;
+  running: boolean;
+  last_status: string | null;
+}): SourceHealth {
+  // A source that cannot run is not busy, whatever its last run said.
+  if (source.unavailable_reason) return 'critical';
+  if (!source.enabled) return 'idle';
+  // The live flag leads the run row: /api/sources reads it straight from the
+  // in-process set, so it is true before the FetchRun row has been updated.
+  if (source.running || source.last_status === 'running' || source.last_status === 'queued')
+    return 'sweeping';
+  return runTone(source.last_status);
+}
+
+/**
+ * What a sweep did, in a sentence a bidder can act on.
+ *
+ * The page used to say "Sweep started across 7 sources" and then nothing, ever.
+ * So a sweep that stored eight notices and a sweep that stored none looked
+ * identical — which is precisely what "it is not coming up with any new tender"
+ * turned out to mean. Every branch below is a different, sayable outcome, and
+ * "seen but already stored" is deliberately not collapsed into "found nothing":
+ * they call for completely different actions.
+ */
+export function sweepSummary(run: {
+  created: number;
+  updated: number;
+  received: number;
+  daysBack: number;
+  done: boolean;
+}): string {
+  const n = (value: number) => value.toLocaleString('en-GB');
+  const days = `${run.daysBack} ${pluralise(run.daysBack, 'day')}`;
+
+  if (!run.done) {
+    return `Sweeping the last ${days}… ${n(run.received)} seen so far, ${n(run.created)} new.`;
+  }
+  if (run.received === 0) {
+    return `No notices at all were returned for the last ${days}. Check source health below.`;
+  }
+  if (run.created === 0) {
+    return `No new notices. ${n(run.received)} seen across the last ${days} were already stored, ${n(run.updated)} updated.`;
+  }
+  return `${n(run.created)} new, ${n(run.updated)} updated from ${n(run.received)} ${pluralise(run.received, 'notice')} seen across the last ${days}.`;
+}
+
+/**
+ * Fallback sweep depth, in days, used only until /api/automation answers.
+ *
+ * The server owns this value (OPERATOR_FETCH_DAYS_BACK) for the same reason it
+ * owns the score bands: two copies of a number drift, and this one decides
+ * whether the Fetch button searches a window the scheduler has already emptied.
+ */
+export const FALLBACK_SWEEP_DAYS = 30;
+
+/** The depths offered at the point of action. Bounded by what the API accepts. */
+export const SWEEP_DEPTHS = [3, 7, 30, 90] as const;
+
 export function pluralise(count: number, singular: string, plural?: string): string {
   return count === 1 ? singular : (plural ?? `${singular}s`);
 }

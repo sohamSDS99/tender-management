@@ -167,6 +167,8 @@ export interface AutomationStatus {
   run_hours_are_custom: boolean;
   run_hours_min: number;
   run_hours_max: number;
+  /** How deep a dashboard-started sweep looks, in days. The server owns it. */
+  operator_fetch_days_back: number;
   cron_utc: string[];
   observes_dst: boolean;
   next_run_at: string;
@@ -238,6 +240,10 @@ export interface FetchStartedResponse {
   skipped_sources: string[];
   window_from: string;
   window_to: string;
+  /** The window actually searched, in days — echoed back, never assumed. */
+  days_back: number;
+  /** Groups this sweep's per-source runs, so its progress is attributable. */
+  batch_id: string | null;
 }
 
 export interface RescoreResponse {

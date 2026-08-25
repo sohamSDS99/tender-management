@@ -64,7 +64,19 @@ def _sweep_in_flight(db: Session, settings: Settings, now: datetime) -> bool:
         return True
     cutoff = now - timedelta(minutes=settings.stale_run_minutes)
     live = db.execute(
-        select(FetchRun.id).where(FetchRun.status.in_(IN_FLIGHT), FetchRun.started_at >= cutoff).limit(1)
+        select(FetchRun.id)
+        .where(
+            FetchRun.status.in_(IN_FLIGHT),
+            FetchRun.started_at >= cutoff,
+            # finished_at is the authority, not status. A run killed mid-fetch
+            # used to leave both set - a finish time *and* a status of "running" -
+            # and reading only the status held the Fetch button shut for the whole
+            # stale window afterwards. ingest._execute settles that row properly
+            # now; this is the belt to that braces, because a row claiming to be
+            # running after it has recorded finishing is not running either way.
+            FetchRun.finished_at.is_(None),
+        )
+        .limit(1)
     ).scalar_one_or_none()
     return live is not None
 

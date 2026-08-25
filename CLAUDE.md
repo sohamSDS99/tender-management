@@ -150,6 +150,30 @@ verification token and OAuth client id/secret are for *receiving* from Slack
 (slash commands, events, interactivity), which this product does not do and which
 would mean exposing an endpoint against D5/D18. D22.
 
+**The two sweeps search different windows, on purpose.** A scheduled sweep looks
+back 72 hours (`FETCH_MIN_LOOKBACK_HOURS`, a catch-up overlap); a sweep started
+from the dashboard looks back `OPERATOR_FETCH_DAYS_BACK` (30 days). They were the
+same, and that was a reported bug: the button re-queried the window the last cron
+run had already emptied, so it hit eight public services, created nothing, and
+reported success. Measured minutes apart on the same five connectors — 34 notices
+over 72 hours, 119 over 30 days. If you ever see "Fetch finds nothing", check the
+window before the connectors. D24.
+
+**No real notice has ever scored 70, and the landing view asks for 70.**
+`DEFAULT_FILTERS.minimum_score` is 70 and the Top scoring tile uses the good-fit
+band, so the view a reader lands on **cannot** show a real find — every 70+ row is
+a `SEED-*` fixture and the all-time real maximum is 66. This is why a sweep that
+stored 8 notices looked identical to one that stored none. Anything reporting what
+a sweep found must therefore filter at score 0 (`SweepReport` → the `new` view),
+never inherit the default floor.
+
+**A background sweep needs a strong reference or it can be collected.**
+`asyncio.create_task`'s result was discarded in `ingest.start_fetch`, and the loop
+keeps only a weak reference — a sweep sitting thirteen minutes inside one `await`
+was collectable, and would vanish leaving its rows at `running` until the reaper
+closed them out an hour later. `ingest._background_tasks` holds them now. Any new
+`create_task` in this codebase needs the same treatment.
+
 **The Slack digest threshold and the real data disagree.** `SLACK_MIN_SCORE` is 70
 and no *real* ingested notice has ever cleared it — the highest genuine score is 66,
 and every 70+ notice in the database is a `SEED-*` demo fixture. So a clean sweep

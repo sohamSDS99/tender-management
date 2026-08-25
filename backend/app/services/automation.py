@@ -239,6 +239,11 @@ def automation_status(
         "run_hours_are_custom": is_customised(db),
         "run_hours_min": MIN_RUNS_PER_DAY,
         "run_hours_max": MAX_RUNS_PER_DAY,
+        # The dashboard seeds its depth control from this rather than keeping its
+        # own copy, for the same reason the score bands come from /api/stats: two
+        # copies of a number drift, and this one decides whether the Fetch button
+        # searches a window the scheduler has already emptied.
+        "operator_fetch_days_back": settings.operator_fetch_days_back,
         "cron_utc": utc_cron_expressions(hours, tz),
         "observes_dst": observes_dst(tz, now.year),
         "next_run_at": next_run_utc(None, hours, tz),
