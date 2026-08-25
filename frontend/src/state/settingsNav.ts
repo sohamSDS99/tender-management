@@ -21,7 +21,7 @@ import type { IconName } from '../components/Icon';
  *   time is a thing you do occasionally and deliberately, and none of it needs
  *   the tender list in view.
  */
-export type SettingsKey = 'filters' | 'display' | 'automation' | 'sources' | 'system';
+export type SettingsKey = 'filters' | 'rules' | 'display' | 'automation' | 'sources' | 'system';
 
 export interface SettingsCategory {
   key: SettingsKey;
@@ -45,9 +45,17 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     group: 1,
   },
   {
+    key: 'rules',
+    label: 'Matching rules',
+    blurb: 'Weights, score bands, phrases',
+    icon: 'sliders',
+    surface: 'page',
+    group: 2,
+  },
+  {
     key: 'display',
     label: 'Display',
-    blurb: 'Theme, density, page size',
+    blurb: 'Density and page size',
     icon: 'display',
     surface: 'page',
     group: 2,

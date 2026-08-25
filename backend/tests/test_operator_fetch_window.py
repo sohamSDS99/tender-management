@@ -225,7 +225,7 @@ async def test_a_cancelled_run_settles_as_failed_instead_of_claiming_to_run(
             raise asyncio.CancelledError()
 
     monkeypatch.setattr(ingest, "SessionLocal", db_session.info["factory"])
-    monkeypatch.setattr(ingest, "build_connector", lambda source, s=None, transport=None: Hanging(settings))
+    monkeypatch.setattr(ingest, "build_connector", lambda source, s=None, transport=None, **kw: Hanging(settings))
     run_ids = ingest._create_runs(["ted"], utcnow(), utcnow(), "manual", "batch-cancel")
 
     with pytest.raises(asyncio.CancelledError):

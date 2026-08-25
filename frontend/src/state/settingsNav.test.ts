@@ -11,6 +11,7 @@ describe('the settings menu', () => {
   it('offers every category the old panel held, and nothing invented', () => {
     expect(SETTINGS_CATEGORIES.map((c) => c.key)).toEqual([
       'filters',
+      'rules',
       'display',
       'automation',
       'sources',
@@ -40,7 +41,7 @@ describe('the settings menu', () => {
   });
 
   it('PAGE_KEYS is exactly the addressable set, in menu order', () => {
-    expect(PAGE_KEYS).toEqual(['display', 'automation', 'sources', 'system']);
+    expect(PAGE_KEYS).toEqual(['rules', 'display', 'automation', 'sources', 'system']);
   });
 });
 

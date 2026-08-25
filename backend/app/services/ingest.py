@@ -22,7 +22,9 @@ from app.connectors.registry import build_connector, enabled_sources
 from app.db import SessionLocal
 from app.logging_config import log_ctx
 from app.models import FetchRun, Tender, utcnow
-from app.services.relevance import RelevanceEngine, get_engine
+from app.services.credentials import settings_with_stored_credentials
+from app.services.matching_rules import engine_for
+from app.services.relevance import RelevanceEngine
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -109,7 +111,7 @@ def upsert_tender(
     now: datetime | None = None,
 ) -> str:
     """Insert or update one notice. Returns 'created' | 'updated' | 'unchanged'."""
-    engine = engine or get_engine()
+    engine = engine or engine_for(db)
     now = now or utcnow()
     existing = db.execute(
         select(Tender).where(
@@ -163,7 +165,7 @@ def store_tenders(
     engine: RelevanceEngine | None = None,
 ) -> UpsertStats:
     """Upsert a batch. A malformed record only loses itself, not the batch."""
-    engine = engine or get_engine()
+    engine = engine or engine_for(db)
     stats = UpsertStats()
     for tender in tenders:
         try:
@@ -185,7 +187,7 @@ def store_tenders(
 
 def rescore_all(db: Session, engine: RelevanceEngine | None = None) -> int:
     """Re-run the relevance engine over every stored notice."""
-    engine = engine or get_engine(None)
+    engine = engine or engine_for(db)
     rows = db.execute(select(Tender)).scalars().all()
     now = utcnow()
     for row in rows:
@@ -244,7 +246,9 @@ async def _execute(
     run.started_at = utcnow()
     db.commit()
     try:
-        connector = build_connector(source, settings)
+        # The stored credential wins over .env and applies without a restart,
+        # so a key pasted into the dashboard takes effect on the next sweep.
+        connector = build_connector(source, settings_with_stored_credentials(db, settings), db=db)
         reason = connector.unavailable_reason()
         if reason:
             run.status = "skipped"
@@ -252,7 +256,7 @@ async def _execute(
             log_ctx(logger, logging.INFO, "source skipped", source=source, reason=reason)
         else:
             tenders = await connector.fetch(date_from, date_to)
-            stats = store_tenders(db, tenders, get_engine())
+            stats = store_tenders(db, tenders, engine_for(db))
             run.records_received = len(tenders)
             run.records_created = stats.created
             run.records_updated = stats.updated
@@ -325,7 +329,22 @@ async def _run_sources(
 def _plan(
     sources: Sequence[str] | None, days_back: int | None, settings: Settings
 ) -> tuple[list[str], list[str], datetime, datetime]:
-    requested = list(sources) if sources else enabled_sources(settings)
+    """Which sources this sweep will actually run.
+
+    Credentials are resolved before asking which sources are enabled.
+    enabled_sources() filters on unavailable_reason(), which reads the key off
+    Settings - so with the raw ones a key stored from the dashboard left the
+    source looking healthy on the Sources page while every sweep silently
+    skipped it.
+    """
+    if sources:
+        requested = list(sources)
+    else:
+        db = SessionLocal()
+        try:
+            requested = enabled_sources(settings_with_stored_credentials(db, settings), db=db)
+        finally:
+            db.close()
     busy = [s for s in requested if s in _running]
     selected = [s for s in requested if s not in busy]
     date_from, date_to = window(days_back, settings)

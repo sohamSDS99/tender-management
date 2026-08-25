@@ -76,3 +76,13 @@ export function Notice({
   }
   return null;
 }
+
+/** One sentence saying what the current lens actually contains. */
+export function BucketNote({ text }: { text: string }) {
+  return (
+    <p className="bucketnote">
+      <Icon name="info" size={14} />
+      <span>{text}</span>
+    </p>
+  );
+}

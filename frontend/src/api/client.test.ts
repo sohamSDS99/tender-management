@@ -69,3 +69,32 @@ describe('fetchNow carries the window it wants searched', () => {
     expect((spy.mock.calls[0][1] as RequestInit).method).toBe('POST');
   });
 });
+
+describe('no-content responses', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('resolves a 204 instead of failing to parse an empty body', async () => {
+    // Regression: setCredential returns 204, and request() parsed every
+    // response as JSON. Saving a key that had in fact been stored surfaced as
+    // "Failed to execute 'json' on 'Response': Unexpected end of JSON input".
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+    await expect(api.setCredential('sam', 'KEY-1234')).resolves.toBeUndefined();
+  });
+
+  it('still surfaces the server message when a write is refused', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: 'Editing credentials is switched off' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+    await expect(api.setCredential('sam', 'x')).rejects.toThrow('Editing credentials is switched off');
+  });
+});

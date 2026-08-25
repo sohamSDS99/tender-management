@@ -8,7 +8,6 @@ import type {
   Stats,
   TenderFilters,
   TenderPage,
-  Theme,
 } from '../types';
 import {
   DEFAULT_FILTERS,
@@ -20,13 +19,11 @@ import {
 } from '../state/urlFilters';
 import {
   OWNED,
-  TILES,
-  VIEWS,
-  activeView,
-  type TileKey,
-  type ViewContext,
-  type ViewKey,
-} from '../state/views';
+  activeLens,
+  lensByKey,
+  type LensContext,
+  type LensKey,
+} from '../state/lenses';
 import { usePreferences } from '../state/preferences';
 import {
   categoryFor,
@@ -44,12 +41,9 @@ import {
   makeSourceLabel,
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
-import { Masthead } from '../components/Masthead';
-import { Notice } from '../components/Notice';
+import { BucketNote, Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
-import { Rail } from '../components/Rail';
 import { RunsTable } from '../components/RunsTable';
-import { SettingsMenu } from '../components/SettingsMenu';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
 import { SweepReport } from '../components/SweepReport';
@@ -57,7 +51,8 @@ import { AutomationSettings } from '../components/settings/AutomationSettings';
 import { DisplaySettings } from '../components/settings/DisplaySettings';
 import { SourcesSettings } from '../components/settings/SourcesSettings';
 import { SystemSettings } from '../components/settings/SystemSettings';
-import { BucketNote, StatTiles } from '../components/StatTiles';
+import { MatchingRulesSettings } from '../components/MatchingRulesSettings';
+import { Sidebar } from '../components/Sidebar';
 import { TenderList } from '../components/TenderList';
 import { Toolbar } from '../components/Toolbar';
 
@@ -107,9 +102,8 @@ export function Dashboard() {
   // category menu is open. The filters panel keeps its own stored preference,
   // because it is the one surface that stays open while you work.
   const [settingsPage, setSettingsPage] = useState<SettingsKey | null>(initialSettings);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  const { preferences, resolved: theme, update, toggleTheme } = usePreferences();
+  const { preferences, update } = usePreferences();
   const requestId = useRef(0);
 
   // --- URL <-> state ------------------------------------------------------
@@ -268,7 +262,7 @@ export function Dashboard() {
 
   const clearAll = useCallback(() => setFilters(DEFAULT_FILTERS), []);
 
-  const viewContext: ViewContext = useMemo(
+  const lensContext: LensContext = useMemo(
     () => ({
       lastRunAt: automation?.last_run?.started_at ?? null,
       goodFitBand: stats?.score_bands?.good_fit ?? FALLBACK_BANDS.good_fit,
@@ -292,18 +286,15 @@ export function Dashboard() {
     [sources],
   );
 
-  const selectView = useCallback(
-    (key: ViewKey) => {
-      const view = VIEWS.find((v) => v.key === key);
-      if (!view) return;
-      setFilters({ ...DEFAULT_FILTERS, ...view.patch(viewContext), page: 1 });
+  const selectLens = useCallback(
+    (key: LensKey) => {
+      const lens = lensByKey(key);
+      if (!lens) return;
+      setSettingsPage(null);
+      setFilters({ ...DEFAULT_FILTERS, ...lens.patch(lensContext), page: 1 });
     },
-    [viewContext],
+    [lensContext],
   );
-
-  const applyTile = useCallback((patch: Partial<TenderFilters>) => {
-    setFilters({ ...DEFAULT_FILTERS, ...patch, page: 1 });
-  }, []);
 
   // Machine keys like "sds_management" have no business on screen, on a chip or
   // on a card badge.
@@ -324,61 +315,35 @@ export function Dashboard() {
     [filters, sourceLabel, categoryLabel],
   );
 
-  const currentView = activeView(filters, viewContext);
-
-  /** Which tile, if any, the current filters are exactly. */
-  const activeTile: TileKey | null = useMemo(() => {
-    for (const tile of TILES) {
-      const wanted = { ...DEFAULT_FILTERS, ...tile.patch(viewContext) };
-      const same = (OWNED as (keyof TenderFilters)[]).every((key) => {
-        const a = wanted[key];
-        const b = filters[key];
-        if (Array.isArray(a) && Array.isArray(b)) {
-          return a.length === b.length && a.every((v) => (b as unknown[]).includes(v));
-        }
-        return a === b;
-      });
-      if (same) return tile.key;
-    }
-    return null;
-  }, [filters, viewContext]);
+  const currentLens = activeLens(filters, lensContext);
 
   /**
-   * Counts beside the tabs, taken only where /api/stats counts exactly the same
-   * population the tab filters on. "New this fetch" has no such stat, so it shows
-   * no number rather than a guess.
+   * The chip row states the complete truth about what is on screen: the lens's
+   * own predicate first, locked, then anything narrowed on top of it.
+   *
+   * Locked because the lens is where you *are*. It changes by navigating, not
+   * by dismissing a chip — which is why "Clear all" only clears the rest.
    */
-  const bucketCounts = useMemo(
-    () => ({
-      // The last sweep's own created-count. This satisfies the rule that a tab's
-      // count must equal the list it opens: the New view filters on
-      // `first_seen_from = <that batch's start>`, and records_created is exactly
-      // the number of rows that batch inserted, so the two are the same
-      // population by construction rather than by coincidence.
-      //
-      // It used to show nothing at all, which meant a sweep that stored 128
-      // notices and one that stored none looked identical on this page.
-      new: automation?.last_run?.records_created ?? null,
-      relevant: stats === null ? null : stats.good_fit_or_better + stats.possible_or_review,
-      irrelevant: stats?.not_relevant ?? null,
-      all: stats?.total_tenders ?? null,
-    }),
-    [stats, automation],
+  const chipRow = useMemo(() => {
+    const lens = lensByKey(currentLens);
+    const locked = lens?.lockedLabel(lensContext) ?? null;
+    const refinements: { label: string; locked?: boolean; onRemove: () => void }[] = (
+      currentLens ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips
+    ).map((chip) => ({ label: chip.label, onRemove: () => onChange(chip.clear) }));
+    return locked === null
+      ? refinements
+      : [{ label: locked, locked: true, onRemove: () => {} }, ...refinements];
+  }, [chips, currentLens, lensContext, onChange]);
+
+  const brokenSources = useMemo(
+    () => sources.filter((s) => s.unavailable_reason || s.last_status === 'failed').length,
+    [sources],
   );
 
-  // While a bucket tab is lit it already says what is being filtered, so neither
-  // the chip row nor the Settings badge should repeat it. What they must still
-  // show is anything narrowed *beyond* the bucket — a source, a country — because
-  // that is invisible otherwise.
-  const extraChips = useMemo(
-    () => (currentView ? chips.filter((chip) => !OWNED.includes(chip.key as never)) : chips),
-    [chips, currentView],
-  );
-
-  const bucketNote = useMemo(() => {
-    const view = VIEWS.find((v) => v.key === currentView);
-    return view ? view.note(viewContext) : null;
-  }, [currentView, viewContext]);
+  const lensNote = useMemo(() => {
+    const view = lensByKey(currentLens);
+    return view ? view.note(lensContext) : null;
+  }, [currentLens, lensContext]);
 
   // --- detail navigation --------------------------------------------------
   const items = page?.items ?? [];
@@ -409,7 +374,6 @@ export function Dashboard() {
    */
   const selectCategory = useCallback(
     (key: SettingsKey) => {
-      setMenuOpen(false);
       if (categoryFor(key)?.surface === 'panel') {
         setSettingsPage(null);
         update({ settingsOpen: true });
@@ -437,14 +401,19 @@ export function Dashboard() {
   const settingsSurface =
     settingsPage === 'display' ? (
       <DisplaySettings
-        theme={preferences.theme}
         density={preferences.density}
         pageSize={filters.page_size}
-        resolvedTheme={theme}
-        onTheme={(next: Theme) => update({ theme: next })}
         onDensity={(next: Density) => update({ density: next })}
         onPageSize={(size) => onChange({ page_size: size })}
         onBack={closeSettingsPage}
+      />
+    ) : settingsPage === 'rules' ? (
+      <MatchingRulesSettings
+        onBack={closeSettingsPage}
+        onRescored={() => {
+          void loadMeta();
+          setReloadToken((v) => v + 1);
+        }}
       />
     ) : settingsPage === 'automation' ? (
       <AutomationSettings
@@ -457,42 +426,25 @@ export function Dashboard() {
         sources={sources}
         busySource={busySource}
         onFetchSource={(name) => void runAction('fetch', name)}
+        onChanged={() => void loadMeta()}
         onBack={closeSettingsPage}
       />
     ) : settingsPage === 'system' ? (
-      <SystemSettings automation={automation} stats={stats} onBack={closeSettingsPage} />
+      <SystemSettings
+        automation={automation}
+        stats={stats}
+        onReload={() => void loadMeta()}
+        onBack={closeSettingsPage}
+      />
     ) : null;
 
   return (
     <>
       <div className="shell">
-        {settingsSurface ? null : (
-          <Masthead
-            automation={automation}
-            stats={stats}
-            theme={theme}
-            preference={preferences.theme}
-            busy={busy}
-            sweepDays={sweepDays}
-            onSweepDays={chooseSweepDays}
-            onFetch={() => void runAction('fetch')}
-            onRescore={() => void runAction('rescore')}
-            onToggleTheme={toggleTheme}
-          />
-        )}
-
         {settingsSurface}
 
         {settingsSurface ? null : (
           <>
-            <StatTiles
-              stats={stats}
-              sources={sources}
-              activeTile={activeTile}
-              onApply={applyTile}
-              onShowSources={() => setSourcesOpen(true)}
-            />
-
             <div className="col">
               <SourcesPanel
                 sources={sources}
@@ -505,18 +457,12 @@ export function Dashboard() {
 
               <Toolbar
                 filters={filters}
-                stats={stats}
-                viewContext={viewContext}
-                activeView={currentView}
-                bucketCounts={bucketCounts}
+                filterCount={activeFilterCount(filters)}
+                onOpenFilters={() => update({ settingsOpen: true })}
                 onSearch={(query) => onChange({ query })}
                 onSort={(sort) => onChange({ sort })}
-                onSelectView={selectView}
                 onClearAll={clearAll}
-                chips={extraChips.map((chip) => ({
-                  label: chip.label,
-                  onRemove: () => onChange(chip.clear),
-                }))}
+                chips={chipRow}
               />
 
               {sweep ? (
@@ -525,7 +471,7 @@ export function Dashboard() {
                   batchId={sweep.batchId}
                   lastRun={automation?.last_run ?? null}
                   runs={runs}
-                  onShowNew={() => selectView('new')}
+                  onShowNew={() => selectLens('new')}
                   onDismiss={() => setSweep(null)}
                 />
               ) : null}
@@ -542,7 +488,7 @@ export function Dashboard() {
               <Notice automation={automation} sweeping={sweeping} />
 
               <main>
-                {bucketNote ? <BucketNote text={bucketNote} /> : null}
+                {lensNote ? <BucketNote text={lensNote} /> : null}
 
                 <div className="results__head">
                   <h2 aria-live="polite">
@@ -572,7 +518,7 @@ export function Dashboard() {
                   error={error}
                   unreachable={unreachable}
                   selectedId={selectedId}
-                  newSince={viewContext.lastRunAt}
+                  newSince={lensContext.lastRunAt}
                   filterCount={activeFilterCount(filters)}
                   total={page?.total ?? 0}
                   storedTotal={stats?.total_tenders ?? 0}
@@ -583,7 +529,7 @@ export function Dashboard() {
                   onRetry={() => setReloadToken((v) => v + 1)}
                   onClearFilters={clearAll}
                   onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
-                  onShowAll={() => selectView('all')}
+                  onShowAll={() => selectLens('all')}
                 />
 
                 {page && !error ? (
@@ -600,18 +546,20 @@ export function Dashboard() {
         )}
       </div>
 
-      <Rail
-        menuOpen={menuOpen}
-        activeCount={activeFilterCount(filters)}
-        onToggleMenu={() => setMenuOpen((v) => !v)}
-      />
-
-      <SettingsMenu
-        open={menuOpen}
-        activeKey={settingsPage ?? (settingsOpen ? 'filters' : null)}
-        filterCount={activeFilterCount(filters)}
-        onSelect={selectCategory}
-        onClose={() => setMenuOpen(false)}
+      <Sidebar
+        stats={stats}
+        automation={automation}
+        lensContext={lensContext}
+        activeLens={currentLens}
+        settingsKey={settingsPage ?? (settingsOpen ? 'filters' : null)}
+        brokenSources={brokenSources}
+        busy={busy}
+        sweepDays={sweepDays}
+        onSweepDays={chooseSweepDays}
+        onSelectLens={selectLens}
+        onSelectCategory={selectCategory}
+        onFetch={() => void runAction('fetch')}
+        onRescore={() => void runAction('rescore')}
       />
 
       <SettingsPanel

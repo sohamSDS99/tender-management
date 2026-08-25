@@ -1,12 +1,6 @@
-import type { Density, Theme } from '../../types';
+import type { Density } from '../../types';
 import { PAGE_SIZES } from '../../state/urlFilters';
 import { SettingsPage, SettingsRow, SettingsSection } from './SettingsPage';
-
-const THEMES: { value: Theme; label: string; hint: string }[] = [
-  { value: 'dark', label: 'Dark', hint: 'the default' },
-  { value: 'light', label: 'Light', hint: '' },
-  { value: 'system', label: 'System', hint: 'follows the OS' },
-];
 
 /**
  * How the dashboard looks and how much of it fits on a screen.
@@ -17,21 +11,14 @@ const THEMES: { value: Theme; label: string; hint: string }[] = [
  * seven groups of filters.
  */
 export function DisplaySettings({
-  theme,
   density,
   pageSize,
-  resolvedTheme,
-  onTheme,
   onDensity,
   onPageSize,
   onBack,
 }: {
-  theme: Theme;
   density: Density;
   pageSize: number;
-  /** What 'system' currently resolves to, so the page can say so. */
-  resolvedTheme: 'light' | 'dark';
-  onTheme: (theme: Theme) => void;
   onDensity: (density: Density) => void;
   onPageSize: (size: number) => void;
   onBack: () => void;
@@ -42,34 +29,6 @@ export function DisplaySettings({
       blurb="Appearance and layout. These are stored in this browser and affect nobody else."
       onBack={onBack}
     >
-      <SettingsSection
-        title="Theme"
-        note="Dark is the design's own theme; light is a full override."
-      >
-        <SettingsRow
-          label="Colour theme"
-          hint={
-            theme === 'system'
-              ? `Following the operating system, which is currently ${resolvedTheme}.`
-              : undefined
-          }
-        >
-          <div className="seg" role="group" aria-label="Colour theme">
-            {THEMES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={theme === option.value ? 'is-on' : undefined}
-                aria-pressed={theme === option.value}
-                onClick={() => onTheme(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </SettingsRow>
-      </SettingsSection>
-
       <SettingsSection title="Layout" note="How much of the list fits on one screen.">
         <SettingsRow
           label="Card density"

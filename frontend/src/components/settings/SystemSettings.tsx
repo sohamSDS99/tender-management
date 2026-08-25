@@ -1,4 +1,7 @@
-import type { AutomationStatus, Stats } from '../../types';
+import { useCallback, useEffect, useState } from 'react';
+import type { AutomationStatus, SettingsSecrets, Stats } from '../../types';
+import { api } from '../../api/client';
+import { SecretField } from './SecretField';
 import { formatDateTime } from '../../labels';
 import { Icon } from '../Icon';
 import { LinkBase } from '../LinkBase';
@@ -22,30 +25,59 @@ const TRANSPORT: Record<string, string> = {
  * Where the digest goes, where its links point, and what the schedule resolves
  * to in UTC.
  *
- * Read-only on purpose. Everything here is deployment configuration that arrives
- * through the environment, and a browser is the wrong place to edit a Slack
- * token or a public URL — this product has no accounts, so anyone on the network
- * would be able to (D18). What the page owes the reader instead is the truth
- * about what is currently in force, because every one of these fails *silently*:
- * a wrong link base sends dead links to a channel and nothing on screen would
- * otherwise say so.
+ * Slack delivery is now editable here, which reverses part of an earlier
+ * decision and is worth being explicit about. The reasoning against it stands:
+ * this product has no accounts, so anyone on the company LAN can reach this
+ * page (D18). What changed is that the alternative — editing .env and
+ * recreating the container to rotate a token — meant a leaked bot token stayed
+ * live until someone had shell access, which is worse.
+ *
+ * The exposure is bounded rather than removed: the token is write-only and
+ * never returned, and writes answer to ALLOW_OPERATOR_ACTIONS. The residual
+ * risk is someone on the LAN pointing the digest at a different channel, so
+ * the channel in force is shown in full on this page rather than masked —
+ * a redirect should be visible, not hidden behind dots.
+ *
+ * Everything else here stays read-only, because every one of those fails
+ * *silently*: a wrong link base sends dead links to a channel and nothing on
+ * screen would otherwise say so.
  */
 export function SystemSettings({
   automation,
   stats,
+  onReload,
   onBack,
 }: {
   automation: AutomationStatus | null;
   stats: Stats | null;
+  /** Re-read /api/automation, so a saved value's effect shows immediately. */
+  onReload: () => void;
   onBack: () => void;
 }) {
+  const [secrets, setSecrets] = useState<SettingsSecrets>({});
+
+  const loadSecrets = useCallback(() => {
+    void api
+      .settingsSecrets()
+      .then(setSecrets)
+      .catch(() => setSecrets({}));
+  }, []);
+
+  useEffect(loadSecrets, [loadSecrets]);
+
+  const saved = () => {
+    loadSecrets();
+    onReload();
+  };
+
+  const at = (field: string) => secrets[field] ?? { configured: false, hint: null };
   const slack = automation?.slack;
   const state = slack ? (SLACK_STATE[slack.status] ?? { word: slack.status, tone: 'quiet' }) : null;
 
   return (
     <SettingsPage
       title="System"
-      blurb="What this deployment is currently doing. Read-only — these values come from the environment, not from the browser."
+      blurb="What this deployment is currently doing. Slack delivery can be set here; everything else comes from the environment."
       onBack={onBack}
     >
       <SettingsSection
@@ -94,6 +126,59 @@ export function SystemSettings({
             <span>{slack.detail}</span>
           </p>
         ) : null}
+      </SettingsSection>
+
+      <SettingsSection
+        title="Slack delivery"
+        note="Set here, these beat .env and take effect immediately — no restart. The token is stored write-only and never shown again."
+      >
+        <SecretField
+          field="slack_bot_token"
+          label="Bot user OAuth token"
+          hint="From the Slack app's OAuth & Permissions page. Needs chat:write, plus chat:write.public to post to a channel the bot has not joined."
+          placeholder="xoxb-…"
+          secret
+          configured={at('slack_bot_token').configured}
+          current={at('slack_bot_token').hint}
+          onSaved={saved}
+        />
+        <SecretField
+          field="slack_channel_id"
+          label="Channel ID"
+          hint="The ID, not the name — a name breaks the day someone renames the channel. Shown in full on purpose, so a redirect is visible."
+          placeholder="C0123ABCDEF"
+          configured={at('slack_channel_id').configured}
+          current={at('slack_channel_id').hint}
+          onSaved={saved}
+        />
+        <SecretField
+          field="slack_bot_username"
+          label="Posts as"
+          hint="Worth setting: a Slack app is often created for something else and its bot user is named accordingly. Needs chat:write.customize."
+          placeholder="Tender Monitor"
+          configured={at('slack_bot_username').configured}
+          current={at('slack_bot_username').hint}
+          onSaved={saved}
+        />
+        <SecretField
+          field="slack_webhook_url"
+          label="Incoming webhook"
+          hint="An alternative to the token. The token wins when both are set, because a webhook URL is its own credential and cannot be rotated."
+          placeholder="https://hooks.slack.com/services/…"
+          secret
+          configured={at('slack_webhook_url').configured}
+          current={at('slack_webhook_url').hint}
+          onSaved={saved}
+        />
+        <SecretField
+          field="slack_channel_label"
+          label="Channel label"
+          hint="Shown in the digest, and used as the ledger key: changing it makes every tender in the lookback window eligible to be announced once more."
+          placeholder="#tenders"
+          configured={at('slack_channel_label').configured}
+          current={at('slack_channel_label').hint}
+          onSaved={saved}
+        />
       </SettingsSection>
 
       <SettingsSection title="Links">

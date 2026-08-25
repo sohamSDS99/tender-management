@@ -106,3 +106,28 @@ def client(db_session, monkeypatch, settings):
 def anon_client(db_session, monkeypatch, settings):
     """An unauthenticated caller: no shared secret, as the public internet would."""
     return TestClient(_build_app(db_session, monkeypatch, settings))
+
+
+@pytest.fixture
+def isolated_factory(db_session):
+    """A session factory bound to this test's own in-memory database.
+
+    Passed to start_scheduler so the trigger decision is read from here rather
+    than from whatever database the process happens to point at. Without it the
+    result depends on the developer's own data/tenders.db.
+    """
+    return db_session.info["factory"]
+
+
+@pytest.fixture
+def public_dns(monkeypatch):
+    """Resolve every hostname to a public address.
+
+    The URL guard resolves hosts for real, so without this any test using an
+    example.* URL depends on the machine having DNS and on that name existing.
+    That is the environment-dependence that made the scheduler tests fail on a
+    developer's laptop; it does not get to come back.
+    """
+    import app.services.probe as probe
+
+    monkeypatch.setattr(probe, "_resolve", lambda host: ["93.184.216.34"])

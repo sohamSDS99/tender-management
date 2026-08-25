@@ -131,6 +131,11 @@ class SourceStatus(UtcModel):
     homepage: str
     enabled: bool
     requires_api_key: bool
+    #: Whether a key is stored for this source. The value itself is never
+    #: returned by any endpoint - see app/services/credentials.py.
+    credential_configured: bool = False
+    #: Last four characters, for confirming *which* key is set.
+    credential_hint: str | None = None
     unavailable_reason: str | None
     keyword_prefiltered: bool
     notes: str
@@ -272,3 +277,34 @@ class TriggerResponse(BaseModel):
     scheduler_running: bool
     next_run_local_label: str | None
     detail: str
+
+
+class CredentialRequest(BaseModel):
+    """A new credential. Blank clears it and falls back to the environment."""
+
+    value: str = Field(default="", max_length=512)
+
+
+class ProbeRequest(BaseModel):
+    """A candidate source, before it is anything."""
+
+    url: str = Field(max_length=2000)
+    auth: str = "none"
+    auth_param: str | None = Field(default=None, max_length=128)
+    credential: str = Field(default="", max_length=512)
+    mapping: dict[str, str] | None = None
+
+
+class SourceRequest(BaseModel):
+    """A source to create. The credential is set separately, write-only."""
+
+    name: str = Field(min_length=2, max_length=64, pattern=r"^[a-z0-9_]+$")
+    display_name: str = Field(min_length=1, max_length=200)
+    url: str = Field(max_length=2000)
+    homepage: str = Field(default="", max_length=500)
+    auth: str = "none"
+    auth_param: str | None = Field(default=None, max_length=128)
+    format: str = "json"
+    mapping: dict[str, str] | None = None
+    notes: str = ""
+    credential: str = Field(default="", max_length=512)

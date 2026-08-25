@@ -1,5 +1,4 @@
-import type { SortOption, Stats, TenderFilters } from '../types';
-import { VIEWS, type ViewContext, type ViewKey } from '../state/views';
+import type { SortOption, TenderFilters } from '../types';
 import { Icon } from './Icon';
 
 const SORTS: { value: SortOption; label: string }[] = [
@@ -10,45 +9,40 @@ const SORTS: { value: SortOption; label: string }[] = [
   { value: 'score_asc', label: 'Relevance — low first' },
 ];
 
-const TONE_CLASS: Record<string, string> = {
-  brand: 'dot--brand',
-  good: 'dot--good',
-  critical: 'dot--critical',
-};
-
 /**
- * The sticky control surface: search, sort, the Settings toggle, the active-filter
- * chips, and the bucket tabs.
+ * The sticky control surface: search, sort, and the active-filter chips.
  *
  * Sticky because it is what you steer the list with, and scrolling a long list
  * away from its own controls is the thing that makes a results page feel like a
  * document instead of a tool.
+ *
+ * The bucket tabs used to live here. They are gone: they were a third way of
+ * saying what the sidebar lenses and the chips already say.
  */
 export function Toolbar({
   filters,
-  stats,
-  viewContext,
-  activeView,
-  bucketCounts,
+  filterCount,
   onSearch,
   onSort,
-  onSelectView,
   onClearAll,
+  onOpenFilters,
   chips,
 }: {
   filters: TenderFilters;
-  stats: Stats | null;
-  viewContext: ViewContext;
-  activeView: ViewKey | null;
-  bucketCounts: Partial<Record<ViewKey, number | null>>;
+  /** Badged on the Filters button, so a narrowed list is visible when shut. */
+  filterCount: number;
   onSearch: (query: string) => void;
   onSort: (sort: SortOption) => void;
-  onSelectView: (key: ViewKey) => void;
   onClearAll: () => void;
-  /** Removable summaries of what is currently narrowing the list. */
-  chips: { label: string; onRemove: () => void }[];
+  onOpenFilters: () => void;
+  /**
+   * What is narrowing the list. A locked chip is the lens's own predicate:
+   * it explains why the list is short but cannot be removed, because the lens
+   * is where the reader *is* — it changes by navigating, not by dismissal.
+   */
+  chips: { label: string; locked?: boolean; onRemove: () => void }[];
 }) {
-  const total = stats?.total_tenders ?? null;
+  const removable = chips.filter((chip) => !chip.locked);
 
   return (
     <div className="toolbar">
@@ -77,6 +71,12 @@ export function Toolbar({
           ) : null}
         </div>
 
+        <button type="button" className="btn" onClick={onOpenFilters} title="Refine this view">
+          <Icon name="sliders" size={14} />
+          Filters
+          {filterCount > 0 ? <span className="btn__n">{filterCount}</span> : null}
+        </button>
+
         <div className="sortwrap">
           <label className="sr" htmlFor="sortSel">
             Sort results
@@ -99,56 +99,33 @@ export function Toolbar({
       {chips.length > 0 ? (
         <div className="filterbar">
           <span className="filterbar__label">Active</span>
-          {chips.map((chip) => (
-            <span className="fchip" key={chip.label}>
-              {chip.label}
-              <button
-                type="button"
-                className="fchip__x"
-                aria-label={`Remove filter: ${chip.label}`}
-                onClick={chip.onRemove}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onClearAll}>
-            Clear all
-          </button>
+          {chips.map((chip) =>
+            chip.locked ? (
+              <span className="fchip fchip--locked" key={chip.label} title="Set by the current view">
+                {chip.label}
+              </span>
+            ) : (
+              <span className="fchip" key={chip.label}>
+                {chip.label}
+                <button
+                  type="button"
+                  className="fchip__x"
+                  aria-label={`Remove filter: ${chip.label}`}
+                  onClick={chip.onRemove}
+                >
+                  ✕
+                </button>
+              </span>
+            ),
+          )}
+          {removable.length > 0 ? (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onClearAll}>
+              Clear all
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="tabsbar" role="tablist" aria-label="Tender buckets">
-        {VIEWS.map((view) => {
-          const count = bucketCounts[view.key];
-          const disabled = view.key === 'new' && !viewContext.lastRunAt;
-          return (
-            <button
-              key={view.key}
-              type="button"
-              role="tab"
-              className={`tab${activeView === view.key ? ' is-on' : ''}`}
-              aria-selected={activeView === view.key}
-              disabled={disabled}
-              title={disabled ? 'No sweep has run yet' : undefined}
-              onClick={() => onSelectView(view.key)}
-            >
-              {view.tone !== 'none' ? (
-                <span className={`dot ${TONE_CLASS[view.tone]}`} aria-hidden="true" />
-              ) : null}
-              {view.label}
-              {typeof count === 'number' ? (
-                <span className="tab__n">{count.toLocaleString('en-GB')}</span>
-              ) : null}
-            </button>
-          );
-        })}
-        <span className="tabsbar__note">
-          {total === null
-            ? 'Nothing is discarded — every notice is stored and scored'
-            : `Nothing is discarded — all ${total.toLocaleString('en-GB')} stored and scored`}
-        </span>
-      </div>
     </div>
   );
 }

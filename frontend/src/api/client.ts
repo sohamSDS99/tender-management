@@ -11,6 +11,12 @@ import type {
   TenderFilters,
   TenderPage,
   TriggerResponse,
+  MatchingRules,
+  MatchingRulesPatch,
+  NewSource,
+  ProbeResult,
+  RulesPreview,
+  SettingsSecrets,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -46,6 +52,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       /* keep the status text */
     }
     throw new ApiError(detail, response.status);
+  }
+  // 204 carries no body, so parsing it throws "Unexpected end of JSON input" —
+  // which surfaced as a failure on a PUT that had in fact succeeded. Checked
+  // here rather than at the call site so every no-content endpoint is covered.
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
   }
   return (await response.json()) as T;
 }
@@ -143,4 +155,54 @@ export const api = {
     }),
   /** Reload the relevance config and re-score every stored notice. */
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
+
+  /**
+   * Set or clear a source's API key.
+   *
+   * Write-only by design: there is no matching read. GET /api/sources reports
+   * whether a key is configured and its last four characters, never the value.
+   */
+  setCredential: (source: string, value: string) =>
+    request<void>(`/api/sources/${encodeURIComponent(source)}/credential`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+
+  /** Try a candidate endpoint. Stores nothing; reports what parsed. */
+  probeSource: (body: {
+    url: string;
+    auth?: string;
+    auth_param?: string | null;
+    credential?: string;
+    mapping?: Record<string, string> | null;
+  }) => request<ProbeResult>('/api/sources/probe', { method: 'POST', body: JSON.stringify(body) }),
+  addSource: (body: NewSource) =>
+    request<{ name: string }>('/api/sources', { method: 'POST', body: JSON.stringify(body) }),
+  deleteSource: (name: string) =>
+    request<void>(`/api/sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  settingsSecrets: () => request<SettingsSecrets>('/api/settings/secrets'),
+  /** Set or clear one operator-settable value. Write-only for the secret ones. */
+  setSettingsSecret: (field: string, value: string) =>
+    request<void>(`/api/settings/secrets/${encodeURIComponent(field)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+
+  matchingRules: () => request<MatchingRules>('/api/matching-rules'),
+  /** What a rule change would move, without moving it. Stores nothing. */
+  previewMatchingRules: (payload: MatchingRulesPatch) =>
+    request<RulesPreview>('/api/matching-rules/preview', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** Save overrides and re-score. The YAML file itself is never rewritten. */
+  saveMatchingRules: (payload: MatchingRulesPatch) =>
+    request<RescoreResponse>('/api/matching-rules', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  /** Hand the rules back to the file and re-score. */
+  resetMatchingRules: () =>
+    request<RescoreResponse>('/api/matching-rules', { method: 'DELETE' }),
 };

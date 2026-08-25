@@ -2,6 +2,7 @@ import type { SourceStatus } from '../../types';
 import { sourceHealth } from '../../labels';
 import { Icon } from '../Icon';
 import { SourceCard } from '../SourceCard';
+import { AddSource } from './AddSource';
 import { SettingsPage, SettingsSection } from './SettingsPage';
 
 /**
@@ -21,11 +22,14 @@ export function SourcesSettings({
   sources,
   busySource,
   onFetchSource,
+  onChanged,
   onBack,
 }: {
   sources: SourceStatus[];
   busySource: string | null;
   onFetchSource: (name: string) => void;
+  /** Re-read /api/sources, so a saved key's hint appears without a reload. */
+  onChanged: () => void;
   onBack: () => void;
 }) {
   const broken = sources.filter((s) => sourceHealth(s) === 'critical');
@@ -74,26 +78,14 @@ export function SourcesSettings({
               source={source}
               busySource={busySource}
               onFetch={onFetchSource}
+              onCredentialSaved={onChanged}
               detailed
             />
           ))}
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Adding a credential">
-        <p className="snote">
-          <Icon name="info" size={14} />
-          <span>
-            Only SAM.gov needs one, and it is free. Request a public API key at{' '}
-            <a href="https://sam.gov/content/api-keys" target="_blank" rel="noreferrer noopener">
-              sam.gov/content/api-keys
-            </a>
-            , put it in <span className="mono">.env</span> as{' '}
-            <span className="mono">SAM_GOV_API_KEY</span>, then recreate the API container. Keys are
-            never logged and never reach this page.
-          </span>
-        </p>
-      </SettingsSection>
+      <AddSource onAdded={onChanged} />
     </SettingsPage>
   );
 }

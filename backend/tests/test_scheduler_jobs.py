@@ -56,8 +56,9 @@ async def test_the_utc_instants_are_eighteen_hundred_and_six_hundred() -> None:
     assert utc_hours == {18, 6}
 
 
-async def test_disabled_by_default_and_reports_nothing_scheduled() -> None:
-    assert start_scheduler(Settings(_env_file=None, database_url="sqlite://")) is None
+async def test_disabled_by_default_and_reports_nothing_scheduled(isolated_factory) -> None:
+    settings = Settings(_env_file=None, database_url="sqlite://")
+    assert start_scheduler(settings, session_factory=isolated_factory) is None
     assert scheduler_state() == {"running": False, "jobs": []}
 
 
@@ -142,14 +143,14 @@ async def test_pausing_stops_the_scheduler_so_the_next_sweep_does_not_happen() -
     assert state["jobs"] == []
 
 
-async def test_resuming_starts_a_scheduler_in_a_process_that_had_none() -> None:
+async def test_resuming_starts_a_scheduler_in_a_process_that_had_none(isolated_factory) -> None:
     """An operator switching sweeps on where ENABLE_SCHEDULER=false still gets one.
 
     A switch that stores "on" without starting anything is the exact failure
     scheduler_state() exists to expose - so it must genuinely start.
     """
     off = Settings(_env_file=None, database_url="sqlite://")
-    assert start_scheduler(off, hours=[0, 12]) is None
+    assert start_scheduler(off, hours=[0, 12], enabled=False) is None
 
     assert set_trigger(True, [0, 12], off) is True
     state = scheduler_state()

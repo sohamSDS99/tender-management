@@ -16,10 +16,12 @@ Actions workflow call, so there is one run implementation, not three.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.jobs.schedule import next_run_local
@@ -84,7 +86,10 @@ async def _job() -> None:
 
 
 def _decision_in_force(
-    settings: Settings, hours: list[int] | None, enabled: bool | None
+    settings: Settings,
+    hours: list[int] | None,
+    enabled: bool | None,
+    session_factory: Callable[[], Session] | None = None,
 ) -> tuple[list[int], bool]:
     """What an operator has chosen, or the environment default.
 
@@ -96,7 +101,13 @@ def _decision_in_force(
     """
     if hours is not None and enabled is not None:
         return hours, enabled
-    db = SessionLocal()
+    # Explicit, not the global: this function used to reach for SessionLocal
+    # regardless of the Settings it was handed, so a caller passing an isolated
+    # database still had its decision read from whatever the process happened to
+    # be pointing at. That made the outcome depend on the developer's own
+    # data/tenders.db, and two tests failed on any machine where sweeps had ever
+    # been switched on from the dashboard.
+    db = (session_factory or SessionLocal)()
     try:
         if enabled is None:
             enabled = get_enabled(db, settings)
@@ -121,7 +132,10 @@ def _decision_in_force(
 
 
 def start_scheduler(
-    settings: Settings, hours: list[int] | None = None, enabled: bool | None = None
+    settings: Settings,
+    hours: list[int] | None = None,
+    enabled: bool | None = None,
+    session_factory: Callable[[], Session] | None = None,
 ) -> AsyncIOScheduler | None:
     """Idempotent: a uvicorn --reload restart replaces the jobs instead of adding.
 
@@ -131,7 +145,7 @@ def start_scheduler(
     scheduler would raise instead of starting.
     """
     global _scheduler
-    hours, enabled = _decision_in_force(settings, hours, enabled)
+    hours, enabled = _decision_in_force(settings, hours, enabled, session_factory)
     if not enabled:
         log_ctx(logger, logging.INFO, "scheduler disabled", reason="automated sweeps are switched off")
         return None

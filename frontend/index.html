@@ -18,23 +18,17 @@
       rel="stylesheet"
     />
     <script>
-      // Stamp theme and density before first paint. Without this the stylesheet's
-      // default is painted and then replaced once React mounts, which reads as a
-      // flash on every load. Dark is the product default, so an unset preference
-      // and any failure here both land on dark - which is what :root carries.
+      // Stamp density before first paint. Without this the stylesheet's default
+      // is painted and then replaced once React mounts, which reads as a flash
+      // on every load.
       (function () {
         try {
           var raw = localStorage.getItem('tender-monitor:preferences:v2');
           var saved = raw ? JSON.parse(raw) : {};
-          var theme = saved.theme || 'dark';
-          if (theme === 'system') {
-            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-          }
-          document.documentElement.dataset.theme = theme;
           document.documentElement.dataset.density =
             saved.density === 'compact' ? 'compact' : 'comfortable';
         } catch (e) {
-          /* :root is dark, so a private-mode browser still gets the intended default */
+          /* :root carries the comfortable default */
         }
       })();
     </script>

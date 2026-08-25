@@ -77,6 +77,10 @@ export interface SourceStatus {
   homepage: string;
   enabled: boolean;
   requires_api_key: boolean;
+  /** Whether a key is stored. The value itself is never sent to the browser. */
+  credential_configured: boolean;
+  /** Last four characters, for confirming which key is set. */
+  credential_hint: string | null;
   unavailable_reason: string | null;
   keyword_prefiltered: boolean;
   notes: string;
@@ -213,13 +217,80 @@ export interface TenderFilters {
   page_size: number;
 }
 
-export type Theme = 'light' | 'dark' | 'system';
 
 /** Card height. Applied as `html[data-density]`, which the stylesheet keys off. */
 export type Density = 'comfortable' | 'compact';
 
+export interface MatchingProfile {
+  key: string;
+  label: string;
+  strong: string[];
+  medium: string[];
+  weak: string[];
+}
+
+export interface MatchingRules {
+  weights: Record<string, number>;
+  bands: Record<string, number>;
+  profiles: MatchingProfile[];
+  /** Which sections currently differ from the file. */
+  overridden: string[];
+  /** File profiles currently switched off — restorable, not gone. */
+  removed_profiles: string[];
+  /** What the file itself defines, so a removal can be told from a deletion. */
+  file_profiles: string[];
+}
+
+export type ProfilePatch = Partial<Record<'strong' | 'medium' | 'weak', string[]>> & {
+  label?: string;
+};
+
+export type MatchingRulesPatch = {
+  weights?: Record<string, number>;
+  bands?: Record<string, number>;
+  profiles?: Record<string, ProfilePatch>;
+  removed_profiles?: string[];
+};
+
+export interface RulesPreview {
+  changed: number;
+  crossing_up: number;
+  crossing_down: number;
+  examined: number;
+  total: number;
+  /** True when the corpus was sampled, so the UI says "about". */
+  sampled: boolean;
+  good_fit_band: number;
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  status: number;
+  format?: 'ocds' | 'rss' | 'json' | 'unknown';
+  records_path?: string;
+  found?: number;
+  parsed?: number | null;
+  paths?: { path: string; sample: string }[];
+  reason: string | null;
+  detail: string | null;
+}
+
+export interface NewSource {
+  name: string;
+  display_name: string;
+  url: string;
+  homepage?: string;
+  auth: 'none' | 'query' | 'header' | 'bearer';
+  auth_param?: string | null;
+  format: string;
+  mapping?: Record<string, string> | null;
+  notes?: string;
+  credential?: string;
+}
+
+export type SettingsSecrets = Record<string, { configured: boolean; hint: string | null }>;
+
 export interface Preferences {
-  theme: Theme;
   density: Density;
   /** Whether the left Settings panel is showing. Persisted so it survives a reload. */
   settingsOpen: boolean;
