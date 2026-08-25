@@ -40,6 +40,27 @@ CREDENTIAL_FIELDS: dict[str, str] = {
     "sam": "sam_gov_api_key",
 }
 
+#: ``Settings`` fields that may be set from the dashboard, under ``secret.{field}``.
+#:
+#: An explicit allow-list, not "any Settings field": without it an
+#: unauthenticated page could write ``database_url`` or
+#: ``allow_operator_actions``. These are the values an operator legitimately
+#: rotates - a Slack app is re-issued, a channel changes - and nothing else.
+#:
+#: slack_channel_id is not secret, but it lives here because it is half of the
+#: bot-token transport: storing one without the other leaves the app configured
+#: to post nowhere, so they are set and cleared through the same door.
+SETTINGS_SECRETS: tuple[str, ...] = (
+    "slack_bot_token",
+    "slack_channel_id",
+    "slack_webhook_url",
+    "slack_channel_label",
+    "slack_bot_username",
+)
+
+#: Which of those are true secrets, so the hint masks them.
+OPAQUE_SECRETS: frozenset[str] = frozenset({"slack_bot_token", "slack_webhook_url"})
+
 
 def _key(source: str) -> str:
     return f"source.{source}.credential"
@@ -107,6 +128,54 @@ def set_credential(db: Session, source: str, value: str) -> bool:
     return True
 
 
+def _secret_key(field: str) -> str:
+    return f"secret.{field}"
+
+
+def stored_secret(db: Session, field: str) -> str | None:
+    """A stored Settings override, or None."""
+    if field not in SETTINGS_SECRETS:
+        return None
+    row = db.get(AppSetting, _secret_key(field))
+    value = (row.value or "").strip() if row else ""
+    return value or None
+
+
+def secret_hint(db: Session, field: str) -> str | None:
+    """What is set, masked when the value is genuinely a secret."""
+    value = stored_secret(db, field)
+    if value is None:
+        return None
+    if field not in OPAQUE_SECRETS:
+        return value
+    return f"…{value[-4:]}" if len(value) >= 8 else "…"
+
+
+def set_secret(db: Session, field: str, value: str) -> bool:
+    """Store, or clear when blank. Returns False for a field that is not settable."""
+    if field not in SETTINGS_SECRETS:
+        log_ctx(logger, logging.WARNING, "secret refused", field=field, reason="not settable")
+        return False
+
+    cleaned = (value or "").strip()
+    row = db.get(AppSetting, _secret_key(field))
+    if not cleaned:
+        if row is not None:
+            db.delete(row)
+            db.commit()
+        log_ctx(logger, logging.INFO, "secret cleared", field=field)
+        return True
+
+    if row is None:
+        db.add(AppSetting(key=_secret_key(field), value=cleaned, updated_at=utcnow()))
+    else:
+        row.value = cleaned
+        row.updated_at = utcnow()
+    db.commit()
+    log_ctx(logger, logging.INFO, "secret set", field=field)
+    return True
+
+
 def settings_with_stored_credentials(db: Session, settings: Settings) -> Settings:
     """A copy of ``settings`` with any stored credential overlaid.
 
@@ -116,6 +185,10 @@ def settings_with_stored_credentials(db: Session, settings: Settings) -> Setting
     overlay: dict[str, str] = {}
     for source, field in CREDENTIAL_FIELDS.items():
         value = stored_credential(db, source)
+        if value is not None:
+            overlay[field] = value
+    for field in SETTINGS_SECRETS:
+        value = stored_secret(db, field)
         if value is not None:
             overlay[field] = value
     return settings.model_copy(update=overlay) if overlay else settings

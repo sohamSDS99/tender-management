@@ -38,10 +38,14 @@ from app.security import has_cron_secret
 from app.services import automation, ingest, operator, schedule_settings, scheduler
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
+    SETTINGS_SECRETS,
     credential_hint,
+    secret_hint,
     set_credential,
+    set_secret,
     settings_with_stored_credentials,
     stored_credential,
+    stored_secret,
 )
 from app.services.matching_rules import (
     InvalidRules,
@@ -86,7 +90,9 @@ def automation_status(
     This is what replaced the manual-fetch buttons: the dashboard can report the
     automation without being able to start it.
     """
-    return automation.automation_status(db, settings)
+    # With stored secrets applied: configuring Slack from the dashboard has to
+    # change what this reports, or the banner keeps saying "off" after it is on.
+    return automation.automation_status(db, settings_with_stored_credentials(db, settings))
 
 
 @router.put(
@@ -518,6 +524,40 @@ def rescore(
     rescored = ingest.rescore_all(db)
     operator.mark_rescore(db)
     return RescoreResponse(rescored=rescored)
+
+
+@router.get("/api/settings/secrets", tags=["system"])
+def list_settings_secrets(db: Session = Depends(get_db)) -> dict[str, object]:
+    """Which operator-settable values are configured. Never returns a secret."""
+    return {
+        field: {"configured": stored_secret(db, field) is not None, "hint": secret_hint(db, field)}
+        for field in SETTINGS_SECRETS
+    }
+
+
+@router.put("/api/settings/secrets/{field}", status_code=204, tags=["system"])
+def set_settings_secret(
+    field: str,
+    payload: CredentialRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> Response:
+    """Set or clear one operator-settable value, write-only for the secret ones.
+
+    Same rail as a source credential: stored in app_settings, beats .env, and
+    applies without a restart. The allow-list is why this is not a hole - only
+    the values an operator legitimately rotates are settable, so an
+    unauthenticated page cannot rewrite database_url.
+    """
+    if not settings.allow_operator_actions:
+        raise HTTPException(
+            status_code=403,
+            detail="Editing settings from the dashboard is switched off (ALLOW_OPERATOR_ACTIONS=false).",
+        )
+    if field not in SETTINGS_SECRETS:
+        raise HTTPException(status_code=404, detail=f"'{field}' cannot be set from here.")
+    set_secret(db, field, payload.value)
+    return Response(status_code=204)
 
 
 @router.post("/api/sources/probe", tags=["sources"])

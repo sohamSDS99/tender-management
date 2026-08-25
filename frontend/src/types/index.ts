@@ -279,6 +279,8 @@ export interface NewSource {
   credential?: string;
 }
 
+export type SettingsSecrets = Record<string, { configured: boolean; hint: string | null }>;
+
 export interface Preferences {
   density: Density;
   /** Whether the left Settings panel is showing. Persisted so it survives a reload. */

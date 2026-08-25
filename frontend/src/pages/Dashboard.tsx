@@ -430,7 +430,12 @@ export function Dashboard() {
         onBack={closeSettingsPage}
       />
     ) : settingsPage === 'system' ? (
-      <SystemSettings automation={automation} stats={stats} onBack={closeSettingsPage} />
+      <SystemSettings
+        automation={automation}
+        stats={stats}
+        onReload={() => void loadMeta()}
+        onBack={closeSettingsPage}
+      />
     ) : null;
 
   return (

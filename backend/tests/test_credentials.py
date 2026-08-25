@@ -155,3 +155,54 @@ def test_a_stored_key_puts_the_source_back_into_the_sweep(db_session, monkeypatc
     set_credential(db_session, "sam", "A-STORED-KEY")
     selected, _busy, _from, _to = ingest._plan(None, 7, settings)
     assert "sam" in selected, "a stored key must put the source back in the sweep"
+
+
+# --- secrets that are not source credentials -------------------------------
+
+
+def test_a_stored_slack_token_beats_the_environment(db_session):
+    from app.services.credentials import set_secret
+
+    set_secret(db_session, "slack_bot_token", "xoxb-STORED")
+    resolved = settings_with_stored_credentials(db_session, _settings(slack_bot_token="xoxb-ENV"))
+    assert resolved.slack_bot_token == "xoxb-STORED"
+
+
+def test_storing_a_token_and_channel_switches_the_transport_on(db_session):
+    """The point: configuring from the dashboard has to change what the app does."""
+    from app.services.credentials import set_secret
+
+    base = _settings()
+    assert base.slack_transport == "none"
+
+    set_secret(db_session, "slack_bot_token", "xoxb-STORED")
+    set_secret(db_session, "slack_channel_id", "C0123ABCDEF")
+    assert settings_with_stored_credentials(db_session, base).slack_transport == "bot_token"
+
+
+def test_only_declared_settings_can_be_stored(db_session):
+    from app.services.credentials import set_secret, stored_secret
+
+    # Otherwise any Settings field becomes writable from an unauthenticated page.
+    assert set_secret(db_session, "database_url", "postgresql://evil") is False
+    assert stored_secret(db_session, "database_url") is None
+
+
+def test_clearing_a_secret_falls_back_to_the_environment(db_session):
+    from app.services.credentials import set_secret
+
+    set_secret(db_session, "slack_bot_token", "xoxb-STORED")
+    set_secret(db_session, "slack_bot_token", "")
+    assert settings_with_stored_credentials(
+        db_session, _settings(slack_bot_token="xoxb-ENV")
+    ).slack_bot_token == "xoxb-ENV"
+
+
+def test_a_secret_value_is_never_logged(db_session, caplog):
+    import logging as _logging
+
+    from app.services.credentials import set_secret
+
+    with caplog.at_level(_logging.DEBUG):
+        set_secret(db_session, "slack_bot_token", "xoxb-SUPER-SECRET")
+    assert "xoxb-SUPER-SECRET" not in caplog.text

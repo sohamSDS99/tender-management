@@ -16,6 +16,7 @@ import type {
   NewSource,
   ProbeResult,
   RulesPreview,
+  SettingsSecrets,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -179,6 +180,14 @@ export const api = {
     request<{ name: string }>('/api/sources', { method: 'POST', body: JSON.stringify(body) }),
   deleteSource: (name: string) =>
     request<void>(`/api/sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  settingsSecrets: () => request<SettingsSecrets>('/api/settings/secrets'),
+  /** Set or clear one operator-settable value. Write-only for the secret ones. */
+  setSettingsSecret: (field: string, value: string) =>
+    request<void>(`/api/settings/secrets/${encodeURIComponent(field)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
 
   matchingRules: () => request<MatchingRules>('/api/matching-rules'),
   /** What a rule change would move, without moving it. Stores nothing. */
