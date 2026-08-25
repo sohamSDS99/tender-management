@@ -133,3 +133,25 @@ def test_a_stored_key_clears_the_sources_unavailable_reason(client, db_session):
     after = next(s for s in client.get("/api/sources").json() if s["name"] == "sam")
     assert after["unavailable_reason"] is None
     assert after["credential_configured"] is True
+
+
+def test_a_stored_key_puts_the_source_back_into_the_sweep(db_session, monkeypatch):
+    """The whole point: a key set from the dashboard has to reach the planner.
+
+    _plan asked enabled_sources() with the raw Settings, and enabled_sources
+    filters on unavailable_reason(), which reads the key off Settings. So a
+    stored key made SAM.gov *look* healthy on the Sources page while every
+    sweep silently skipped it — the display was fixed and the behaviour was not.
+    """
+    from app.services import ingest
+
+    monkeypatch.setattr(ingest, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    settings = Settings(_env_file=None, database_url="sqlite://", sam_gov_api_key="")
+
+    selected, _busy, _from, _to = ingest._plan(None, 7, settings)
+    assert "sam" not in selected, "no key anywhere, so it stays out"
+
+    set_credential(db_session, "sam", "A-STORED-KEY")
+    selected, _busy, _from, _to = ingest._plan(None, 7, settings)
+    assert "sam" in selected, "a stored key must put the source back in the sweep"

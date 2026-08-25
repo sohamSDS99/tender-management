@@ -329,7 +329,22 @@ async def _run_sources(
 def _plan(
     sources: Sequence[str] | None, days_back: int | None, settings: Settings
 ) -> tuple[list[str], list[str], datetime, datetime]:
-    requested = list(sources) if sources else enabled_sources(settings)
+    """Which sources this sweep will actually run.
+
+    Credentials are resolved before asking which sources are enabled.
+    enabled_sources() filters on unavailable_reason(), which reads the key off
+    Settings - so with the raw ones a key stored from the dashboard left the
+    source looking healthy on the Sources page while every sweep silently
+    skipped it.
+    """
+    if sources:
+        requested = list(sources)
+    else:
+        db = SessionLocal()
+        try:
+            requested = enabled_sources(settings_with_stored_credentials(db, settings))
+        finally:
+            db.close()
     busy = [s for s in requested if s in _running]
     selected = [s for s in requested if s not in busy]
     date_from, date_to = window(days_back, settings)
