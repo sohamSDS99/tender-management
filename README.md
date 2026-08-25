@@ -26,6 +26,7 @@ incident / inspection / audit management), and explains every score it gives.
 ## 1. Quick start with Docker (one command)
 
 > Operating this deployment: `docs/RUNBOOK.md`. Running the demo: `docs/DEMO.md`.
+> The hosted deployment on Railway: `docs/DEPLOY-RAILWAY.md`.
 > Why it is built this way: `docs/DECISIONS.md`.
 
 
@@ -686,6 +687,7 @@ tender-monitor/
 ├── docs/
 │   ├── DECISIONS.md                24 records, D1–D24: every choice and accepted risk
 │   ├── RUNBOOK.md                  deploy, rotate a secret, re-run a window, diagnose
+│   ├── DEPLOY-RAILWAY.md           the hosted deployment: services, variables, trigger owner
 │   └── DEMO.md                     repeatable demo with a fallback for every step
 ├── scripts/
 │   ├── ci_summary.py               run report -> GitHub step summary
