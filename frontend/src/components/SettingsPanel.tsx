@@ -10,7 +10,7 @@ import type {
 } from '../types';
 import { DEPLOYMENT_FITS, FIT_STATUSES, isDefaultFilters } from '../state/urlFilters';
 import { countryLabel, deploymentLabel, fitLabel } from '../labels';
-import { day } from '../state/views';
+import { day } from '../state/lenses';
 import { Icon } from './Icon';
 
 const PAGE_SIZES = [10, 25, 50, 100];
