@@ -16,7 +16,7 @@ Only `frontend` has a public domain, which is the same shape as the
 docker-compose layout: nginx serves the built SPA and proxies `/api` and
 `/health` to the API, so the browser only ever talks to one origin and no CORS
 is involved. Giving `backend` its own public domain would add a second
-internet-facing entry point to an API that, per section 12 of the README, is not
+internet-facing entry point to an API that, per section 13 of the README, is not
 built to be one - see the note on `ALLOW_OPERATOR_ACTIONS` below.
 
 Both app services build from the repository root, because both Dockerfiles

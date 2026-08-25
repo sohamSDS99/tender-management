@@ -170,6 +170,25 @@ class Settings(BaseSettings):
     # Re-scoring spends no outbound request but rewrites every stored row.
     operator_rescore_cooldown_seconds: int = 120
 
+    # --- accounts (D25) ---
+    # Accounts gate nothing: reads were open before them and still are. These
+    # values decide how long a signed-in browser stays signed in and how hard it
+    # is to guess a password, not who may read a tender.
+    session_cookie_name: str = "tm_session"
+    # Set true wherever the dashboard is served over HTTPS. Left false by
+    # default because the documented deployment is plain HTTP on a LAN, and a
+    # Secure cookie over HTTP is simply never sent - the symptom is a sign-in
+    # that appears to succeed and lands you signed out.
+    session_cookie_secure: bool = False
+    # Sliding: touched at most once an hour, and extended when it is.
+    session_lifetime_days: int = 14
+    invite_lifetime_days: int = 7
+    password_min_length: int = 10
+    # Per account, not per address: the API is behind a proxy, so every browser
+    # on the network would otherwise share one bucket.
+    login_max_failures: int = 8
+    login_lockout_minutes: int = 15
+
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to
     # {public_app_url}/?tender={id}, which Dashboard.tsx already reads.
@@ -178,7 +197,7 @@ class Settings(BaseSettings):
     # Empty means the write endpoints are refused outright (fail closed).
     cron_secret: str = ""
     # /docs and /openapi.json. Fine on a local host; turn off before the API
-    # is ever reachable from the internet (README section 12).
+    # is ever reachable from the internet (README section 13).
     enable_api_docs: bool = True
 
     @model_validator(mode="after")

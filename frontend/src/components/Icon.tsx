@@ -29,7 +29,10 @@ export type IconName =
   | 'chevronDown'
   | 'settings'
   | 'display'
-  | 'grid';
+  | 'grid'
+  | 'user'
+  | 'users'
+  | 'signout';
 
 const PATHS: Record<IconName, string[]> = {
   check: ['M4.5 12.5l4.5 4.5L19.5 6.5'],
@@ -71,6 +74,18 @@ const PATHS: Record<IconName, string[]> = {
   ],
   grid: ['M4.5 4.5h6v6h-6z', 'M13.5 4.5h6v6h-6z', 'M4.5 13.5h6v6h-6z', 'M13.5 13.5h6v6h-6z'],
   settings: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 4.5v5', 'M8 14.5v5'],
+  user: ['M12 3.8a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8z', 'M4.5 20.2a7.5 7.5 0 0 1 15 0'],
+  users: [
+    'M9 4.2a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2z',
+    'M2.8 19.8a6.2 6.2 0 0 1 12.4 0',
+    'M16.2 4.6a3.6 3.6 0 0 1 0 6.9',
+    'M17.6 13.8a6.2 6.2 0 0 1 3.6 5.6',
+  ],
+  signout: [
+    'M14.5 4.5h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-4',
+    'M4.5 12h10',
+    'm11 8.5 3.5 3.5-3.5 3.5',
+  ],
 };
 
 export function Icon({

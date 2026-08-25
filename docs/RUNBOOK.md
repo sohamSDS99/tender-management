@@ -487,6 +487,11 @@ Different decision entirely, and not covered by D18. At minimum: set
 `ENABLE_API_DOCS=false`, put real authentication in front of the whole app, and
 re-read `docs/DECISIONS.md` D5.
 
+**The accounts added in D25 are not that authentication.** They gate nothing —
+every read and every operator action answers a signed-out browser exactly as it
+did before. Do not read "the dashboard has a sign-in button" as "the dashboard
+is protected"; it is not, and it was never meant to be.
+
 ---
 
 ## 5b. Change the sweep times
@@ -764,3 +769,101 @@ notification depends on a tender being newly created by a run, so a re-score can
 never spam the channel. Note that `tests/test_relevance_baseline.py` pins the
 engine's output for the 14 seed fixtures by hash; if you intend to change scoring,
 regenerate it with `python -m tests.test_relevance_baseline`.
+
+---
+
+## 9. Accounts
+
+Accounts are optional and gate nothing (D25). Everything in this section is
+about *who has a profile*, not about who may read or do anything.
+
+### Create the first administrator
+
+The first registration on a fresh deployment needs no invitation and becomes an
+administrator. **Do it immediately after the first start** — until somebody
+does, the next person to reach the dashboard takes that slot.
+
+Open the dashboard, use the account control at the foot of the left sidebar, and
+choose **Create account**. The dialog says out loud that this one becomes the
+administrator.
+
+If somebody beat you to it, or nobody did it and you would rather not race,
+create one from a shell on the host instead:
+
+```bash
+docker compose exec backend python -m app.accounts_cli create-admin \
+  --email you@example.com --name "Your Name"
+```
+
+The password is prompted for rather than passed as an argument, because an
+argument is visible in `ps` and lands in shell history.
+
+### Invite somebody
+
+Registration is invite-only after that first account. **Settings → Account →
+Invitations**, or from a shell:
+
+```bash
+docker compose exec backend python -m app.accounts_cli invite \
+  --email colleague@example.com --role member
+```
+
+Either way you get a link. There is no mail transport in this product, so
+**you deliver it** — Slack, email, however you already talk to that person.
+
+Three things about the link, all deliberate:
+
+* It is shown **once**. Only a SHA-256 of it is stored, so nothing can retrieve
+  it later. If it is lost, withdraw the invitation and issue another.
+* It is **single-use** and expires in `INVITE_LIFETIME_DAYS` (default 7).
+* If you set an address on it, only that address can use it — which makes a
+  forwarded link useless. Leave the address blank for "whoever takes the role".
+
+### Somebody is locked out, or forgot their password
+
+There is no self-serve reset, because there is no mailer. From a shell:
+
+```bash
+docker compose exec backend python -m app.accounts_cli reset-password \
+  --email them@example.com
+```
+
+This also clears any failed-attempt lockout and ends every session that account
+had. Add `--reactivate` if the account was deactivated.
+
+A repeated-failure lockout clears itself after `LOGIN_LOCKOUT_MINUTES`
+(default 15); it does not need a human.
+
+### Somebody has left
+
+**Settings → Account → People → Deactivate.** That ends their live sessions
+immediately and refuses any further sign-in. It is reversible — the account and
+its history stay — which is why it is offered instead of deletion.
+
+Two refusals you will meet, both deliberate: you cannot deactivate your own
+account, and you cannot demote or deactivate the last remaining administrator.
+Promote somebody else first.
+
+### Sign-in succeeds and leaves you signed out
+
+Almost always `SESSION_COOKIE_SECURE=true` on a deployment served over plain
+HTTP. A Secure cookie is silently never sent over HTTP, so the API's `200` is
+honest and the next request is anonymous.
+
+```bash
+docker compose exec backend printenv SESSION_COOKIE_SECURE
+```
+
+It must be `false` for the plain-HTTP compose deployment and `true` only behind
+TLS. Change it in `.env`, then `docker compose up -d` — a variable change needs
+the container recreated, not just restarted.
+
+If that is not it, check the browser is reaching the API on the *same origin* as
+the dashboard. A cross-origin `VITE_API_BASE_URL` needs that origin listed in
+`CORS_ORIGINS`, or the browser sends no cookie and reports nothing.
+
+### Who has an account
+
+```bash
+docker compose exec backend python -m app.accounts_cli list
+```

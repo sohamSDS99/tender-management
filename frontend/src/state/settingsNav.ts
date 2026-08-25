@@ -21,7 +21,8 @@ import type { IconName } from '../components/Icon';
  *   time is a thing you do occasionally and deliberately, and none of it needs
  *   the tender list in view.
  */
-export type SettingsKey = 'filters' | 'rules' | 'display' | 'automation' | 'sources' | 'system';
+export type SettingsKey =
+  'filters' | 'rules' | 'display' | 'automation' | 'sources' | 'account' | 'system';
 
 export interface SettingsCategory {
   key: SettingsKey;
@@ -77,12 +78,24 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     group: 2,
   },
   {
+    // Its own group, above System. An account is about *you*, where every
+    // category above it is about the data or the deployment, and filing it
+    // beside "Slack delivery" would make the one personal thing on the page
+    // read as another piece of plumbing.
+    key: 'account',
+    label: 'Account',
+    blurb: 'Profile, password, sessions',
+    icon: 'user',
+    surface: 'page',
+    group: 3,
+  },
+  {
     key: 'system',
     label: 'System',
     blurb: 'Slack delivery, links, versions',
     icon: 'info',
     surface: 'page',
-    group: 3,
+    group: 4,
   },
 ];
 

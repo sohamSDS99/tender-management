@@ -23,7 +23,7 @@ scheduled entrypoint are trusted callers whose timing is already controlled.
 This widens the trust boundary to "anyone on the network can start a sweep",
 which is the same boundary D18/D19/D21 already accept for this accountless
 internal tool. It is only defensible while the API is not reachable from the
-internet - README section 12 - and ``ALLOW_OPERATOR_ACTIONS=false`` closes it.
+internet - README section 13 - and ``ALLOW_OPERATOR_ACTIONS=false`` closes it.
 See docs/DECISIONS.md (D23).
 """
 
