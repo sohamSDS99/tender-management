@@ -155,7 +155,8 @@ aware datetime to the database.
 
 SAM.gov is the only source that needs a credential, and it is free:
 
-1. Create an account at <https://sam.gov> (Entity registration is **not** required).
+1. Create an account at <https://sam.gov> (Entity registration is **not** required to get a
+   key — but see the quota note below, which is what entity registration buys you).
 2. Sign in, open **Account Details → API Keys**, and request a *public* API key
    (<https://sam.gov/content/api-keys>).
 3. Either put it in `.env` (`SAM_GOV_API_KEY=xxxxxxxx`) and restart, or paste it into
@@ -169,12 +170,38 @@ Keys are **write-only** over the API: `/api/sources` returns a `credential_hint`
 value. Nothing about reading a secret can be rate-limited, so that read path does not exist —
 see section 6.
 
+### The quota is the real constraint, not the key
+
+SAM meters Get Opportunities **per day, by account role**, and the free tier is far smaller than
+it looks:
+
+| Account | Requests/day |
+| --- | --- |
+| Non-federal, **no role** — what a personal key gets | **10** |
+| Non-federal **with a role** (requires entity association) | 1 000 |
+| Federal system account | higher still |
+
+Ten a day is the whole budget, shared across every sweep. Exceeding it returns `HTTP 429` with
+`code 900804 "Message throttled out"` and a `Retry-After` pointing at the next `00:00 UTC` — and
+because the reset is daily, one over-eager sweep locks the source out for the rest of the day.
+This connector once spent up to 80 requests in a single sweep (20 pages plus 60 description
+fetches), which meant a valid key looked broken: in production SAM never returned a single `200`.
+
+So `SAM_MAX_PAGES` defaults to `1` and `SAM_MAX_DESCRIPTION_FETCHES` to `0` — one request per
+sweep, two a day against a budget of ten. If the account holds a role, set them to `20` and `60`
+to restore full depth and description text.
+
+Raising the quota means associating the account with an entity that is registered in SAM.gov, and
+the role request is approved by that entity's Entity Administrator. For an entity incorporated
+outside the US that means an NCAGE code first, then a UEI, then registration — worth doing to
+**bid**, not worth doing to read.
+
 ## 4. Sources and their limitations
 
 | Source | Endpoint / feed | Auth | Pagination | Notes and limitations |
 | --- | --- | --- | --- | --- |
 | **EU TED** | `POST https://api.ted.europa.eu/v3/notices/search` | none | iteration token | Expert-search full-text query (`FT ~ "…"`) over `publication-date`. TED applies language stemming, so some hits are only loosely related — the relevance engine filters them. Stage is derived from the notice-type code (`pin*`→planning, `cn*`→tender, `can*`→award). |
-| **US SAM.gov** | `GET https://api.sam.gov/opportunities/v2/search` | **free key** | `limit`/`offset` | `ptype=o,p,k,r` (solicitation, presolicitation, combined, sources sought). Descriptions live behind a per-notice link and are only fetched for notices that pass the topical prefilter (≤60 per run). Estimated values are not published by this API. |
+| **US SAM.gov** | `GET https://api.sam.gov/opportunities/v2/search` | **free key** | `limit`/`offset` | `ptype=o,p,k,r` (solicitation, presolicitation, combined, sources sought). **Metered per day, not per sweep** — 10 requests/day on a role-less non-federal account — so a sweep is capped at `SAM_MAX_PAGES` (1) and `SAM_MAX_DESCRIPTION_FETCHES` (0). Descriptions live behind a per-notice link and are therefore not fetched by default: a notice is scored on title and contracting path alone. Estimated values are not published by this API. |
 | **UK Find a Tender** | `GET .../api/1.0/ocdsReleasePackages` | none | `links.next` cursor | `updatedFrom`/`updatedTo`. Planning, tender and award releases are all captured; tender stage is the primary opportunity. No server-side keyword search → local prefilter. |
 | **UK Contracts Finder** | `GET .../Published/Notices/OCDS/Search` | none | `links.next` cursor | `publishedFrom`/`publishedTo`, `stages=tender,planning`. Stores the OCDS id and the source notice id. No server-side keyword search → local prefilter. |
 | **World Bank** | `GET https://search.worldbank.org/api/procnotices` | none | `os`/`rows` | Uses the documented `qterm` keyword parameter (one request per phrase, see `app/connectors/world_bank.py`). Contract awards and drafts are dropped. Notices are kept when published in the window **or** still open for submission. No date filter exists on this endpoint, so the window is applied client-side. |
@@ -615,7 +642,8 @@ owns the visual world; this is what they add up to.
 | Symptom | Fix |
 | --- | --- |
 | `Cannot reach the API. Is the backend running?` in the UI | Start the backend (`uvicorn app.main:app --port 8000`) or `docker compose up backend`. In dev the Vite proxy expects it on port 8000 — override with `VITE_PROXY_TARGET`. |
-| SAM.gov card says *unavailable* | `SAM_GOV_API_KEY` is missing/invalid. Add it to `.env` and restart. Every other source keeps working. |
+| SAM.gov card says *unavailable* | `SAM_GOV_API_KEY` is missing. Add it to `.env` and restart, or paste it in **Settings → Sources**. Every other source keeps working. |
+| SAM.gov fails with `HTTP 429` and the key is definitely right | The daily quota is spent, not the key wrong. A role-less account gets **10 requests/day**, resetting at `00:00 UTC`; the body says `900804 "Message throttled out"`. Keep `SAM_MAX_PAGES=1` / `SAM_MAX_DESCRIPTION_FETCHES=0` and see section 3. |
 | CanadaBuys or AusTender run fails with HTTP 403 | Both sit behind a WAF that rejects unusual `User-Agent` strings. Keep the default `USER_AGENT` (`Mozilla/5.0 (compatible; tender-monitor/0.1)`). |
 | PNCP run fails with `transport error: ReadTimeout` | PNCP is slow. It already uses a 60 s timeout and retries; reduce `PNCP_MAX_PAGES`/`PNCP_MODALIDADES` or raise `REQUEST_TIMEOUT_SECONDS`. A failure there never affects other sources. |
 | A fetch returns 0 new tenders | Check the **window** before the connectors: a 72-hour sweep re-queries what the last scheduled run already emptied. Widen it (`{"days_back": 30}`), or run `python -m app.seed` for demo data. Beyond that it is normal — SDS/EHS software tenders are rare. |

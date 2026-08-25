@@ -181,6 +181,30 @@ legitimately sends nothing, and the top of the dashboard is showing fixtures. Do
 read "no digest" as a broken notifier, and do not present those top cards as live
 finds.
 
+**SAM.gov's quota is per day, and the free tier is 10 requests.** Not per sweep, per *day*,
+shared across every run — and it is 10 only for a non-federal account with no role (1000 with
+one). A 429 there carries `code 900804 "Message throttled out"` and a `Retry-After` HTTP-date
+pointing at the next 00:00 UTC, so one greedy sweep locks the source out until tomorrow. The
+connector used to spend up to 80 requests per sweep (`max_pages_per_source` = 20 pages, plus
+`MAX_DESCRIPTION_FETCHES` = 60 per-notice description fetches), so a perfectly valid key looked
+broken: production logged four SAM requests in 48 hours and every one was a 429. `sam_max_pages`
+(1) and `sam_max_description_fetches` (0) now bound it to one request per sweep. Diagnose this
+from the response *body*, never the status code alone — an invalid key is a different code
+entirely, and "the key is wrong" is the wrong place to look.
+
+**A key in a query string is a key in the logs.** httpx logs every request URL at INFO with the
+query string intact, and SAM.gov takes its key as `?api_key=`. The redaction in
+`settings/config.py` only covers the app's own log lines, so the live production key was printed
+on every sweep and readable by anyone with log access. `configure_logging()` pins `httpx` to
+WARNING. Any new source that authenticates by query parameter inherits this hazard.
+
+**`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
+"not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
+minutes — every one guaranteed to fail, and against SAM each one spends a request from the same
+exhausted daily budget. The run is then recorded as `failed` rather than "throttled until reset".
+Known, not fixed: the fix belongs in the frozen connector base and changes 429 handling for all
+eight sources.
+
 **`PUBLIC_APP_URL` must not be a bare IP.** The host's address moved from
 `192.168.1.5` to `192.168.0.133` mid-project, which would have killed every Slack
 link already sent. Use the mDNS hostname. The dashboard shows this value and warns

@@ -3,6 +3,11 @@
 GET https://api.sam.gov/opportunities/v2/search
 Requires a free personal API key (SAM_GOV_API_KEY). The connector disables
 itself gracefully when the key is missing. Keys are never logged.
+
+The daily quota is the binding constraint here, not the window: a key on a
+non-federal account with no role gets 10 requests a day. ``sam_max_pages`` and
+``sam_max_description_fetches`` are what keep a sweep inside that, and they
+default to one request in total. See app/settings/config.py.
 """
 
 from __future__ import annotations
@@ -24,7 +29,6 @@ UI_URL = "https://sam.gov/opp/{}/view"
 # Documented ptype codes: p=Presolicitation, o=Solicitation,
 # k=Combined Synopsis/Solicitation, r=Sources Sought.
 DEFAULT_NOTICE_TYPES = "o,p,k,r"
-MAX_DESCRIPTION_FETCHES = 60
 _TAGS = re.compile(r"<[^>]+>")
 
 
@@ -36,8 +40,10 @@ class SamGovConnector(TenderConnector):
     prefilter = True
     notes = (
         "Get Opportunities v2, paginated with limit/offset over postedFrom/postedTo. "
-        "Descriptions live behind a per-notice link and are only fetched for notices "
-        "that pass the topical prefilter."
+        "SAM meters this API per day - 10 requests on a role-less non-federal account, "
+        "1000 with a role - so a sweep is capped at SAM_MAX_PAGES pages (1) and "
+        "SAM_MAX_DESCRIPTION_FETCHES per-notice description fetches (0). Without a "
+        "description, a notice is scored on its title and contracting path alone."
     )
 
     def unavailable_reason(self) -> str | None:
@@ -53,7 +59,9 @@ class SamGovConnector(TenderConnector):
         seen: set[str] = set()
         descriptions_fetched = 0
         async with self.client() as client:
-            for page in range(self.settings.max_pages_per_source):
+            # Not max_pages_per_source: that budget is per *sweep* everywhere else,
+            # and here the ceiling is a daily quota shared with every other run.
+            for page in range(max(1, self.settings.sam_max_pages)):
                 params = {
                     "api_key": key,
                     "postedFrom": date_from.strftime("%m/%d/%Y"),
@@ -77,7 +85,7 @@ class SamGovConnector(TenderConnector):
                         if (
                             isinstance(description, str)
                             and description.startswith("http")
-                            and descriptions_fetched < MAX_DESCRIPTION_FETCHES
+                            and descriptions_fetched < self.settings.sam_max_description_fetches
                         ):
                             descriptions_fetched += 1
                             description = await self._description(client, description, key)

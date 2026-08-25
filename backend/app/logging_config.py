@@ -1,4 +1,11 @@
-"""Structured (key=value) logging. Never logs credentials."""
+"""Structured (key=value) logging. Never logs credentials.
+
+"Never" takes one extra line to be true. The app redacts its own credential
+fields, but httpx logs every request URL at INFO with the query string intact -
+and SAM.gov takes its API key as a query parameter. That printed a live key into
+the production logs on every sweep, readable by anyone with log or log-drain
+access. httpx is pinned to WARNING below; the key never appears again.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +41,9 @@ def configure_logging(level: str = "INFO") -> None:
     root.handlers = [handler]
     root.setLevel(level.upper())
     logging.getLogger("apscheduler").setLevel("WARNING")
+    # Logs full request URLs at INFO, and SAM.gov's key rides in the query
+    # string. See the module docstring.
+    logging.getLogger("httpx").setLevel("WARNING")
 
 
 def log_ctx(logger: logging.Logger, level: int, msg: str, **context: object) -> None:

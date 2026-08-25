@@ -70,6 +70,20 @@ class Settings(BaseSettings):
     # downloading every notice in the window.
     pncp_modalidades: str = "6,8,4,5"
     pncp_max_pages: int = 6
+    # SAM.gov meters Get Opportunities *per day*, by account role: a non-federal
+    # account with no assigned role gets 10 requests a day, one with a role gets
+    # 1000. This connector used to spend up to 80 in a single sweep - 20 pages
+    # plus 60 per-notice description fetches - so the first sweep of any day
+    # exhausted the free quota and every request after it, the next day's
+    # included, came back HTTP 429 "Message throttled out" until the 00:00 UTC
+    # reset. Observed in production: SAM had never once returned a 200 there.
+    #
+    # These default to what the free tier can actually afford - one search
+    # request per sweep, no description fetches. Raise them only if the account
+    # holds a role; SAM_MAX_PAGES=20 and SAM_MAX_DESCRIPTION_FETCHES=60 restore
+    # the old depth.
+    sam_max_pages: int = 1
+    sam_max_description_fetches: int = 0
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True

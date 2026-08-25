@@ -204,9 +204,7 @@ async def test_sam_is_disabled_without_api_key(settings):
     assert "SAM_GOV_API_KEY" in connector.unavailable_reason()
 
 
-async def test_sam_pagination_description_fetch_and_key_never_leaks(keyed_settings):
-    urls: list[str] = []
-
+def _sam_handler(urls: list[str]):
     def handler(request: httpx.Request) -> httpx.Response:
         urls.append(str(request.url))
         if "noticedesc" in str(request.url):
@@ -215,7 +213,32 @@ async def test_sam_pagination_description_fetch_and_key_never_leaks(keyed_settin
         body = SAM_PAGE if offset == "0" else SAM_EMPTY
         return httpx.Response(200, json=body)
 
-    tenders = await fetch(SamGovConnector(keyed_settings, transport=transport(handler)))
+    return handler
+
+
+async def test_sam_default_budget_is_one_request(keyed_settings):
+    """SAM.gov allows 10 requests a *day* on a role-less account.
+
+    The connector used to spend up to 80 in one sweep - 20 pages plus 60
+    description fetches - which exhausted the quota on the first sweep of the
+    day and made every later request 429 until the 00:00 UTC reset. One sweep
+    must cost one request, and the description must be left alone rather than
+    fetched.
+    """
+    urls: list[str] = []
+    tenders = await fetch(SamGovConnector(keyed_settings, transport=transport(_sam_handler(urls))))
+
+    assert len(urls) == 1, f"one sweep must cost one request, spent {len(urls)}"
+    assert "noticedesc" not in urls[0]
+    # Unfetched, so the raw link survives as the description rather than a lie.
+    assert tenders[0].description.startswith("http")
+
+
+async def test_sam_pagination_description_fetch_and_key_never_leaks(keyed_settings):
+    urls: list[str] = []
+    keyed_settings = keyed_settings.model_copy(update={"sam_max_pages": 5, "sam_max_description_fetches": 60})
+
+    tenders = await fetch(SamGovConnector(keyed_settings, transport=transport(_sam_handler(urls))))
     assert len(tenders) == 1
     tender = tenders[0]
     assert tender.source == "sam"
