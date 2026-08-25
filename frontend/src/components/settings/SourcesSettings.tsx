@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import type { SourceStatus } from '../../types';
-import { api } from '../../api/client';
 import { sourceHealth } from '../../labels';
 import { Icon } from '../Icon';
 import { SourceCard } from '../SourceCard';
 import { AddSource } from './AddSource';
-import { SettingsPage, SettingsRow, SettingsSection } from './SettingsPage';
+import { SettingsPage, SettingsSection } from './SettingsPage';
 
 /**
  * Every connector, why it is or is not working, and how to re-run one.
@@ -34,26 +32,6 @@ export function SourcesSettings({
   onChanged: () => void;
   onBack: () => void;
 }) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [value, setValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const keyed = sources.filter((s) => s.requires_api_key);
-
-  const save = async (name: string) => {
-    setSaving(true);
-    setError(null);
-    try {
-      await api.setCredential(name, value);
-      setEditing(null);
-      setValue('');
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the key.');
-    } finally {
-      setSaving(false);
-    }
-  };
   const broken = sources.filter((s) => sourceHealth(s) === 'critical');
   const sweeping = sources.filter((s) => sourceHealth(s) === 'sweeping');
   const healthy = sources.filter((s) => sourceHealth(s) === 'good');
@@ -100,94 +78,11 @@ export function SourcesSettings({
               source={source}
               busySource={busySource}
               onFetch={onFetchSource}
+              onCredentialSaved={onChanged}
               detailed
             />
           ))}
         </div>
-      </SettingsSection>
-
-      {error ? (
-        <p className="notice notice--bad" role="status">
-          {error}
-        </p>
-      ) : null}
-
-      <SettingsSection
-        title="Credentials"
-        note="Set here, a key takes effect on the next sweep — no .env edit, no restart."
-      >
-        {keyed.length === 0 ? (
-          <p className="snote">
-            <Icon name="info" size={14} />
-            <span>None of the enabled sources needs an API key.</span>
-          </p>
-        ) : (
-          keyed.map((source) => (
-            <SettingsRow
-              key={source.name}
-              label={source.display_name}
-              hint={
-                source.credential_configured
-                  ? `A key ending ${source.credential_hint ?? '····'} is in place.`
-                  : 'No key set — this source is skipped until one is.'
-              }
-            >
-              {editing === source.name ? (
-                <div className="credrow">
-                  <input
-                    className="input input--sm"
-                    type="password"
-                    autoComplete="off"
-                    placeholder="Paste the key"
-                    value={value}
-                    onChange={(event) => setValue(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm"
-                    disabled={saving}
-                    onClick={() => void save(source.name)}
-                  >
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => {
-                      setEditing(null);
-                      setValue('');
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() => {
-                    setEditing(source.name);
-                    setValue('');
-                  }}
-                >
-                  {source.credential_configured ? 'Replace key' : 'Add key'}
-                </button>
-              )}
-            </SettingsRow>
-          ))
-        )}
-        <p className="snote">
-          <Icon name="info" size={14} />
-          <span>
-            A key is stored and never shown again — only its last four characters, so you can tell
-            which one is in place. Clearing the field falls back to <span className="mono">.env</span>.
-            SAM.gov keys are free at{' '}
-            <a href="https://sam.gov/content/api-keys" target="_blank" rel="noreferrer noopener">
-              sam.gov/content/api-keys
-            </a>
-            .
-          </span>
-        </p>
       </SettingsSection>
 
       <AddSource onAdded={onChanged} />

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { SourceStatus } from '../types';
+import { api } from '../api/client';
 import { formatWhen, sourceHealth, type SourceHealth } from '../labels';
 
 export const SOURCE_CARD_CLASS: Record<SourceHealth, string> = {
@@ -22,15 +24,38 @@ export function SourceCard({
   source,
   busySource,
   onFetch,
+  onCredentialSaved,
   detailed = false,
 }: {
   source: SourceStatus;
   /** Name of the source currently fetching, so only its button is pending. */
   busySource: string | null;
   onFetch: (name: string) => void;
+  /** Re-read /api/sources so a saved key's hint appears without a reload. */
+  onCredentialSaved?: () => void;
   /** The settings page shows the notes and the last success; the strip does not. */
   detailed?: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+
+  const saveKey = async () => {
+    setSaving(true);
+    setKeyError(null);
+    try {
+      await api.setCredential(source.name, value);
+      setEditing(false);
+      setValue('');
+      onCredentialSaved?.();
+    } catch (error) {
+      setKeyError(error instanceof Error ? error.message : 'Could not save the key.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const state = sourceHealth(source);
   const status = source.unavailable_reason
     ? 'unavailable'
@@ -80,6 +105,61 @@ export function SourceCard({
               : ''}
             {!source.enabled ? ' · switched off in configuration' : ''}
           </p>
+
+          {/*
+            The key lives on the source it belongs to, not in a separate list.
+            A standalone Credentials section stayed on screen forever once every
+            key was set, saying nothing anyone needed — and it put the control
+            one place away from the source it acts on.
+          */}
+          {source.requires_api_key ? (
+            <div className="src__key">
+              {editing ? (
+                <>
+                  <input
+                    className="input input--sm"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste the key"
+                    aria-label={`API key for ${source.display_name}`}
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    disabled={saving}
+                    onClick={() => void saveKey()}
+                  >
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => {
+                      setEditing(false);
+                      setValue('');
+                      setKeyError(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="src__keyhint">
+                    {source.credential_configured
+                      ? `Key ····${(source.credential_hint ?? '').replace(/^…/, '')}`
+                      : 'No key set'}
+                  </span>
+                  <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}>
+                    {source.credential_configured ? 'Replace' : 'Add key'}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : null}
+          {keyError ? <p className="src__err">{keyError}</p> : null}
         </>
       ) : null}
 

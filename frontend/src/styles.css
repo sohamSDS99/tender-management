@@ -2899,3 +2899,22 @@ html[data-density='compact'] .score {
   flex: 1;
   min-width: 0;
 }
+
+/* The key sits on the source it belongs to. Quiet until it needs attention:
+   a set key is a fact, not a task. */
+.src__key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+.src__keyhint {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
