@@ -17,7 +17,25 @@ import type { SessionState, User } from '../types';
 
 /** The invite token in `?invite=…`, if the reader arrived on an invitation. */
 export function inviteFromSearch(search: string): string | null {
-  const raw = new URLSearchParams(search).get('invite');
+  return tokenFromSearch(search, 'invite');
+}
+
+/**
+ * The workspace join token in `?join=…` (D28).
+ *
+ * Unlike an invitation this one is shared by the whole team and is reusable, so
+ * several people arrive holding the same value. It still gets stripped from the
+ * address bar: it is not a secret worth much on its own — the roster is what
+ * decides — but leaving it in the URL means it ends up in screenshots and in
+ * whatever somebody pastes when they later share "the dashboard link", and a
+ * reader who has already joined has no use for it.
+ */
+export function joinFromSearch(search: string): string | null {
+  return tokenFromSearch(search, 'join');
+}
+
+function tokenFromSearch(search: string, key: string): string | null {
+  const raw = new URLSearchParams(search).get(key);
   return raw && raw.trim() ? raw.trim() : null;
 }
 
@@ -32,6 +50,7 @@ export function inviteFromSearch(search: string): string | null {
 export function withoutInvite(search: string): string {
   const params = new URLSearchParams(search);
   params.delete('invite');
+  params.delete('join');
   return params.toString();
 }
 
@@ -96,8 +115,10 @@ export interface Auth {
   /** True while no account exists: the next registration becomes the admin. */
   bootstrap: boolean;
   inviteRequired: boolean;
-  /** Present when the reader arrived on an invitation link. */
+  /** Present when the reader arrived on a single-use invitation link. */
   inviteToken: string | null;
+  /** Present when the reader arrived on the shared workspace join link. */
+  joinToken: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   register: (body: { email: string; password: string; displayName: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -111,9 +132,12 @@ const EMPTY: SessionState = { user: null, bootstrap: false, invite_required: tru
 export function useAuth(): Auth {
   const [state, setState] = useState<SessionState>(EMPTY);
   const [status, setStatus] = useState<AuthStatus>('loading');
-  // Read once, at mount, before the token is stripped from the address bar.
+  // Read once, at mount, before the tokens are stripped from the address bar.
   const [inviteToken, setInviteToken] = useState<string | null>(() =>
     inviteFromSearch(window.location.search),
+  );
+  const [joinToken, setJoinToken] = useState<string | null>(() =>
+    joinFromSearch(window.location.search),
   );
 
   const refresh = useCallback(async () => {
@@ -143,16 +167,16 @@ export function useAuth(): Auth {
     return () => setUnauthorizedHandler(null);
   }, []);
 
-  // Take the invite out of the URL as soon as it has been read into state.
+  // Take the tokens out of the URL as soon as they have been read into state.
   useEffect(() => {
-    if (!inviteToken) return;
+    if (!inviteToken && !joinToken) return;
     const next = withoutInvite(window.location.search);
     window.history.replaceState(
       null,
       '',
       next ? `${window.location.pathname}?${next}` : window.location.pathname,
     );
-  }, [inviteToken]);
+  }, [inviteToken, joinToken]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await authApi.login(email, password);
@@ -167,13 +191,17 @@ export function useAuth(): Auth {
         password: body.password,
         display_name: body.displayName,
         invite_token: inviteToken,
+        join_token: joinToken,
       });
-      // The invite is spent, so it must not be offered to the next form.
+      // The invitation is spent, so it must not be offered to the next form.
+      // The join link is not spent — it is reusable by design — but this reader
+      // has used it, and holding it would offer them a form they cannot use.
       setInviteToken(null);
+      setJoinToken(null);
       setState({ user, bootstrap: false, invite_required: true });
       setStatus('ready');
     },
-    [inviteToken],
+    [inviteToken, joinToken],
   );
 
   const signOut = useCallback(async () => {
@@ -198,6 +226,7 @@ export function useAuth(): Auth {
     bootstrap: state.bootstrap,
     inviteRequired: state.invite_required,
     inviteToken,
+    joinToken,
     signIn,
     register,
     signOut,

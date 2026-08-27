@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (27 records, D1–D27).
+`docs/DECISIONS.md` explains why it is built this way (28 records, D1–D28).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 558 tests, all passing
+./.venv/bin/python -m pytest -q          # 589 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 8 revisions, head d3f7a10c2b58
+./.venv/bin/alembic upgrade head         # 9 revisions, head e3b7c1d5f204
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 144 tests
+npx vitest run                           # 148 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -195,10 +195,15 @@ module-level import to any of those three can resurrect it, and it resolves
 differently depending on which file a test imports first — so import each entry
 point alone (`python -c "import app.main"`) after touching them.
 
-**Tests must not read the wall clock.** `tests/test_ingest.NOW` is frozen at
-`2026-08-21 12:00`; `test_api` imports that same constant. It previously called
-`utcnow()`, which meant `test_date_window_filters` only passed within about a day
-of that literal — it started failing on 2026-08-22.
+**Tests must not read the wall clock — but a frozen fixture is only half the
+fix.** `tests/test_ingest.NOW` is frozen at `2026-08-21 12:00` and `test_api`
+imports it, which is what keeps the date-window assertions exact. It bit twice:
+first when the constant was `utcnow()` and the window tests only passed within a
+day of it, then again on 2026-08-27 when `is_actionable` — computed by the
+engine against the **real** clock at ingest time — quietly expired a deadline
+pinned to `NOW + 5 days`. Anything whose truth depends on *now* is anchored to
+`DEADLINE_BASE = utcnow()`; anything asserting an exact window stays on `NOW`.
+Freezing one without the other just moves the explosion later (9efae03).
 
 **Exactly one trigger owner.** Either the in-process APScheduler
 (`ENABLE_SCHEDULER=true`, what compose uses) or the GitHub Actions workflow
@@ -368,10 +373,28 @@ would sail past the very thing the suite should exercise — every pre-existing
 test would keep passing even if the gate refused every real human. Tests that
 genuinely need to skip an operator cooldown use `cron_client` and say why.
 
-Registration is invite-only *after the first account*. The first registration on
-an empty deployment needs no invite and becomes an administrator — so between
-first start and first registration, whoever gets there first is the admin.
-Register immediately, or use `python -m app.accounts_cli create-admin`.
+**Three ways in, and only three** (`accounts.register`, checked in this order):
+bootstrap when no account exists yet and it becomes an administrator; a
+single-use invitation (D25) for an outsider; or **the shared join link plus a
+roster entry** (D28), which is the ordinary path for a colleague. Anything else
+is refused.
+
+**The join link is not a bearer token, and that is why it is stored readably.**
+The roster decides — the link only works for an address already on it, so it is
+safe to show again and to paste into a team channel. Hashing it, or making it
+single-use, would break the one thing it is for. If
+`test_a_valid_link_is_refused_for_an_address_nobody_added` ever passes, the link
+*has* become a bearer token and sharing it is now a way in for anybody.
+
+**A roster edit must not reach an existing account.** Changing an entry's role
+sets what a *future* account gets; removing an address withdraws permission to
+register. Neither touches somebody who has already joined — that is
+`PATCH /api/auth/users/{id}`, where the last-administrator guard lives. Wire
+removal to account closure and a roster tidy-up can lock everyone out.
+
+The first registration on an empty deployment needs no permission at all, so
+between first start and first registration whoever gets there first is the
+admin. Register immediately, or use `python -m app.accounts_cli create-admin`.
 
 **A Secure cookie over plain HTTP is never sent, and the symptom looks like a
 backend bug.** Sign-in returns 200, the dashboard says nothing is wrong, and the
@@ -402,7 +425,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **558 passing, nothing skipped, nothing failing**. Treat any
+A green run is **589 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

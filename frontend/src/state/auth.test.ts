@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeAgent, initials, inviteFromSearch, withoutInvite } from './auth';
+import { describeAgent, initials, inviteFromSearch, joinFromSearch, withoutInvite } from './auth';
 
 describe('inviteFromSearch', () => {
   it('reads the token an invitation link carries', () => {
@@ -20,6 +20,28 @@ describe('inviteFromSearch', () => {
   });
 });
 
+describe('joinFromSearch', () => {
+  it('reads the shared workspace token', () => {
+    expect(joinFromSearch('?join=abc123')).toBe('abc123');
+    expect(joinFromSearch('?tender=4821&join=abc123')).toBe('abc123');
+  });
+
+  it('does not confuse the two kinds of token', () => {
+    // They mean different things: an invitation is spent on use, a join link is
+    // reusable and only works for an address already on the roster. Reading one
+    // as the other would send the wrong field to the API and refuse a colleague
+    // who did nothing wrong.
+    expect(joinFromSearch('?invite=abc123')).toBeNull();
+    expect(inviteFromSearch('?join=abc123')).toBeNull();
+  });
+
+  it('treats an empty or blank token as no token', () => {
+    expect(joinFromSearch('?join=')).toBeNull();
+    expect(joinFromSearch('?join=%20%20')).toBeNull();
+    expect(joinFromSearch('')).toBeNull();
+  });
+});
+
 describe('withoutInvite', () => {
   it('takes the token out and leaves every filter alone', () => {
     const out = withoutInvite('minimum_score=70&invite=secret&sort=score_desc');
@@ -35,6 +57,15 @@ describe('withoutInvite', () => {
 
   it('leaves a URL that never had one untouched', () => {
     expect(withoutInvite('minimum_score=70')).toBe('minimum_score=70');
+  });
+
+  it('strips the join token too, not just the invitation', () => {
+    // It is far less sensitive — the roster is the real gate — but leaving it in
+    // the address bar puts it in screenshots and in whatever somebody pastes
+    // when they later share "the dashboard link".
+    const out = withoutInvite('join=shared-token&tender=4821');
+    expect(new URLSearchParams(out).has('join')).toBe(false);
+    expect(new URLSearchParams(out).get('tender')).toBe('4821');
   });
 
   it('preserves the Slack digest deep link, which sign-in must not eat', () => {

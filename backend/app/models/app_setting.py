@@ -23,6 +23,15 @@ KEY_RUN_HOURS = "scheduler.run_hours_local"
 #: ENABLE_SCHEDULER is the default; this row is an operator overriding it.
 KEY_SCHEDULER_ENABLED = "scheduler.enabled"
 
+#: The workspace join link's token, stored **readably** rather than hashed.
+#:
+#: That is the opposite of how invite tokens and session cookies are stored here,
+#: and it is deliberate. A join link is meant to be sent to the whole team and
+#: shown again next month, so it has to be retrievable. It is safe to store this
+#: way because the token is not the permission - the roster is. On its own it
+#: opens nothing; it only works for an address already on the roster. See D28.
+KEY_JOIN_TOKEN = "workspace.join_token"
+
 #: ISO instant of the last operator-initiated re-score, for the cooldown (D23).
 #: A re-score leaves no fetch_runs row, so unlike a sweep it has nothing else to
 #: derive "when did this last happen" from.

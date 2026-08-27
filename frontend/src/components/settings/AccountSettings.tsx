@@ -41,7 +41,7 @@ export function AccountSettings({ auth, onBack }: { auth: Auth; onBack: () => vo
   return (
     <SettingsPage
       title="Account"
-      blurb="Your profile, your password, and the browsers you are signed in on."
+      blurb="Your profile, your password, the browsers you are signed in on — and, for administrators, who belongs in this workspace."
       onBack={onBack}
     >
       <ProfileSection auth={auth} />

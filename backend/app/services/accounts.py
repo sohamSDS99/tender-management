@@ -234,6 +234,7 @@ def register(
     display_name: str,
     invite_token: str | None,
     settings: Settings,
+    join_token: str | None = None,
 ) -> User:
     """Create an account.
 
@@ -241,23 +242,55 @@ def register(
     alternative is a deployment with nobody able to let anybody in. Every
     account after it needs a valid invite, which is the position chosen in D25.
 
-    The bootstrap window is a real exposure and the runbook says so: between the
-    first start and the first registration, whoever reaches the dashboard first
-    becomes the administrator.
+    There are three ways in, checked in this order:
+
+    1. **Bootstrap** - no account exists yet, so no permission is needed and the
+       account becomes an administrator. The window this opens is a real
+       exposure and the runbook says so: whoever reaches a fresh deployment
+       first is the administrator.
+    2. **A single-use invitation** (D25), for somebody who is not on the roster.
+    3. **The shared join link plus a roster entry** (D28) - the ordinary path for
+       a colleague. Both halves are required.
+
+    Anything else is refused.
     """
     email = normalise_email(email)
     check_password(password, email, settings)
     display_name = clean_display_name(display_name, email)
 
+    # Imported here, not at module scope: app/services/roster.py imports this
+    # module for normalise_email and the error types, so a top-level import
+    # either way is a cycle. Same fix as scheduler._job's lazy run_once import.
+    from app.services import roster as roster_service
+
     bootstrap = user_count(db) == 0
     invite: Invite | None = None
+    entry = None
     if bootstrap:
         role = ROLE_ADMIN
-    else:
-        if not invite_token:
-            raise InvalidInvite("This dashboard is invite-only. Ask an administrator for a link.")
+    elif invite_token:
+        # A single-use invitation, for somebody who is not on the roster - an
+        # outsider, a contractor, a one-off. Checked first because if a caller
+        # presents one it is the more specific claim.
         invite = redeem_invite(db, invite_token, email=email, settings=settings)
         role = invite.role
+    elif join_token:
+        # The shared workspace link. Two things must hold, and the *second* is
+        # the one doing the work: the link has to be current, and the address
+        # has to be on the roster. That is what makes the link safe to hand to a
+        # whole team and to show again later - on its own it opens nothing (D28).
+        if not roster_service.token_matches(db, join_token):
+            raise InvalidInvite(
+                "That join link is no longer valid. Ask an administrator for the current one."
+            )
+        entry = roster_service.get_entry(db, email)
+        if entry is None:
+            raise InvalidInvite(
+                "That email address is not on this workspace's list. " "Ask an administrator to add it."
+            )
+        role = entry.role
+    else:
+        raise InvalidInvite("This dashboard is invite-only. Ask an administrator for a link.")
 
     if get_by_email(db, email) is not None:
         raise EmailTaken("An account already exists for that email address.")
@@ -280,6 +313,10 @@ def register(
     if invite is not None:
         invite.accepted_at = utcnow()
         invite.accepted_by_id = user.id
+    if entry is not None:
+        # Recorded so the admin list can show who has taken up their place and
+        # who still needs the link.
+        roster_service.claim(db, entry, user)
     db.commit()
 
     log_ctx(
