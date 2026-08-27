@@ -9,6 +9,7 @@ import type {
   Stats,
   TenderFilters,
   TenderPage,
+  User,
   Verdict,
 } from '../types';
 import {
@@ -21,7 +22,7 @@ import {
 } from '../state/urlFilters';
 import { OWNED, activeLens, lensByKey, type LensContext, type LensKey } from '../state/lenses';
 import { usePreferences } from '../state/preferences';
-import { useAuth } from '../state/auth';
+import type { Auth } from '../state/auth';
 import {
   categoryFor,
   settingsFromSearch,
@@ -46,7 +47,6 @@ import { SettingsPanel } from '../components/SettingsPanel';
 import { SourcesPanel } from '../components/SourcesPanel';
 import { SweepReport } from '../components/SweepReport';
 import { AccountSettings } from '../components/settings/AccountSettings';
-import { AuthDialog } from '../components/auth/AuthDialog';
 import { AutomationSettings } from '../components/settings/AutomationSettings';
 import { DisplaySettings } from '../components/settings/DisplaySettings';
 import { SourcesSettings } from '../components/settings/SourcesSettings';
@@ -65,7 +65,7 @@ const initial = filtersFromSearch(window.location.search);
 /** Which settings page the URL asks for, so one survives a refresh or a share. */
 const initialSettings = settingsFromSearch(window.location.search);
 
-export function Dashboard() {
+export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
   const [filters, setFilters] = useState<TenderFilters>(initial.filters);
   const [debounced, setDebounced] = useState<TenderFilters>(initial.filters);
   const [selectedId, setSelectedId] = useState<number | null>(initial.tenderId);
@@ -104,17 +104,6 @@ export function Dashboard() {
   // category menu is open. The filters panel keeps its own stored preference,
   // because it is the one surface that stays open while you work.
   const [settingsPage, setSettingsPage] = useState<SettingsKey | null>(initialSettings);
-  const auth = useAuth();
-  const [authOpen, setAuthOpen] = useState(false);
-
-  // Arriving on an invitation link opens the form with the token already held.
-  // Without this the invitee lands on a dashboard indistinguishable from the
-  // public one and has to work out that the link they followed did anything —
-  // and the token has by then been stripped from the address bar, so there is
-  // no second chance to notice it.
-  useEffect(() => {
-    if (auth.status === 'ready' && auth.inviteToken && !auth.user) setAuthOpen(true);
-  }, [auth.status, auth.inviteToken, auth.user]);
 
   const { preferences, update } = usePreferences();
   const requestId = useRef(0);
@@ -268,7 +257,7 @@ export function Dashboard() {
     [loadMeta, sweepDays],
   );
 
-  // --- verdicts (D26) -----------------------------------------------------
+  // --- verdicts (D27) -----------------------------------------------------
   /**
    * Record or withdraw one verdict, and say what it changed.
    *
@@ -610,18 +599,14 @@ export function Dashboard() {
         brokenSources={brokenSources}
         busy={busy}
         sweepDays={sweepDays}
-        user={auth.user}
-        authStatus={auth.status}
+        user={user}
         onSweepDays={chooseSweepDays}
         onSelectLens={selectLens}
         onSelectCategory={selectCategory}
         onFetch={() => void runAction('fetch')}
         onRescore={() => void runAction('rescore')}
-        onSignIn={() => setAuthOpen(true)}
         onSignOut={() => void auth.signOut()}
       />
-
-      <AuthDialog auth={auth} open={authOpen} onClose={() => setAuthOpen(false)} />
 
       <SettingsPanel
         open={settingsOpen}

@@ -85,7 +85,7 @@ class Tender(Base):
     review_flags: Mapped[list | None] = mapped_column(JSON, default=list)
     is_actionable: Mapped[bool] = mapped_column(default=True, index=True)
 
-    # --- learned from reviewer verdicts (D26) --------------------------------
+    # --- learned from reviewer verdicts (D27) --------------------------------
     #
     # Additive, and deliberately *beside* the relevance columns above rather
     # than mixed into them: the engine's score is still only the engine's, and

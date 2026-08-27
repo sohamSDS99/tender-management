@@ -32,6 +32,20 @@ import type {
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
 const BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+/**
+ * Called when the API refuses a request from someone who believed they were
+ * signed in — an expired session, a revoked one, a deactivated account.
+ *
+ * Registered by `useAuth`. Without it a session that dies mid-visit leaves the
+ * dashboard mounted and every panel showing its own error, which reads as the
+ * backend being broken rather than as "you are signed out".
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -60,6 +74,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   if (!response.ok) {
+    // Deliberately not for /api/auth/*: a wrong password there is a 401 that the
+    // sign-in form is already reporting, and treating it as "your session died"
+    // would fight with the page the reader is looking at.
+    if (response.status === 401 && !path.startsWith('/api/auth/')) onUnauthorized?.();
     let detail = `${response.status} ${response.statusText}`;
     try {
       const body = await response.json();
@@ -177,7 +195,7 @@ export const api = {
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
 
   /**
-   * Mark one notice relevant or not relevant (D26).
+   * Mark one notice relevant or not relevant (D27).
    *
    * Uncapped, unlike `fetchNow` and `rescore`: it spends no outbound request,
    * and marks are made in bursts of a dozen while someone reads a page. The

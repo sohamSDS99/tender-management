@@ -345,12 +345,39 @@ def test_an_unknown_tender_is_404_and_an_unknown_verdict_is_422(client, corpus):
     assert client.post(f"/api/tenders/{target.id}/feedback", json={"verdict": "maybe"}).status_code == 422
 
 
-def test_feedback_needs_no_secret(anon_client, corpus):
-    """D23: a write is constrained by a limit matching its cost, and this one
-    spends nothing. Marks are made in bursts while reading a list."""
+def test_marking_is_behind_the_sign_in_gate_like_everything_else(anon_client, corpus):
+    """These routes inherited the gate without asking for it (D26).
+
+    ``enforce_sign_in`` is an application-level dependency, so a route added
+    later is private by default - exposure is the thing you choose rather than
+    privacy being the thing you remember. This asserts that actually held for
+    the three routes added here, rather than trusting that it did.
+    """
     target = by_notice(corpus, "reject-1")
-    response = anon_client.post(f"/api/tenders/{target.id}/feedback", json={"verdict": "irrelevant"})
-    assert response.status_code == 200
+    assert (
+        anon_client.post(f"/api/tenders/{target.id}/feedback", json={"verdict": "irrelevant"}).status_code
+        == 401
+    )
+    assert anon_client.delete(f"/api/tenders/{target.id}/feedback").status_code == 401
+    assert anon_client.get("/api/feedback/learned").status_code == 401
+
+
+def test_a_signed_in_reviewer_needs_no_secret_and_hits_no_cooldown(client, corpus):
+    """Signed in is not the same as unlimited, and here it is unlimited.
+
+    The `client` fixture is a signed-in administrator carrying no
+    ``X-Cron-Secret``. D23's rule is that a write is constrained by a limit
+    matching its cost; a verdict spends no outbound request, and marks are made
+    in bursts of a dozen while working through a page - so unlike a sweep or a
+    re-score, marking twice in a row must not be refused.
+    """
+    first = by_notice(corpus, "reject-1")
+    second = by_notice(corpus, "reject-2")
+    assert client.post(f"/api/tenders/{first.id}/feedback", json={"verdict": "irrelevant"}).status_code == 200
+    assert (
+        client.post(f"/api/tenders/{second.id}/feedback", json={"verdict": "irrelevant"}).status_code == 200
+    )
+    assert client.delete(f"/api/tenders/{first.id}/feedback").status_code == 200
 
 
 def test_learned_endpoint_shows_the_evidence(client, corpus):

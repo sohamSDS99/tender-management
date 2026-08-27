@@ -108,17 +108,77 @@ def _build_app(db_session, monkeypatch, settings):
     return app
 
 
+#: The password every test account uses.
+TEST_PASSWORD = "a-long-enough-test-password"
+
+#: Hashing is deliberately expensive (~60ms of scrypt), and almost every test in
+#: the suite now needs an account. Hashing once for the whole session and reusing
+#: the digest keeps the run at seconds rather than minutes; the value is
+#: identical to what ``register`` would have produced, so nothing about the
+#: verification path is faked.
+_cached_hash: str | None = None
+
+
+def admin_hash() -> str:
+    global _cached_hash
+    if _cached_hash is None:
+        from app.services import accounts
+
+        _cached_hash = accounts.hash_password(TEST_PASSWORD)
+    return _cached_hash
+
+
+def make_account(db_session, settings, *, email="operator@example.com", role="admin"):
+    """Insert an account and mint a session for it. Returns (user, raw_token).
+
+    Rows are written directly rather than through the register endpoint because
+    registration is invite-only after the first account (D25) and most tests do
+    not care; the session itself is minted by the real ``start_session``, so the
+    cookie under test is a genuine one.
+    """
+    from app.models import User
+    from app.services import accounts
+
+    user = User(
+        email=email,
+        display_name=email.partition("@")[0],
+        password_hash=admin_hash(),
+        role=role,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    token, _ = accounts.start_session(db_session, user, user_agent="pytest", settings=settings)
+    return user, token
+
+
 @pytest.fixture
 def client(db_session, monkeypatch, settings):
-    """An *authorised operator*: the shared secret is sent on every request.
+    """A **signed-in administrator**, which is what every route now requires (D26).
 
-    The write endpoints are gated (see tests/test_security.py for the bare-client
-    401/202 proof); sending the header here keeps every pre-existing test body
-    unchanged while the endpoints themselves are no longer publicly callable.
+    Deliberately does *not* send ``X-Cron-Secret``. The secret bypasses the
+    sign-in gate, so a client carrying it would sail past the very thing this
+    suite should be exercising - the whole pre-existing body of tests would keep
+    passing even if the gate refused every real human. Tests that specifically
+    need the secret (to skip an operator cooldown) send the header themselves.
     """
     app = _build_app(db_session, monkeypatch, settings)
+    _, token = make_account(db_session, settings)
     # No `with` block: the lifespan (migrations + scheduler) must not run in tests.
+    return TestClient(app, cookies={settings.session_cookie_name: token})
+
+
+@pytest.fixture
+def cron_client(db_session, monkeypatch, settings):
+    """A machine caller: the shared secret, no account. Bypasses the gate (D26)."""
+    app = _build_app(db_session, monkeypatch, settings)
     return TestClient(app, headers={"X-Cron-Secret": CRON_SECRET})
+
+
+@pytest.fixture
+def open_settings(settings):
+    """Settings with the gate switched off, for the REQUIRE_SIGN_IN=false path."""
+    return settings.model_copy(update={"require_sign_in": False})
 
 
 @pytest.fixture

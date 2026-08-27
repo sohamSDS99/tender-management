@@ -1,5 +1,5 @@
 import type { AutomationStatus, Stats, User } from '../types';
-import { initials, type AuthStatus } from '../state/auth';
+import { initials } from '../state/auth';
 import { LENSES, type LensContext, type LensKey } from '../state/lenses';
 import { SETTINGS_CATEGORIES, type SettingsKey } from '../state/settingsNav';
 import { SWEEP_DEPTHS, formatDateTime, isSweepInFlight } from '../labels';
@@ -34,13 +34,11 @@ export function Sidebar({
   busy,
   sweepDays,
   user,
-  authStatus,
   onSweepDays,
   onSelectLens,
   onSelectCategory,
   onFetch,
   onRescore,
-  onSignIn,
   onSignOut,
 }: {
   stats: Stats | null;
@@ -53,15 +51,13 @@ export function Sidebar({
   busy: 'fetch' | 'rescore' | null;
   /** Days of history the next sweep will search. */
   sweepDays: number;
-  /** The signed-in account, or null. Nothing in this column is gated on it. */
-  user: User | null;
-  authStatus: AuthStatus;
+  /** The signed-in account. Never null — the app does not render signed out (D26). */
+  user: User;
   onSweepDays: (days: number) => void;
   onSelectLens: (key: LensKey) => void;
   onSelectCategory: (key: SettingsKey) => void;
   onFetch: () => void;
   onRescore: () => void;
-  onSignIn: () => void;
   onSignOut: () => void;
 }) {
   // Shared helper, so the button's idea of "still sweeping" can never drift
@@ -198,54 +194,44 @@ export function Sidebar({
         </div>
 
         {/*
-          The account control, pinned below the operator actions.
+          The account control, pinned under the operator actions.
 
-          Two states and no popup menu between them. A menu would need an
-          outside-click handler, a focus trap and an escape key for two
-          destinations, and the two destinations fit here as buttons: the chip
-          opens the profile page, the icon signs out. Signed out it is a single
-          button, because there is nothing to show about a reader who has not
-          told us anything.
+          Two controls and no popup menu between them: the chip opens the
+          profile, the icon signs out. A menu would need an outside-click
+          handler, a focus trap and an escape key for two destinations that fit
+          here as buttons.
 
-          `authStatus` is checked so this does not flash "Sign in" for the
-          fraction of a second before the first reply lands — the one thing that
-          would make an optional feature look like a wall.
+          There is no signed-out state to draw any more. Since D26 the app does
+          not render at all without a session, so `user` is never null and the
+          "Sign in" branch that used to live here was dead code the moment the
+          gate went in.
         */}
-        {authStatus === 'loading' ? (
-          <div className="acctchip acctchip--wait" aria-hidden="true" />
-        ) : user ? (
-          <div className="acctchip">
-            <button
-              type="button"
-              className={`acctchip__who${settingsKey === 'account' ? ' is-on' : ''}`}
-              aria-current={settingsKey === 'account' ? 'page' : undefined}
-              title="Your profile"
-              onClick={() => onSelectCategory('account')}
-            >
-              <span className="acctchip__avatar" aria-hidden="true">
-                {initials(user)}
-              </span>
-              <span className="acctchip__text">
-                <b>{user.display_name}</b>
-                <small>{user.role === 'admin' ? 'Administrator' : 'Member'}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="btn btn--icon btn--sm"
-              title={`Sign out of ${user.email}`}
-              onClick={onSignOut}
-            >
-              <Icon name="signout" size={14} />
-              <span className="sr">Sign out</span>
-            </button>
-          </div>
-        ) : authStatus === 'unreachable' ? null : (
-          <button type="button" className="btn btn--sm acctchip__signin" onClick={onSignIn}>
-            <Icon name="user" size={13} />
-            Sign in
+        <div className="acctchip">
+          <button
+            type="button"
+            className={`acctchip__who${settingsKey === 'account' ? ' is-on' : ''}`}
+            aria-current={settingsKey === 'account' ? 'page' : undefined}
+            title="Your profile"
+            onClick={() => onSelectCategory('account')}
+          >
+            <span className="acctchip__avatar" aria-hidden="true">
+              {initials(user)}
+            </span>
+            <span className="acctchip__text">
+              <b>{user.display_name}</b>
+              <small>{user.role === 'admin' ? 'Administrator' : 'Member'}</small>
+            </span>
           </button>
-        )}
+          <button
+            type="button"
+            className="btn btn--icon btn--sm"
+            title={`Sign out of ${user.email}`}
+            onClick={onSignOut}
+          >
+            <Icon name="signout" size={14} />
+            <span className="sr">Sign out</span>
+          </button>
+        </div>
       </div>
     </nav>
   );

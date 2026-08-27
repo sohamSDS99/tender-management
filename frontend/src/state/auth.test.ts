@@ -36,6 +36,19 @@ describe('withoutInvite', () => {
   it('leaves a URL that never had one untouched', () => {
     expect(withoutInvite('minimum_score=70')).toBe('minimum_score=70');
   });
+
+  it('preserves the Slack digest deep link, which sign-in must not eat', () => {
+    // D26 claims a `?tender=` link survives being sent to the gate: the page
+    // does not navigate or reload, so the parameter is still there when the
+    // Dashboard finally mounts and reads it. The one thing that rewrites the
+    // URL on that path is this function, stripping a spent invite token — so
+    // this is where that claim can actually break.
+    const out = withoutInvite('tender=4821&invite=secret&minimum_score=70');
+    const params = new URLSearchParams(out);
+    expect(params.get('tender')).toBe('4821');
+    expect(params.get('minimum_score')).toBe('70');
+    expect(params.has('invite')).toBe(false);
+  });
 });
 
 describe('initials', () => {

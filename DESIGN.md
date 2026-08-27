@@ -169,9 +169,12 @@ the mechanical detector flags this pattern and it is kept deliberately, from the
 mockup. Counts on the fit / deployment / capability chips, because those come from
 unfiltered `/api/stats` and inside a narrowed view promise results that are not
 there. Monospace as a costume — it appears only on source keys, references and raw
-payloads, which are genuinely code. A modal for anything but the detail drawer.
+payloads, which are genuinely code. A modal for anything but the detail drawer —
+this refusal was broken once, by the sign-in dialog added with accounts, and the
+replacement is a full page (D26). If a surface feels like it wants a modal, that
+is usually a sign it deserves the whole width instead.
 
-## Marking a notice not relevant (D26)
+## Marking a notice not relevant (D27)
 
 The first control on this surface that removes something from view, which makes
 principle 5 — *nothing is discarded, and the page says so where it could be

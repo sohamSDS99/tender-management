@@ -3180,80 +3180,238 @@ html[data-density='compact'] .score {
   border-top: 1px solid var(--line);
 }
 
-/* The sign-in / register dialog. Above the scrim, below nothing. */
-.authdlg {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 34;
-  width: min(400px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-3);
+/* ── The gate (D26) ──────────────────────────────────────────────────────────
+   The sign-in page. Replaces the modal dialog that used to do this job, which
+   DESIGN.md refuses ("a modal for anything but the detail drawer") — and a modal
+   was the wrong idea anyway, since it implies the page behind it is still yours
+   to read, and it is not.
+
+   An asymmetric split rather than the reflexive centred card: black plate for
+   identity, white side for the form. With no colour to spend and gradients,
+   glass and ornament all refused, the character has to come from typographic
+   range — a wordmark tracked to -0.04em against micro-labels at +0.18em. */
+.gate {
+  min-height: 100vh;
+  display: grid;
+  /* The plate takes the larger share. A 50/50 split reads as indecision. */
+  grid-template-columns: 1.15fr 1fr;
+  background: var(--page);
 }
-.authdlg__head {
+/* Holds the frame while the first session reply is in flight, so nothing
+   flashes a sign-in form at somebody who is already signed in. */
+.gate__wait {
+  min-height: 100vh;
+  background: var(--page);
+}
+
+.gate__plate {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  padding: 56px 6vw;
+  background: var(--brand);
+  color: var(--brand-ink);
+  overflow: hidden;
 }
-.authdlg__head h2 {
-  margin: 0;
-  font-size: 1.05rem;
+.gate__plateinner {
+  max-width: 30rem;
+}
+.gate__mark {
+  margin: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-xs);
+  font-size: 0.72rem;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.06em;
 }
-.authdlg__note {
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-3);
-  font-size: 0.79rem;
-  line-height: 1.45;
+.gate__wordmark {
+  margin: 40px 0 0;
+  font-size: clamp(2.6rem, 5.2vw, 4.1rem);
+  font-weight: 600;
+  /* The tight end of the range. */
+  letter-spacing: -0.04em;
+  line-height: 0.94;
+}
+.gate__strap {
+  margin: 22px 0 0;
+  max-width: 26rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.66);
+}
+.gate__specimen {
+  margin: 52px 0 0;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  display: grid;
+  gap: 14px;
+}
+.gate__specimen > div {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.gate__specimen dt {
+  /* The wide end of the range. */
+  font-size: 0.66rem;
+  font-weight: 550;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+.gate__specimen dd {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-variant-numeric: tabular-nums;
+}
+
+.gate__form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 5vw;
+}
+/* The unreachable-API state reuses the form column on its own. */
+.gate--flat {
+  grid-template-columns: 1fr;
+  place-items: center;
+  padding: 56px 5vw;
+}
+.gate__formInner {
+  width: 100%;
+  max-width: 21rem;
+}
+.gate__eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.66rem;
+  font-weight: 550;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.gate__title {
+  margin: 0 0 12px;
+  font-size: 1.6rem;
+  font-weight: 620;
+  letter-spacing: -0.022em;
+}
+.gate__note {
+  margin: 0 0 26px;
+  font-size: 0.83rem;
+  line-height: 1.55;
   color: var(--ink-soft);
 }
-/* The first account is the one consequential moment in the whole feature, so
-   it gets the only accented surface on the dialog. */
-.authdlg__note--first {
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-left: 3px solid var(--mark-good);
-}
-.authdlg__note b {
+.gate__note b {
   color: var(--ink);
+  font-weight: 600;
 }
-.authdlg__form {
+.gate__note--quiet {
+  color: var(--ink-muted);
+}
+.gate__fields {
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 15px;
 }
-.authdlg__form .btn {
+.gate__submit {
   justify-content: center;
-  margin-top: 3px;
+  margin-top: 6px;
+  padding-block: 11px;
 }
-.authdlg__error {
+.gate__error {
   margin: 0;
-  font-size: 0.79rem;
+  font-size: 0.8rem;
   color: var(--red-ink);
 }
-.authdlg__foot {
-  margin-top: 15px;
-  padding-top: 13px;
+.gate__foot {
+  margin: 24px 0 0;
+  padding-top: 18px;
   border-top: 1px solid var(--line);
   font-size: 0.78rem;
 }
-.authdlg__closed {
+.gate__closed {
   color: var(--ink-muted);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
-/* A labelled control. The dialog stacks these; the settings page uses SettingsRow. */
+/* One authored arrival, staggered. Under DESIGN.md's 200ms ceiling for
+   everything that is not the detail drawer, and delayed rather than slowed so
+   the sequence reads without any single step feeling sluggish. */
+@keyframes gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.gate__wordmark,
+.gate__strap,
+.gate__specimen,
+.gate__formInner > * {
+  animation: gate-rise 200ms var(--ease) both;
+}
+.gate__strap {
+  animation-delay: 60ms;
+}
+.gate__specimen {
+  animation-delay: 120ms;
+}
+.gate__formInner > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+.gate__formInner > *:nth-child(3) {
+  animation-delay: 80ms;
+}
+.gate__formInner > *:nth-child(4) {
+  animation-delay: 120ms;
+}
+.gate__formInner > *:nth-child(5) {
+  animation-delay: 160ms;
+}
+
+/* Desktop-only is the standing rule, but a narrow window must degrade rather
+   than break: the plate becomes a header and keeps the wordmark, and the
+   specimen list — which is atmosphere, not information — goes. */
+@media (max-width: 860px) {
+  .gate {
+    grid-template-columns: 1fr;
+    min-height: 100vh;
+  }
+  .gate__plate {
+    padding: 32px 7vw;
+  }
+  .gate__mark,
+  .gate__specimen {
+    display: none;
+  }
+  .gate__wordmark {
+    margin-top: 0;
+    font-size: 2.2rem;
+  }
+  .gate__form {
+    padding: 36px 7vw 56px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate__wordmark,
+  .gate__strap,
+  .gate__specimen,
+  .gate__formInner > * {
+    animation: none;
+  }
+}
+
+/* A labelled control. The gate stacks these; the settings page uses SettingsRow. */
 .field {
   display: flex;
   flex-direction: column;

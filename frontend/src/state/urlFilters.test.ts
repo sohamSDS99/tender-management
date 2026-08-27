@@ -183,7 +183,7 @@ describe('the hidden filter is tri-state, and its default is not "off"', () => {
 describe('chips explain why the result set looks the way it does', () => {
   it('shows the default narrowing rather than hiding it', () => {
     // 320 stored tenders becoming 9 must never look unexplained — and since
-    // D26 one of the three reasons is "somebody marked these not relevant",
+    // D27 one of the three reasons is "somebody marked these not relevant",
     // which is the least guessable of them.
     const chips = activeChips(DEFAULT_FILTERS, LABELS).map((c) => c.key);
     expect(chips).toContain('minimum_score');

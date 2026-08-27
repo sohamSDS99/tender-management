@@ -72,7 +72,7 @@ class TenderListItem(UtcModel):
     # start, so the list needs it too - not just the detail view.
     first_seen_at: datetime
 
-    # --- reviewer feedback and what was learned from it (D26) ---------------
+    # --- reviewer feedback and what was learned from it (D27) ---------------
     #: What a person decided, if anyone has. Nested rather than flattened
     #: because the note and the timestamp travel with the verdict, and the card
     #: needs the verdict while the detail panel needs all three.

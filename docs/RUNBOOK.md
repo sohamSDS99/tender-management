@@ -487,10 +487,15 @@ Different decision entirely, and not covered by D18. At minimum: set
 `ENABLE_API_DOCS=false`, put real authentication in front of the whole app, and
 re-read `docs/DECISIONS.md` D5.
 
-**The accounts added in D25 are not that authentication.** They gate nothing —
-every read and every operator action answers a signed-out browser exactly as it
-did before. Do not read "the dashboard has a sign-in button" as "the dashboard
-is protected"; it is not, and it was never meant to be.
+**D26 closed the dashboard**: every route now needs a session except `/health`
+and the `/api/auth` doors, and a signed-out browser sees a sign-in page and
+nothing else. That is a real boundary, not a hidden page — `curl` gets the same
+401.
+
+It is still not the same as being safe on the internet. Any account, once in, can
+start a sweep, rotate a source key or add a source; the controls there are costs,
+not permissions (D23). Before exposing this: `ALLOW_OPERATOR_ACTIONS=false`,
+`ENABLE_API_DOCS=false`, `SESSION_COOKIE_SECURE=true`.
 
 ---
 
@@ -774,8 +779,8 @@ regenerate it with `python -m tests.test_relevance_baseline`.
 
 ## 9. Accounts
 
-Accounts are optional and gate nothing (D25). Everything in this section is
-about *who has a profile*, not about who may read or do anything.
+**An account is now required to see anything (D26).** Everything in this section
+is therefore also about access, not only about who has a profile.
 
 ### Create the first administrator
 
@@ -867,3 +872,31 @@ the dashboard. A cross-origin `VITE_API_BASE_URL` needs that origin listed in
 ```bash
 docker compose exec backend python -m app.accounts_cli list
 ```
+
+### Locked out of the whole deployment
+
+Two different situations, and the second one is the emergency.
+
+**You forgot your password, but the dashboard is fine.** Reset it from a shell —
+see above. Nothing special about it.
+
+**The gate itself is refusing everybody**, and since the gate also guards the
+account endpoints, there is no way in through the UI. Reopen the API without a
+deploy:
+
+```bash
+railway variables --service backend --set REQUIRE_SIGN_IN=false
+```
+
+That restores the pre-D26 behaviour — every read answers anybody — which is a
+deliberate trade: an open dashboard on an internal network beats a dashboard
+nobody can enter. Fix the cause, then set it back to `true` and confirm with:
+
+```bash
+curl -o /dev/null -w '%{http_code}\n' https://<host>/api/tenders    # want 401
+curl -o /dev/null -w '%{http_code}\n' https://<host>/health         # want 200
+```
+
+The second line matters as much as the first: `/health` must stay public or
+Railway's healthcheck fails and the next deploy rolls back, with the application
+logs looking healthy the whole time.

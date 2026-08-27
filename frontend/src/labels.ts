@@ -472,7 +472,7 @@ export function normalisePhrase(raw: string): string {
 }
 
 /**
- * What to say after a verdict (D26).
+ * What to say after a verdict (D27).
  *
  * The whole point of this sentence is that the learning is otherwise invisible:
  * one click can remove a dozen rows from the page, and a reader who was not told

@@ -257,7 +257,7 @@ def list_sources(
 
 
 def _hidden_clause():
-    """A notice a person rejected, or one the learner matched to those (D26).
+    """A notice a person rejected, or one the learner matched to those (D27).
 
     The SQL half of ``hidden``; ``TenderListItem.hidden`` is the Python half.
     Both are needed - a filter runs in the database, a response is built here -
@@ -548,7 +548,7 @@ def clear_feedback(tender_id: int, db: Session = Depends(get_db)) -> FeedbackRes
     summary="The patterns learned from reviewer verdicts, and their evidence",
 )
 def learned_patterns(db: Session = Depends(get_db)) -> LearnedModel:
-    """Read out the model. Nothing here is opaque on purpose (D26): every
+    """Read out the model. Nothing here is opaque on purpose (D27): every
     pattern comes with how many rejections it appears in and how many other
     notices, so a wrong one can be spotted and the mark behind it withdrawn."""
     return LearnedModel(**feedback.summary(db))

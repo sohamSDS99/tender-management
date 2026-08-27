@@ -360,7 +360,7 @@ export interface RescoreResponse {
   rescored: number;
 }
 
-// --- learning from verdicts (D26) -------------------------------------------
+// --- learning from verdicts (D27) -------------------------------------------
 
 /** One phrase the system worked out for itself, with the evidence for it. */
 export interface LearnedPattern {

@@ -74,7 +74,7 @@ classification codes, description, documents and raw source payload; see which
 sources are healthy and when the next automated run is; share any view by URL;
 mark a notice relevant or not relevant, and have the system learn from it.
 
-**Still no per-notice editing — but there is now a decision to record (D26).**
+**Still no per-notice editing — but there is now a decision to record (D27).**
 This supersedes the earlier "no decision to record" and nothing else in this
 section. A reviewer can mark a notice **relevant** or **not relevant**, which
 hides it from the working views and teaches the system to hide notices matching

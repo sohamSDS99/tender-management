@@ -111,7 +111,7 @@ class DigestOutcome:
 
 
 def _not_hidden() -> tuple:
-    """Never announce what a reviewer rejected, or what looks like it (D26).
+    """Never announce what a reviewer rejected, or what looks like it (D27).
 
     This is the point of the whole feature as far as Slack is concerned. A
     digest is the one place the tool interrupts somebody, so the population it

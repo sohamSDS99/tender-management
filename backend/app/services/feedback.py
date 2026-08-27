@@ -18,7 +18,7 @@ mark rather than the five-hundredth: a word common everywhere ("contract",
 "the", "services") appears just as often in both halves, so its weight lands
 near zero and it drops out on its own. No stop-word list, no tuning, no
 dependency - and every surviving pattern is a phrase a human can read and argue
-with, which is the only kind of learning this product is allowed to do (D26).
+with, which is the only kind of learning this product is allowed to do (D27).
 
 Three floors stop it from over-reaching, and they are the whole safety story:
 

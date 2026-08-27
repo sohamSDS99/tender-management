@@ -348,7 +348,7 @@ flagged `is_actionable = false`.
 }
 ```
 
-### 5.1 Marking a notice not relevant, and what the system learns (D26)
+### 5.1 Marking a notice not relevant, and what the system learns (D27)
 
 The score above is computed from phrases somebody wrote down. This is the other
 half: patterns nobody wrote down, learned from what a reviewer actually rejected.
@@ -404,7 +404,7 @@ Interactive documentation: <http://localhost:8000/docs>.
 | GET | `/api/tenders` | paginated, filtered, sorted list |
 | GET | `/api/tenders/{id}` | full record incl. raw source payload |
 | POST | `/api/tenders/rescore` | reload the profile and re-score every stored row |
-| POST | `/api/tenders/{id}/feedback` | mark it relevant or not relevant, and re-learn from it, D26 |
+| POST | `/api/tenders/{id}/feedback` | mark it relevant or not relevant, and re-learn from it, D27 |
 | DELETE | `/api/tenders/{id}/feedback` | withdraw that mark, and unlearn what it taught |
 | GET | `/api/feedback/learned` | the patterns learned from the marks, with the evidence for each |
 | GET | `/api/sources` | every source: enabled, key required, prefiltered, tender count, last run/status/error |
@@ -432,9 +432,12 @@ Interactive documentation: <http://localhost:8000/docs>.
 | GET · POST · DELETE | `/api/auth/invites` | invitations — **admin only** |
 | GET · PATCH | `/api/auth/users` | roles and deactivation — **admin only** |
 
-The `/api/auth` group is the only part of this API that ever refuses a caller
-(`401` unidentified, `403` identified but not an administrator). Everything above it answers a
-signed-out browser, and that is a decision rather than an oversight — see section 12 and D25.
+**Every path above requires a session (D26)**, except `/health` and the four `/api/auth`
+doors (`session`, `login`, `register`, `logout`). A signed-out caller gets `401`; a signed-in
+member who is not an administrator gets `403` on the invite and user endpoints. `/docs`,
+`/redoc` and `/openapi.json` are gated too, and are removed entirely by `ENABLE_API_DOCS=false`.
+
+This reverses the older "reads stay open" position in D5 and D25 — see section 12 and D26.
 
 `GET /api/tenders` query parameters: `query`, `sources`, `countries`, `categories`, `statuses`,
 `fit_statuses`, `deployment_fits`, `minimum_score`, `maximum_score`, `published_from`,
@@ -480,7 +483,7 @@ the mockup asked for exist at all:
 |---|---|---|
 | `POST /api/fetch` | single-flight (`409`) + a 300 s cooldown (`429`) | spends outbound requests against 8 public services |
 | `POST /api/tenders/rescore` | a 120 s cooldown (`429`) | rewrites every stored row |
-| `POST`/`DELETE /api/tenders/{id}/feedback` | none | one row plus a local re-predict; marks are made in bursts while reading a list (D26) |
+| `POST`/`DELETE /api/tenders/{id}/feedback` | none | one row plus a local re-predict; marks are made in bursts while reading a list (D27) |
 | `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
 | `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
 
@@ -526,7 +529,7 @@ Four smaller tables carry everything an operator changes:
 | `sources` | a feed somebody added: its URL, auth style, field mapping and enabled flag |
 | `app_settings` | the sweep times, the on/off decision, the matching-rule overrides, and the stored credentials — each beating its environment variable and applying without a restart |
 | `slack_notifications` | the at-most-once delivery ledger, unique on `(tender_id, channel_label)` |
-| `tender_feedback` | one verdict per notice — `relevant` / `irrelevant`, with an optional note. Keyed on the tender, so re-marking is an update and no notice can hold two verdicts. Nothing in the fetch path writes here, which is what makes a verdict survive a re-score, a re-ingest and a content-hash change (D26) |
+| `tender_feedback` | one verdict per notice — `relevant` / `irrelevant`, with an optional note. Keyed on the tender, so re-marking is an update and no notice can hold two verdicts. Nothing in the fetch path writes here, which is what makes a verdict survive a re-score, a re-ingest and a content-hash change (D27) |
 
 ## 8. Automation, scheduling and reliability
 
@@ -695,7 +698,7 @@ owns the visual world; this is what they add up to.
   Display, Automation, Sources and System take the width. It is not a right drawer and not an
   inline column — both were built and both were rejected. Shut, it goes `visibility: hidden`,
   because a panel merely translated off-screen keeps its tab stops.
-* **A notice can be marked not relevant, and the page says so in four places (D26).** One quiet
+* **A notice can be marked not relevant, and the page says so in four places (D27).** One quiet
   button per card for the frequent act; both directions plus a note in the detail panel. Because
   hiding something is the one operation here that removes it from view, the removal is stated by a
   toolbar chip on the default view, by the **Not relevant** lens and its count in the rail, by a
@@ -820,15 +823,17 @@ tender-monitor/
 
 ## 12. Accounts
 
-Optional, and additive. **Nothing on this dashboard requires an account** — tenders,
-filters, sweeps and settings are all open to anyone who can reach the page, exactly as
-they were before accounts existed (`docs/DECISIONS.md` D25). What an account buys is a
-profile, and for administrators the ability to let other people in.
+**Required.** Nothing on this dashboard is visible without one: signing out returns you to a
+full-page sign-in screen, and the API answers `401` to anyone without a session
+(`docs/DECISIONS.md` D26). This reverses D25, which shipped accounts that deliberately gated
+nothing — the requirement changed, and the gate is enforced on the server rather than by
+hiding pages, so `curl` gets the same `401` a browser does.
 
 | Action | Where |
 | --- | --- |
-| Create the first account | Sign in → **Create account**. The first one on a fresh deployment becomes the administrator and needs no invitation. |
-| Sign in / sign out | The account control at the foot of the left sidebar. |
+| Create the first account | The sign-in page offers **Create account** while no account exists. The first one becomes the administrator and needs no invitation. |
+| Sign in | The sign-in page — it is the whole page when signed out, not a dialog over the dashboard. |
+| Sign out | The account control at the foot of the left sidebar. |
 | Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
 | Invite someone | **Settings → Account → Invitations** (administrators only). |
 | Change a role, deactivate someone | **Settings → Account → People** (administrators only). |
@@ -851,6 +856,10 @@ Other things worth knowing:
 * **Sign-in over HTTPS needs `SESSION_COOKIE_SECURE=true`; over plain HTTP it must stay
   `false`.** A Secure cookie is silently never sent over HTTP, and the symptom is a
   sign-in that succeeds and leaves you signed out.
+* **`REQUIRE_SIGN_IN=false` reopens the API** exactly as it behaved before D26. It exists as
+  the way back into a deployment whose gate is misbehaving, and it defaults to `true`.
+* **`X-Cron-Secret` passes the gate**, because it is a machine identity that no browser holds
+  (D5). With `CRON_SECRET` unset — the default — that door does not exist.
 * **There is no password reset**, because there is no mailer. Recovery is
   `docker compose exec backend python -m app.accounts_cli reset-password --email …`,
   which also ends every session that account had.
@@ -875,16 +884,14 @@ python -m app.accounts_cli reset-password --email you@example.com --reactivate
 * SAM.gov estimated values and TED lot-level values are only partially published; the model
   stores what the API returns.
 * Attachments are linked, not downloaded or parsed. Document text is therefore not scored.
-* Read endpoints are unauthenticated **by design** — the content is public procurement data
-  already published by governments. The writes are not secret-gated either: they are
-  cost-controlled instead (section 6, D23), which means the trust boundary is "anyone who can
-  reach the dashboard can start a sweep, rotate a key or add a source". **The accounts added in
-  D25 do not change this** — signing in buys a profile, not access, and every route listed above
-  answers a signed-out browser exactly as it did before. That boundary is **only defensible while
-  the API is not reachable from the internet**. Before that changes: set
-  `ALLOW_OPERATOR_ACTIONS=false`, set `ENABLE_API_DOCS=false`, and read `docs/DECISIONS.md` D5,
-  D18, D23 and D25. Hardening headers are applied to every response; there is no rate limiting
-  beyond the two cooldowns and the per-account sign-in lockout.
+* The API now requires a session (D26), but **that is not the same as being safe to expose**.
+  Once inside, any account can start a sweep, rotate a source key or add a source — the controls
+  there are costs, not permissions (section 6, D23), and the only role distinction is the small
+  set of account-administration endpoints. Before putting this on the internet: set
+  `ALLOW_OPERATOR_ACTIONS=false`, set `ENABLE_API_DOCS=false`, set `SESSION_COOKIE_SECURE=true`,
+  and read `docs/DECISIONS.md` D5, D18, D23 and D26. Hardening headers are applied to every
+  response; rate limiting is the two operator cooldowns and the per-account sign-in lockout,
+  and nothing more.
 * A source added from the dashboard makes the server fetch an operator-supplied URL. The probe
   refuses localhost, private ranges and the cloud metadata endpoint, but this is the one feature
   whose safety rests on that guard rather than on the network boundary.

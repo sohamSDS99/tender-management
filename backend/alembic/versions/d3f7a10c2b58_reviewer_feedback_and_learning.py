@@ -1,6 +1,6 @@
 """reviewer feedback, and the learned prediction it produces
 
-Two separate things, deliberately in separate places (D26):
+Two separate things, deliberately in separate places (D27):
 
 * ``tender_feedback`` holds what a person decided. It is keyed on the tender, so
   re-marking is an update and one notice can never hold two verdicts. Nothing in
