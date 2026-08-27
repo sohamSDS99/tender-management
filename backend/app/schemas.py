@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer, field_validator
 
 from app.models.tender_feedback import IRRELEVANT
 
@@ -82,6 +82,33 @@ class TenderListItem(UtcModel):
     auto_irrelevant: bool = False
     auto_irrelevant_reasons: list[str] = Field(default_factory=list)
 
+    @field_validator(
+        "relevance_reasons",
+        "disqualifiers",
+        "review_flags",
+        "auto_irrelevant_reasons",
+        mode="before",
+    )
+    @classmethod
+    def _null_list_is_empty(cls, value: Any) -> Any:
+        """A nullable JSON column reads as `[]`, never as None.
+
+        `list[str] = Field(default_factory=list)` looks like it covers this and
+        does not: the factory fills an *absent* value, while an explicit None is
+        a validation error. Every one of these columns is nullable in the
+        database, so any row written outside the ORM - which is what an
+        `ALTER TABLE ... ADD COLUMN` does to every existing row - holds None and
+        takes the whole response down with a 500.
+
+        That is not hypothetical. `auto_irrelevant_reasons` was added nullable
+        with no server default, so all 807 stored notices held None and
+        `GET /api/tenders` answered 500 in production while `/api/stats`, which
+        serialises no tenders, looked perfectly healthy. Coerced here rather
+        than only backfilled: a backfill fixes the rows that exist today, and
+        this fixes the ones that do not exist yet.
+        """
+        return [] if value is None else value
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def hidden(self) -> bool:
@@ -111,6 +138,14 @@ class TenderDetail(TenderListItem):
     created_at: datetime
     updated_at: datetime
     raw_payload: dict[str, Any] | None
+
+    #: The two JSON list columns only this schema declares. Same hazard, same
+    #: reason - see `TenderListItem._null_list_is_empty`. A validator does not
+    #: inherit coverage for fields the parent never declared.
+    @field_validator("classification_codes", "document_urls", mode="before")
+    @classmethod
+    def _null_detail_list_is_empty(cls, value: Any) -> Any:
+        return [] if value is None else value
 
 
 class TenderPage(BaseModel):

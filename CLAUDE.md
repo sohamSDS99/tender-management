@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 587 tests, all passing
+./.venv/bin/python -m pytest -q          # 589 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 9 revisions, head e3b7c1d5f204
 
@@ -119,6 +119,30 @@ the remainder. So `total_tenders` is no longer the corpus size — the corpus is
 `total_tenders + hidden_total`, which is exactly what the All-tenders lens badge
 computes. A new count added to that response must apply `_visible_clause()` or it
 will disagree with the list it labels.
+
+**`Field(default_factory=list)` does NOT cover a column that is NULL, and the
+symptom is a 500 on the list while every other endpoint looks healthy.** The
+factory fills an *absent* value; an explicit `None` is a validation error. Every
+JSON list column on `tenders` is nullable, and `ALTER TABLE ... ADD COLUMN`
+without a server default writes `NULL` into every existing row — so
+`auto_irrelevant_reasons` shipped NULL on all 807 stored notices and
+`GET /api/tenders` answered 500 in production while `/api/stats` (which
+serialises no tenders) and `/api/feedback/learned` were both fine. The tests
+could not have caught it: every fixture row is built through the ORM, where
+`default=list` supplies `[]`, so no test row was ever in the state the migration
+created. `TenderListItem._null_list_is_empty` and its `TenderDetail` twin coerce
+None to `[]`, and `test_a_row_from_before_the_migration_still_serialises` writes
+the NULL in raw SQL, behind the ORM, which is the only way to reproduce it.
+**Add a nullable JSON list column and you own this**: give it a `server_default`,
+or add the field to a coercing validator, and test it with a raw-SQL NULL.
+
+**A dashboard URL and an API URL agree on every parameter except `hidden`.**
+`searchFromFilters` writes `hidden=all` for "show everything", because in the
+browser's URL an *absent* `hidden` has to mean the shipped default. The API's
+absent `hidden` means the opposite — ignore feedback entirely — so `buildQuery`
+omits the parameter rather than translating it, and pasting a dashboard query
+string at the API 422s on that one value (`bool_parsing`). The dashboard is
+correct; only the hand-comparison is affected.
 
 **`hidden` is defined twice — in SQL and as a Pydantic computed field.** There is
 no avoiding it: the filter must run in the database and the boolean must reach
@@ -401,7 +425,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **587 passing, nothing skipped, nothing failing**. Treat any
+A green run is **589 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend
