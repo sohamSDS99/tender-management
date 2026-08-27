@@ -232,8 +232,15 @@ export function AuthPage({ auth }: { auth: Auth }) {
                 // Not a mode switch: without an invitation there is no
                 // registration that could succeed, so this says what to do instead
                 // rather than offering a form that will be refused.
+                //
+                // It also has to answer the person this form cannot help at all
+                // (D31): somebody who joined by access link, never set a
+                // password, and has just signed out. The form above is unusable
+                // for them and says nothing about why, so the two ways back are
+                // named here.
                 <span className="gate__closed">
-                  New accounts are by invitation. Ask an administrator for a link.
+                  New accounts are by invitation. <b>No password?</b> Open your access link again,
+                  or ask an administrator to set one for you.
                 </span>
               )}
             </p>

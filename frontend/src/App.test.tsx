@@ -150,6 +150,7 @@ const ACCOUNT = {
   display_name: 'tanjir',
   role: 'admin',
   is_active: true,
+  has_password: true,
   created_at: '2026-08-27T00:00:00Z',
   last_login_at: '2026-08-27T00:00:00Z',
 };

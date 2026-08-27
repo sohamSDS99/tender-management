@@ -419,6 +419,14 @@ export interface User {
   display_name: string;
   role: UserRole;
   is_active: boolean;
+  /**
+   * Whether they can sign in with a password at all (D31).
+   *
+   * False for somebody who joined by access link and has never set one — which
+   * is the difference between "signing out logs me out" and "signing out locks
+   * me out". The page could not warn about a state it could not read.
+   */
+  has_password: boolean;
   created_at: string;
   last_login_at: string | null;
 }

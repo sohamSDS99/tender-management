@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (30 records, D1–D30).
+`docs/DECISIONS.md` explains why it is built this way (31 records, D1–D31).
 
 ## What this is
 
@@ -373,10 +373,36 @@ would sail past the very thing the suite should exercise — every pre-existing
 test would keep passing even if the gate refused every real human. Tests that
 genuinely need to skip an operator cooldown use `cron_client` and say why.
 
-**There is no password for anybody but the bootstrap admin (D29).** A person
-joins by opening *their own* access link and pressing one button;
-`POST /api/auth/accept` creates the account and signs them in. The same link
-works again for ever until revoked.
+**A person joins by opening *their own* access link and pressing one button
+(D29)** — `POST /api/auth/accept` creates the account and signs them in, with no
+password. The same link works again for ever until revoked.
+
+**But the link is no longer the *only* credential, because being the only one was
+a lockout (D31).** A colleague who joined by link, pressed **Sign out**, and no
+longer had the link could not get back in by any route inside the product. Three
+doors now put a password on an account: `POST /api/auth/users` (an administrator
+creates the account with one), `POST /api/auth/users/{id}/password` (an
+administrator sets one — the rescue for anybody already stranded), and
+`POST /api/auth/me/password` with **no** `current_password` (the owner sets a
+first one). `UserOut.has_password` is what lets the pages stop being silent about
+this: an amber warning on the account page, a **No password** mark in the
+administrator's People list.
+
+**Which case `/me/password` is comes from the stored hash, never from what the
+caller sent.** Written the other way round — "no current password sent means none
+is needed" — anybody holding a stolen session could rotate the password and own
+the account. `test_an_account_with_a_password_still_has_to_prove_it` pins it and
+the inverted condition turns it red.
+
+**`POST /api/auth/users` starts no session and sets no cookie.** The
+administrator is creating somebody else's account; a cookie would sign them in as
+that person. A duplicate address is 409, never an overwrite, or "add this person"
+silently becomes "reset their password".
+
+**An administrator's password reset ends *every* session the target has**,
+including the one they are reading on — unlike the self-service change, which
+spares the current browser. The administrator cannot know which session needed
+the reset.
 
 **The link IS the credential, so treat every one as a live password.** D28 said
 the opposite one day earlier — "the address is the permission, not the link" —
@@ -388,8 +414,10 @@ alongside.
 **`password_hash = ""` is the passwordless account, and `verify_password`
 refuses an empty stored hash first and unconditionally.** Remove that guard and
 an empty hash against an empty submitted password becomes a `"" == ""`
-comparison — every link account signable-into by leaving the box blank. Two
-tests pin it; neither is optional.
+comparison — every link account signable-into by leaving the box blank. Three
+tests pin it now; none is optional. **D31 put a password form on exactly those
+accounts**, so the reflex to loosen this check is closer to hand than it has ever
+been — `test_a_blank_password_never_becomes_a_way_in` re-checks it from that side.
 
 **Accepting is a POST, never a GET on the link itself.** Slack fetches URLs to
 build previews, and a GET that established an account would let an unfurl

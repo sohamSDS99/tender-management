@@ -3512,6 +3512,23 @@ html[data-density='compact'] .score {
   line-height: 1.5;
   color: var(--ink-muted);
 }
+/* An account that can be locked out by its own Sign out button (D31).
+   Amber, and never colour alone — the sentence beside it says what the state is,
+   per DESIGN.md rule 3. A panel rather than a line because it is a consequence
+   the reader has to act on, not a field label. */
+.acct__warn {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--amber-ink);
+  border-radius: var(--radius-sm);
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.acct__warn b {
+  font-weight: 600;
+}
 .acct__sessions {
   list-style: none;
   margin: 0;
@@ -3636,6 +3653,31 @@ html[data-density='compact'] .score {
 }
 .people__who b {
   font-weight: 600;
+}
+/* The badge sits under the address rather than beside the name: the column is
+   already narrow at 170px, and pushing it onto the name line is what makes a
+   long address wrap mid-word. */
+.people__who .badge {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+/* Setting somebody's password (D31). Takes the whole row width on its own line —
+   it is a deliberate act aimed at one person, and squeezing a password field in
+   beside the role control is how the right password lands on the wrong row. */
+.people__pw {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.people__pw .input {
+  flex: 1;
+  min-width: 14rem;
+}
+.people__pwopen {
+  flex: none;
 }
 .people__when {
   flex: none;

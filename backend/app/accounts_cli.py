@@ -44,7 +44,7 @@ def _read_password(supplied: str | None) -> str:
     return first
 
 
-def _create_admin(args: argparse.Namespace) -> int:
+def _create_user(args: argparse.Namespace, *, role: str) -> int:
     settings = get_settings()
     password = _read_password(args.password)
     db = SessionLocal()
@@ -57,15 +57,29 @@ def _create_admin(args: argparse.Namespace) -> int:
             email=email,
             display_name=accounts.clean_display_name(args.name or "", email),
             password_hash=accounts.hash_password(password),
-            role=ROLE_ADMIN,
+            role=role,
             is_active=True,
         )
         db.add(user)
         db.commit()
-        print(f"Created administrator {user.email} (id {user.id}).")
+        print(f"Created {role} {user.email} (id {user.id}).")
     finally:
         db.close()
     return 0
+
+
+def _create_admin(args: argparse.Namespace) -> int:
+    return _create_user(args, role=ROLE_ADMIN)
+
+
+def _create_person(args: argparse.Namespace) -> int:
+    """``create-user --role`` — the shell twin of POST /api/auth/users (D31).
+
+    The dashboard can do this now, and doing it there is better because it does
+    not need a shell on the host. This stays for the case the dashboard cannot
+    help with: nobody able to sign in as an administrator.
+    """
+    return _create_user(args, role=args.role)
 
 
 def _reset_password(args: argparse.Namespace) -> int:
@@ -140,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--name", default="")
     create.add_argument("--password", default=None, help="prompted for if omitted (preferred)")
     create.set_defaults(func=_create_admin)
+
+    person = subs.add_parser("create-user", help="create an account with a role and a password")
+    person.add_argument("--email", required=True)
+    person.add_argument("--name", default="")
+    person.add_argument("--role", default=ROLE_MEMBER, choices=list(ROLES))
+    person.add_argument("--password", default=None, help="prompted for if omitted (preferred)")
+    person.set_defaults(func=_create_person)
 
     reset = subs.add_parser("reset-password", help="set a new password and end that user's sessions")
     reset.add_argument("--email", required=True)
