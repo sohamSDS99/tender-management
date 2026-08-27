@@ -64,9 +64,7 @@ def user_connectors(
     built: list[TenderConnector] = []
     for row in db.execute(select(Source)).scalars().all():
         built.append(
-            GenericConnector(
-                row, settings, credential=stored_credential(db, row.name), transport=transport
-            )
+            GenericConnector(row, settings, credential=stored_credential(db, row.name), transport=transport)
         )
     return built
 
@@ -92,9 +90,7 @@ def enabled_sources(settings: Settings | None = None, db: Session | None = None)
     return out
 
 
-def source_catalog(
-    settings: Settings | None = None, db: Session | None = None
-) -> list[dict[str, object]]:
+def source_catalog(settings: Settings | None = None, db: Session | None = None) -> list[dict[str, object]]:
     settings = settings or get_settings()
     catalog: list[dict[str, object]] = []
     for connector in build_all(settings, db=db):

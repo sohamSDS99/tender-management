@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 583 tests (4 pre-existing failures, see below)
+./.venv/bin/python -m pytest -q          # 587 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 9 revisions, head e3b7c1d5f204
 
@@ -76,18 +76,24 @@ its way, deliberately.
 
 ## Things that will bite you
 
-**Four tests in `test_api.py` fail on any day after 2026-08-26, and they were
-failing before you arrived.** `test_tender_filters[fit_statuses=manual_review]`,
+**Freeze a date only the test reads; date a field production judges against the
+wall clock from the wall clock.** `tests/test_api.py` mixed the two and four
+tests died of it on 2026-08-27 — `test_tender_filters[fit_statuses=manual_review]`,
 `[fit_statuses=not_fit]`, `[active_only=true&minimum_score=1]` and
-`test_stats_summarise_the_dashboard`. The `review-1` fixture's deadline is
-`NOW + 5 days` off the frozen `tests/test_ingest.NOW` (2026-08-21), while scoring
-and the `active_only` clause both read the real wall clock — so the notice is now
-expired, `is_actionable` flips and its fit drops from `manual_review` to
-`not_fit`. It is not fixable by moving the deadline: `test_date_window_filters`
-requires it inside `NOW + 10 days`, and the real clock has passed that. The
-honest fix injects a clock into the API, which is a bigger change than it looks.
-**Confirm any suite failure against a clean checkout before assuming it is
-yours** — these four are the baseline, and 552 passing is a green run.
+`test_stats_summarise_the_dashboard`. The `review-1` fixture's deadline was
+`NOW + 5 days` off the frozen `test_ingest.NOW` (2026-08-21), but whether a
+notice is open is decided twice by code the suite does not control: the engine
+applies an expired multiplier and drops `fit_status`, and the `active_only`
+clause compares against `utcnow()`. Any literal deadline therefore expires
+eventually, and moving it fixes nothing —`test_date_window_filters` needs it
+inside `NOW + 10 days`, so the wall clock overtakes every value in turn.
+
+The fixture now dates **deadlines** from `DEADLINE_BASE = utcnow()` with the same
+offsets, and leaves **publication dates** on `NOW` because nothing in production
+compares those to now. Zero production code changed and the suite is green at
+556. Do not "fix" this by re-pinning the deadlines to `NOW`; that is the bug.
+The remaining alternative, if a deadline ever must be frozen, is injecting a
+clock into the API — a much bigger change than it looks.
 
 **A relationship loaded eagerly can be stale by the time you read it, and the
 symptom is the opposite of the bug.** `Tender.feedback` is `lazy="selectin"`, so
@@ -165,10 +171,15 @@ module-level import to any of those three can resurrect it, and it resolves
 differently depending on which file a test imports first — so import each entry
 point alone (`python -c "import app.main"`) after touching them.
 
-**Tests must not read the wall clock.** `tests/test_ingest.NOW` is frozen at
-`2026-08-21 12:00`; `test_api` imports that same constant. It previously called
-`utcnow()`, which meant `test_date_window_filters` only passed within about a day
-of that literal — it started failing on 2026-08-22.
+**Tests must not read the wall clock — but a frozen fixture is only half the
+fix.** `tests/test_ingest.NOW` is frozen at `2026-08-21 12:00` and `test_api`
+imports it, which is what keeps the date-window assertions exact. It bit twice:
+first when the constant was `utcnow()` and the window tests only passed within a
+day of it, then again on 2026-08-27 when `is_actionable` — computed by the
+engine against the **real** clock at ingest time — quietly expired a deadline
+pinned to `NOW + 5 days`. Anything whose truth depends on *now* is anchored to
+`DEADLINE_BASE = utcnow()`; anything asserting an exact window stays on `NOW`.
+Freezing one without the other just moves the explosion later (9efae03).
 
 **Exactly one trigger owner.** Either the in-process APScheduler
 (`ENABLE_SCHEDULER=true`, what compose uses) or the GitHub Actions workflow
@@ -381,22 +392,17 @@ token becomes the right answer the moment anything here is exposed differently.
 `fetch_runs` rows older than `STALE_RUN_MINUTES`; without that, one orphaned
 `running` row disables operator fetches for ever. D23.
 
-## Known-failing tests, not caused by you
+## Known-failing tests
 
-`tests/test_api.py` has **4 failures on `main`** and has since roughly 2026-08-26:
-`test_stats_summarise_the_dashboard` and three `test_tender_filters` cases.
+None. This section held four for a while — `test_stats_summarise_the_dashboard`
+and three `test_tender_filters` cases, dead since 2026-08-26 — and they are
+fixed, in the fixture rather than in `ingest.py`. The diagnosis recorded here was
+right about the cause and reached for a bigger remedy than it needed: threading a
+`now` through `store_tenders`/`upsert_tender` would have touched frozen core,
+when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-The cause is the wall-clock hazard already described above, re-armed. The `seeded`
-fixture builds deadlines from the frozen `NOW` (`2026-08-21 12:00`) but
-`is_actionable` is computed by the relevance engine against the **real** clock at
-ingest time, so `NOW + timedelta(days=5)` silently became a past deadline on
-2026-08-26 and `actionable` fell from 3 to 2. Freezing the fixture without
-freezing the server's clock only moves the explosion later.
-
-The honest fix threads a `now` through `store_tenders`/`upsert_tender` to the
-engine, which is an additive parameter but lands in `app/services/ingest.py` —
-frozen-core, "additive only". Left alone deliberately; it needs a decision, not a
-patch. Verify with `git stash && pytest tests/test_api.py` before blaming a branch.
+A green run is **587 passing, nothing skipped, nothing failing**. Treat any
+failure as yours until a clean checkout says otherwise.
 
 ## Frontend
 

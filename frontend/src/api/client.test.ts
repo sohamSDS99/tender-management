@@ -95,6 +95,8 @@ describe('no-content responses', () => {
           }),
       ),
     );
-    await expect(api.setCredential('sam', 'x')).rejects.toThrow('Editing credentials is switched off');
+    await expect(api.setCredential('sam', 'x')).rejects.toThrow(
+      'Editing credentials is switched off',
+    );
   });
 });
