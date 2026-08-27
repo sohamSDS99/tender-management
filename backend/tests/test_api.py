@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 
-from app.models import FetchRun
+from app.models import FetchRun, utcnow
 from app.services import ingest
 
 # Share test_ingest's frozen instant rather than reading the wall clock.
@@ -14,6 +14,26 @@ from app.services import ingest
 # here drifts away from them and the date-window assertions below start failing
 # once real time passes it - a time bomb that fired on 2026-08-22.
 from tests.test_ingest import NOW, make_tender
+
+#: Deadlines are dated from the *real* clock. Publication dates are not, and the
+#: asymmetry is the whole fix rather than an inconsistency.
+#:
+#: Whether a notice is open is judged twice against the wall clock, by production
+#: code this suite does not control: the scoring engine applies an expired
+#: multiplier and drops `fit_status`, and the `active_only` SQL clause compares
+#: against `utcnow()`. So a deadline pinned to a frozen instant is guaranteed to
+#: expire eventually - `review-1` was `NOW + 5 days`, and on 2026-08-27 four
+#: tests began failing because a notice this fixture calls "open" had been in the
+#: past for six days. Moving it is no fix either: `test_date_window_filters`
+#: requires it inside `NOW + 10 days`, and the wall clock passes any literal.
+#:
+#: Publication dates have no second reader - nothing in production compares them
+#: to now - so they stay on `NOW` and keep the `published_from` assertions exact.
+#:
+#: The rule this encodes: **freeze a date only the test reads; date a field the
+#: production code judges against the wall clock from the wall clock.** Offsets
+#: below are unchanged, so every ordering and window assertion still holds.
+DEADLINE_BASE = utcnow()
 
 
 @pytest.fixture
@@ -24,7 +44,7 @@ def seeded(db_session):
             source_notice_id="high-1",
             title="Cloud hosted SDS management and chemical inventory platform",
             buyer_country="DEU",
-            deadline=NOW + timedelta(days=20),
+            deadline=DEADLINE_BASE + timedelta(days=20),
         ),
         make_tender(
             source="find_a_tender",
@@ -33,7 +53,7 @@ def seeded(db_session):
             description="Suppliers may propose a cloud or on premises deployment; an optional "
             "locally hosted deployment is acceptable. Incident management and audit management.",
             buyer_country="GB",
-            deadline=NOW + timedelta(days=5),
+            deadline=DEADLINE_BASE + timedelta(days=5),
         ),
         make_tender(
             source="sam",
@@ -43,7 +63,7 @@ def seeded(db_session):
             "must reside on the buyer's network and cloud hosting is prohibited.",
             buyer_country="US",
             status="open",
-            deadline=NOW + timedelta(days=40),
+            deadline=DEADLINE_BASE + timedelta(days=40),
         ),
         make_tender(
             source="austender",
@@ -51,7 +71,7 @@ def seeded(db_session):
             title="Supply of personal protective equipment",
             description="Purchase of safety boots and protective clothing.",
             buyer_country="AU",
-            deadline=NOW - timedelta(days=2),
+            deadline=DEADLINE_BASE - timedelta(days=2),
             status="closed",
         ),
     ]
@@ -152,7 +172,7 @@ def test_tender_filters(client, seeded, query, expected):
 
 
 def test_date_window_filters(client, seeded):
-    soon = (NOW + timedelta(days=10)).isoformat()
+    soon = (DEADLINE_BASE + timedelta(days=10)).isoformat()
     items = client.get(f"/api/tenders?deadline_to={soon}&page_size=50").json()["items"]
     assert {i["source_notice_id"] for i in items} == {"review-1", "ppe-1"}
 

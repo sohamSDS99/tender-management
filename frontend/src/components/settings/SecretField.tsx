@@ -86,7 +86,11 @@ export function SecretField({
       ) : (
         <div className="credrow">
           <span className="src__keyhint">
-            {configured ? (secret ? `Set · ${current ?? '····'}` : current) : 'Not set — falls back to .env'}
+            {configured
+              ? secret
+                ? `Set · ${current ?? '····'}`
+                : current
+              : 'Not set — falls back to .env'}
           </span>
           <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}>
             {configured ? 'Replace' : 'Set'}
