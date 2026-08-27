@@ -55,6 +55,24 @@ class RosterEntry(Base):
     role: Mapped[str] = mapped_column(String(16), default=ROLE_MEMBER)
     note: Mapped[str] = mapped_column(String(200), default="")
 
+    #: This person's personal access link, stored **readably**.
+    #:
+    #: The link *is* the credential (D29): opening it and pressing Accept signs
+    #: them in, with no password ever. Stored readably rather than hashed for one
+    #: operational reason — an administrator has to be able to re-send it, and
+    #: "I lost the link" must not mean "you are locked out until I mint another".
+    #:
+    #: The security delta is smaller than it first looks. An administrator can
+    #: already mint a link for any address, so a *reader* of this column gains
+    #: nothing an administrator does not have. Against a database leak, this is a
+    #: bearer token for one application with no reuse value anywhere else, unlike
+    #: a password hash whose value is that people reuse passwords.
+    #:
+    #: Null means no link: either never issued, or revoked. Revoking is setting
+    #: this to null, which is why there is no separate revoked flag to disagree
+    #: with it.
+    access_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
+
     added_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -69,6 +87,10 @@ class RosterEntry(Base):
     @property
     def has_joined(self) -> bool:
         return self.joined_at is not None
+
+    @property
+    def has_link(self) -> bool:
+        return bool(self.access_token)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<RosterEntry {self.email} role={self.role} joined={self.has_joined}>"

@@ -27,7 +27,6 @@ import type {
   SessionState,
   User,
   UserRole,
-  JoinLink,
   RosterAdded,
   RosterEntry,
   RosterView,
@@ -299,6 +298,14 @@ export const auth = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  /**
+   * Open an access link: creates the account if needed and signs in (D29).
+   *
+   * A POST rather than following the URL, so a chat client building a link
+   * preview cannot consume the invitation before the person sees it.
+   */
+  accept: (token: string) =>
+    request<User>('/api/auth/accept', { method: 'POST', body: JSON.stringify({ token }) }),
 
   updateProfile: (body: { display_name?: string; email?: string }) =>
     request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
@@ -331,8 +338,12 @@ export const auth = {
     }),
   /** Withdraws permission to register. Does not close an existing account. */
   removeFromRoster: (id: number) => request<void>(`/api/auth/roster/${id}`, { method: 'DELETE' }),
-  /** Creates the first link, or replaces one that has been shared too widely. */
-  rotateJoinLink: () => request<JoinLink>('/api/auth/roster/join-link', { method: 'POST' }),
+  /** Mint this person's link, replacing any previous one. */
+  issueAccessLink: (id: number) =>
+    request<RosterEntry>(`/api/auth/roster/${id}/link`, { method: 'POST' }),
+  /** Withdraw their link. Does not end a session they already hold. */
+  revokeAccessLink: (id: number) =>
+    request<void>(`/api/auth/roster/${id}/link`, { method: 'DELETE' }),
 
   users: () => request<User[]>('/api/auth/users'),
   updateUser: (id: number, body: { role?: UserRole; is_active?: boolean }) =>

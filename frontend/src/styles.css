@@ -3602,15 +3602,51 @@ html[data-density='compact'] .score {
   flex: none;
 }
 
-/* The workspace roster (D28). Reuses the People list, with one addition: an
-   address that has not joined yet is the row an administrator is looking for,
-   so it keeps full contrast while joined rows recede. */
-.people li.is-waiting .people__who b {
-  font-weight: 650;
+/* The workspace roster (D29). Two lines per person: who they are, then their
+   personal link — which is a live credential, so it gets the width and the
+   monospace treatment rather than being tucked into a row of controls.
+
+   Somebody who has not joined yet is who an administrator is looking for, so
+   those rows keep full contrast and joined ones recede. */
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
-.people li:not(.is-waiting):not(.is-off) .people__who b {
+.roster li {
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.roster li:first-child {
+  border-top: 0;
+}
+.roster li.is-joined .roster__who b {
   color: var(--ink-soft);
   font-weight: 550;
+}
+.roster__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.79rem;
+}
+.roster__who {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.roster__who b {
+  font-weight: 650;
+}
+.roster__role {
+  flex: none;
+}
+.roster__link {
+  margin-top: 10px;
+  margin-bottom: 0;
 }
 .roster__counts {
   margin: 0 0 12px;

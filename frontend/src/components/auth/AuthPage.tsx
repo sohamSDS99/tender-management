@@ -105,120 +105,189 @@ export function AuthPage({ auth }: { auth: Auth }) {
       </section>
 
       <section className="gate__form">
-        <div className="gate__formInner">
-          <p className="gate__eyebrow">
-            {auth.bootstrap
-              ? 'First account'
-              : registering
-                ? auth.joinToken
-                  ? 'Join this workspace'
-                  : 'By invitation'
-                : 'Restricted dashboard'}
-          </p>
-          <h2 className="gate__title">{registering ? 'Create your account' : 'Sign in'}</h2>
+        {auth.acceptToken ? (
+          <AcceptInvitation auth={auth} />
+        ) : (
+          <div className="gate__formInner">
+            <p className="gate__eyebrow">
+              {auth.bootstrap
+                ? 'First account'
+                : registering
+                  ? auth.joinToken
+                    ? 'Join this workspace'
+                    : 'By invitation'
+                  : 'Restricted dashboard'}
+            </p>
+            <h2 className="gate__title">{registering ? 'Create your account' : 'Sign in'}</h2>
 
-          {auth.bootstrap ? (
-            <p className="gate__note">
-              No account exists yet. <b>This one becomes the administrator</b>, and everyone after
-              you joins by invitation.
-            </p>
-          ) : registering && auth.joinToken ? (
-            <p className="gate__note">
-              Use the address your administrator added to this workspace. Any other address will be
-              turned away.
-            </p>
-          ) : registering ? (
-            <p className="gate__note">You are joining on an invitation.</p>
-          ) : (
-            <p className="gate__note gate__note--quiet">
-              You need an account to view tenders. Nothing here is public.
-            </p>
-          )}
+            {auth.bootstrap ? (
+              <p className="gate__note">
+                No account exists yet. <b>This one becomes the administrator</b>, and everyone after
+                you joins by invitation.
+              </p>
+            ) : registering && auth.joinToken ? (
+              <p className="gate__note">
+                Use the address your administrator added to this workspace. Any other address will
+                be turned away.
+              </p>
+            ) : registering ? (
+              <p className="gate__note">You are joining on an invitation.</p>
+            ) : (
+              <p className="gate__note gate__note--quiet">
+                You need an account to view tenders. Nothing here is public.
+              </p>
+            )}
 
-          <form className="gate__fields" onSubmit={submit}>
-            {registering ? (
+            <form className="gate__fields" onSubmit={submit}>
+              {registering ? (
+                <label className="field">
+                  <span className="field__label">Your name</span>
+                  <input
+                    ref={registering ? firstField : undefined}
+                    className="input"
+                    type="text"
+                    value={displayName}
+                    autoComplete="name"
+                    placeholder="How your name should appear"
+                    onChange={(event) => setDisplayName(event.target.value)}
+                  />
+                </label>
+              ) : null}
+
               <label className="field">
-                <span className="field__label">Your name</span>
+                <span className="field__label">Email</span>
                 <input
-                  ref={registering ? firstField : undefined}
+                  ref={registering ? undefined : firstField}
                   className="input"
-                  type="text"
-                  value={displayName}
-                  autoComplete="name"
-                  placeholder="How your name should appear"
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  type="email"
+                  required
+                  value={email}
+                  autoComplete="username"
+                  onChange={(event) => setEmail(event.target.value)}
                 />
               </label>
-            ) : null}
 
-            <label className="field">
-              <span className="field__label">Email</span>
-              <input
-                ref={registering ? undefined : firstField}
-                className="input"
-                type="email"
-                required
-                value={email}
-                autoComplete="username"
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </label>
+              <label className="field">
+                <span className="field__label">Password</span>
+                <input
+                  className="input"
+                  type="password"
+                  required
+                  value={password}
+                  // A password manager needs to be told which of the two this is,
+                  // or it offers a stored password to a registration form and
+                  // saves the wrong thing.
+                  autoComplete={registering ? 'new-password' : 'current-password'}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                {registering ? (
+                  <small className="field__hint">
+                    At least 10 characters. Length beats symbols.
+                  </small>
+                ) : null}
+              </label>
 
-            <label className="field">
-              <span className="field__label">Password</span>
-              <input
-                className="input"
-                type="password"
-                required
-                value={password}
-                // A password manager needs to be told which of the two this is,
-                // or it offers a stored password to a registration form and
-                // saves the wrong thing.
-                autoComplete={registering ? 'new-password' : 'current-password'}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-              {registering ? (
-                <small className="field__hint">At least 10 characters. Length beats symbols.</small>
+              {error ? (
+                <p className="gate__error" role="alert">
+                  {error}
+                </p>
               ) : null}
-            </label>
 
-            {error ? (
-              <p className="gate__error" role="alert">
-                {error}
-              </p>
-            ) : null}
-
-            <button type="submit" className="btn btn--primary gate__submit" disabled={busy}>
-              {busy
-                ? registering
-                  ? 'Creating…'
-                  : 'Signing in…'
-                : registering
-                  ? 'Create account'
-                  : 'Sign in'}
-            </button>
-          </form>
-
-          <p className="gate__foot">
-            {registering ? (
-              <button type="button" className="linkish" onClick={() => setMode('signin')}>
-                I already have an account
+              <button type="submit" className="btn btn--primary gate__submit" disabled={busy}>
+                {busy
+                  ? registering
+                    ? 'Creating…'
+                    : 'Signing in…'
+                  : registering
+                    ? 'Create account'
+                    : 'Sign in'}
               </button>
-            ) : canRegister ? (
-              <button type="button" className="linkish" onClick={() => setMode('register')}>
-                Create an account
-              </button>
-            ) : (
-              // Not a mode switch: without an invitation there is no
-              // registration that could succeed, so this says what to do instead
-              // rather than offering a form that will be refused.
-              <span className="gate__closed">
-                New accounts are by invitation. Ask an administrator for a link.
-              </span>
-            )}
-          </p>
-        </div>
+            </form>
+
+            <p className="gate__foot">
+              {registering ? (
+                <button type="button" className="linkish" onClick={() => setMode('signin')}>
+                  I already have an account
+                </button>
+              ) : canRegister ? (
+                <button type="button" className="linkish" onClick={() => setMode('register')}>
+                  Create an account
+                </button>
+              ) : (
+                // Not a mode switch: without an invitation there is no
+                // registration that could succeed, so this says what to do instead
+                // rather than offering a form that will be refused.
+                <span className="gate__closed">
+                  New accounts are by invitation. Ask an administrator for a link.
+                </span>
+              )}
+            </p>
+          </div>
+        )}
       </section>
     </main>
+  );
+}
+
+/**
+ * The whole of what an invited person does: read one line, press one button.
+ *
+ * No fields, because there is nothing to collect — the link they followed *is*
+ * the credential (D29), so their address and role are already known and a
+ * password never enters the picture.
+ *
+ * It is a button rather than something that fires on load, and that is not
+ * decoration. Slack and every other chat client fetches a URL to build a
+ * preview; auto-accepting would let an unfurl consume the invitation before the
+ * person ever opened it. It also gives them a moment to see what they are
+ * joining, which a silent redirect does not.
+ */
+function AcceptInvitation({ auth }: { auth: Auth }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const accept = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.acceptInvitation();
+      // Nothing to navigate to: App swaps this page for the dashboard the
+      // moment the user lands in state.
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Something went wrong. Try again.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="gate__formInner">
+      <p className="gate__eyebrow">You have been invited</p>
+      <h2 className="gate__title">Join Tender Monitor</h2>
+      <p className="gate__note">
+        Press the button and you are in. <b>There is no password to set</b> — this link is yours,
+        and it will sign you in again whenever you open it.
+      </p>
+
+      {error ? (
+        <p className="gate__error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        className="btn btn--primary gate__submit"
+        disabled={busy}
+        onClick={() => void accept()}
+      >
+        {busy ? 'Joining…' : 'Accept invitation'}
+      </button>
+
+      <p className="gate__foot">
+        <span className="gate__closed">
+          Keep the link. Opening it on another device signs you in there too.
+        </span>
+      </p>
+    </div>
   );
 }
