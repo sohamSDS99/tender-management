@@ -472,3 +472,63 @@ def test_the_digest_never_announces_a_rejected_notice(db_session, settings):
     feedback.set_verdict(db_session, good.id, "irrelevant")
     assert notifier.qualifying_tenders(db_session, since, settings) == []
     assert notifier.announceable_tenders(db_session, settings, now=since + timedelta(minutes=2)) == []
+
+
+# --- rows that predate the migration --------------------------------------
+
+
+def test_a_row_from_before_the_migration_still_serialises(client, corpus):
+    """The columns were added nullable, so every notice stored before this
+    feature existed holds NULL - not `[]`.
+
+    This is the production 500 that shipped. `list[str] = Field(default_factory=list)`
+    fills in an *absent* value; an explicit None is a validation error instead.
+    Every other row in this file is built through the ORM, where `default=list`
+    supplies `[]`, so nothing here could have caught it. The NULL is therefore
+    written the way the migration wrote it: in SQL, behind the ORM.
+    """
+    from sqlalchemy import text
+
+    corpus.execute(
+        text(
+            "UPDATE tenders SET auto_irrelevant_reasons = NULL, relevance_reasons = NULL, "
+            "disqualifiers = NULL, review_flags = NULL"
+        )
+    )
+    corpus.commit()
+    corpus.expire_all()
+
+    response = client.get("/api/tenders?minimum_score=0&page_size=50")
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    for field in (
+        "auto_irrelevant_reasons",
+        "relevance_reasons",
+        "disqualifiers",
+        "review_flags",
+    ):
+        assert item[field] == [], f"{field} came back as {item[field]!r}"
+    assert item["hidden"] is False
+
+
+def test_a_detail_view_of_such_a_row_serialises_too(client, corpus):
+    """The same hazard on two more columns, which only the detail schema declares."""
+    from sqlalchemy import text
+
+    target = by_notice(corpus, "keep-0")
+    corpus.execute(
+        text(
+            "UPDATE tenders SET auto_irrelevant_reasons = NULL, classification_codes = NULL, "
+            "document_urls = NULL WHERE id = :i"
+        ),
+        {"i": target.id},
+    )
+    corpus.commit()
+    corpus.expire_all()
+
+    response = client.get(f"/api/tenders/{target.id}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["auto_irrelevant_reasons"] == []
+    assert body["classification_codes"] == []
+    assert body["document_urls"] == []
