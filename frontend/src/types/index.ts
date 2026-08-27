@@ -18,6 +18,17 @@ export type SortOption =
   | 'published_asc'
   | 'first_seen_desc';
 
+/** What a reviewer decided about a notice. There is no third value: "nobody
+ *  has decided" is the absence of a verdict, not a verdict of its own. */
+export type Verdict = 'relevant' | 'irrelevant';
+
+export interface Feedback {
+  verdict: Verdict;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Tender {
   id: number;
   source: string;
@@ -44,6 +55,21 @@ export interface Tender {
   is_actionable: boolean;
   last_seen_at: string;
   first_seen_at: string;
+  /** A reviewer's verdict, or null when nobody has made one. */
+  feedback: Feedback | null;
+  /** The learner's own call: this reads like the notices you rejected. */
+  auto_irrelevant: boolean;
+  /** The patterns that made it read that way. Never empty when the flag is set. */
+  auto_irrelevant_reasons: string[];
+  /**
+   * Kept out of the working views — by a person, or by the learner.
+   *
+   * Computed by the API, never re-derived here. It is the same OR the tender
+   * filter applies in SQL, and two implementations of it would eventually
+   * disagree about a row: the card would show a badge the list had not filtered
+   * on, which is the class of bug the score-cap note in CLAUDE.md is about.
+   */
+  hidden: boolean;
 }
 
 export interface TenderDetail extends Tender {
@@ -116,6 +142,11 @@ export interface Stats {
   statuses: string[];
   categories: CountBucket[];
   score_bands: Record<string, number>;
+  /**
+   * How many notices are hidden. Every other count above *excludes* them, which
+   * is what keeps a lens badge equal to the list that lens opens.
+   */
+  hidden_total: number;
 }
 
 export interface FetchRun {
@@ -212,6 +243,15 @@ export interface TenderFilters {
   published_to: string;
   active_only: boolean;
   has_deadline: boolean | null;
+  /**
+   * Tri-state, exactly like has_deadline above.
+   *
+   * `false` (the default) hides what a reviewer rejected and what the learner
+   * matched to it; `true` shows only those, which is the review screen an undo
+   * needs; `null` ignores feedback entirely. A two-state flag would leave a
+   * mistaken mark unreachable.
+   */
+  hidden: boolean | null;
   sort: SortOption;
   page: number;
   page_size: number;
@@ -318,6 +358,40 @@ export interface FetchStartedResponse {
 
 export interface RescoreResponse {
   rescored: number;
+}
+
+// --- learning from verdicts (D26) -------------------------------------------
+
+/** One phrase the system worked out for itself, with the evidence for it. */
+export interface LearnedPattern {
+  phrase: string;
+  /** Log-odds: how much more concentrated in rejections than anywhere else. */
+  weight: number;
+  marked: number;
+  elsewhere: number;
+}
+
+export interface LearnedModel {
+  /** Whether it is allowed to hide anything yet. False until marks_needed is 0. */
+  active: boolean;
+  marks_irrelevant: number;
+  marks_relevant: number;
+  /** How many more rejections before the learner starts acting. */
+  marks_needed: number;
+  corpus: number;
+  hidden_total: number;
+  hidden_by_learning: number;
+  hidden_by_hand: number;
+  patterns: LearnedPattern[];
+  thresholds: Record<string, number>;
+}
+
+export interface FeedbackResponse {
+  tender_id: number;
+  verdict: Verdict | null;
+  /** How many *other* notices this mark just hid or un-hid. */
+  reclassified: number;
+  learned: LearnedModel;
 }
 
 export interface TriggerResponse {

@@ -71,6 +71,7 @@ describe('round-tripping', () => {
       published_to: '2026-08-21',
       active_only: false,
       has_deadline: true,
+      hidden: true,
       sort: 'deadline_asc',
       page: 3,
       page_size: 50,
@@ -153,17 +154,51 @@ describe('hostile and careless URLs', () => {
   });
 });
 
+describe('the hidden filter is tri-state, and its default is not "off"', () => {
+  it('an absent parameter means the shipped default: hide them', () => {
+    // The one place `tribool` would be wrong. An absent has_deadline means "do
+    // not care"; an absent `hidden` must mean "hide what was rejected", or a
+    // plain link to the dashboard would show back everything somebody rejected.
+    expect(filtersFromSearch('').filters.hidden).toBe(false);
+    expect(filtersFromSearch('?minimum_score=0').filters.hidden).toBe(false);
+  });
+
+  it('reads all three states back', () => {
+    expect(filtersFromSearch('?hidden=true').filters.hidden).toBe(true);
+    expect(filtersFromSearch('?hidden=false').filters.hidden).toBe(false);
+    expect(filtersFromSearch('?hidden=all').filters.hidden).toBeNull();
+  });
+
+  it('writes "all" explicitly, because an omission already means something else', () => {
+    const everything: TenderFilters = { ...DEFAULT_FILTERS, hidden: null };
+    expect(searchFromFilters(everything, null)).toContain('hidden=all');
+    expect(filtersFromSearch(`?${searchFromFilters(everything, null)}`).filters.hidden).toBeNull();
+  });
+
+  it('leaves the default out of a shared URL', () => {
+    expect(searchFromFilters(DEFAULT_FILTERS, null)).toBe('');
+  });
+});
+
 describe('chips explain why the result set looks the way it does', () => {
   it('shows the default narrowing rather than hiding it', () => {
-    // 320 stored tenders becoming 9 must never look unexplained.
+    // 320 stored tenders becoming 9 must never look unexplained — and since
+    // D26 one of the three reasons is "somebody marked these not relevant",
+    // which is the least guessable of them.
     const chips = activeChips(DEFAULT_FILTERS, LABELS).map((c) => c.key);
     expect(chips).toContain('minimum_score');
     expect(chips).toContain('active_only');
-    expect(activeFilterCount(DEFAULT_FILTERS)).toBe(2);
+    expect(chips).toContain('hidden');
+    expect(activeFilterCount(DEFAULT_FILTERS)).toBe(3);
   });
 
   it('an unfiltered view has no chips', () => {
-    const open: TenderFilters = { ...DEFAULT_FILTERS, minimum_score: 0, active_only: false };
+    const open: TenderFilters = {
+      ...DEFAULT_FILTERS,
+      minimum_score: 0,
+      active_only: false,
+      hidden: null,
+    };
     expect(activeChips(open, LABELS)).toEqual([]);
     expect(activeFilterCount(open)).toBe(0);
   });

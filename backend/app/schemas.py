@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
+
+from app.models.tender_feedback import IRRELEVANT
+
+Verdict = Literal["relevant", "irrelevant"]
 
 SortOption = Literal[
     "score_desc",
@@ -28,6 +32,15 @@ class UtcModel(BaseModel):
         if isinstance(value, datetime) and value.tzinfo is None:
             return value.isoformat() + "Z"
         return value
+
+
+class FeedbackOut(UtcModel):
+    """A reviewer's verdict on one notice, or absent when nobody has decided."""
+
+    verdict: Verdict
+    note: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TenderListItem(UtcModel):
@@ -58,6 +71,29 @@ class TenderListItem(UtcModel):
     # The dashboard marks a tender "New" when this is at or after the last run's
     # start, so the list needs it too - not just the detail view.
     first_seen_at: datetime
+
+    # --- reviewer feedback and what was learned from it (D26) ---------------
+    #: What a person decided, if anyone has. Nested rather than flattened
+    #: because the note and the timestamp travel with the verdict, and the card
+    #: needs the verdict while the detail panel needs all three.
+    feedback: FeedbackOut | None = None
+    #: The learner's own call, and the patterns behind it. Never a substitute
+    #: for a verdict: it is recomputed on every re-score and defers to one.
+    auto_irrelevant: bool = False
+    auto_irrelevant_reasons: list[str] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def hidden(self) -> bool:
+        """Excluded from the working views - by a person, or by the learner.
+
+        The one definition the browser is allowed to read. It is mirrored in SQL
+        by ``feedback.marked_irrelevant_subquery`` plus the ``auto_irrelevant``
+        column, because a filter has to run in the database while a response is
+        assembled here; ``test_feedback.py`` asserts the two agree across the
+        whole corpus, which is what stops them drifting apart.
+        """
+        return self.auto_irrelevant or (self.feedback is not None and self.feedback.verdict == IRRELEVANT)
 
 
 class TenderDetail(TenderListItem):
@@ -154,6 +190,10 @@ class CountBucket(BaseModel):
 
 
 class StatsResponse(UtcModel):
+    # Every count below excludes hidden notices, so a lens count always equals
+    # the list that lens opens - the default view hides them, and a facet number
+    # beside a narrowed list that counted a different population is the exact
+    # failure this rule exists to prevent.
     total_tenders: int
     excellent_fit: int
     good_fit_or_better: int
@@ -171,10 +211,62 @@ class StatsResponse(UtcModel):
     statuses: list[str]
     categories: list[CountBucket]
     score_bands: dict[str, int]
+    #: The one count that *is* the hidden population, so the Not-relevant lens
+    #: has an honest badge and the difference from total_tenders is explainable.
+    hidden_total: int = 0
 
 
 class RescoreResponse(BaseModel):
     rescored: int
+
+
+class FeedbackRequest(BaseModel):
+    verdict: Verdict
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class LearnedPattern(BaseModel):
+    """One phrase the system worked out for itself, with its evidence."""
+
+    phrase: str
+    #: Log-odds. Higher means more concentrated in what was rejected.
+    weight: float
+    marked: int
+    elsewhere: int
+
+
+class LearnedModel(BaseModel):
+    """What the learner currently knows, and whether it is allowed to act.
+
+    ``active`` is false until ``marks_needed`` reaches zero. Reporting the two
+    separately matters: "no patterns yet" and "not enough marks to trust any"
+    are different states, and only the second is fixed by marking more notices.
+    """
+
+    active: bool
+    marks_irrelevant: int
+    marks_relevant: int
+    marks_needed: int
+    corpus: int
+    hidden_total: int
+    hidden_by_learning: int
+    hidden_by_hand: int
+    patterns: list[LearnedPattern]
+    thresholds: dict[str, float]
+
+
+class FeedbackResponse(BaseModel):
+    """The answer to marking one notice: the verdict, and what it changed.
+
+    ``reclassified`` is the feature working out loud - mark one notice not
+    relevant and this says how many others the system just stopped showing you.
+    Without it, a mark that quietly hid thirty rows would look like a bug.
+    """
+
+    tender_id: int
+    verdict: Verdict | None
+    reclassified: int
+    learned: LearnedModel
 
 
 class SlackState(BaseModel):

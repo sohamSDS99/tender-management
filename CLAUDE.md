@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (25 records, D1–D25).
+`docs/DECISIONS.md` explains why it is built this way (26 records, D1–D26).
 
 ## What this is
 
@@ -11,7 +11,8 @@ notice, scores it for relevance to SDS/EHS software work, and surfaces the few
 worth a human's time. Fetching is automated twice a day; a Slack digest announces
 new high scorers. Internal network only. Notices are never edited,
 but a sweep, a re-score and the schedule can all be driven from the dashboard
-(D19, D21, D23).
+(D19, D21, D23), and a reviewer can mark one not relevant — after which the
+system learns the pattern and hides notices like it (D26).
 
 Runs as three containers on one machine: `docker compose up -d --build` →
 dashboard on `${WEB_PORT:-8080}`, API on `${API_PORT:-8000}`, PostgreSQL internal.
@@ -26,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 515 tests
+./.venv/bin/python -m pytest -q          # 542 tests (4 fail on a dated fixture, see below)
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 7 revisions, head c7e1a4b90f32
+./.venv/bin/alembic upgrade head         # 8 revisions, head d3f7a10c2b58
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 121 tests
+npx vitest run                           # 137 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -64,7 +65,65 @@ fixtures to a SHA-256 (`fb3ff8e6…c17d`) at a frozen instant. If it fails, the
 scoring changed — do not regenerate the hash to make it pass unless that was the
 deliberate intent.
 
+**Reviewer feedback lives beside the frozen engine, never inside it (D26).** The
+learner in `app/services/feedback.py` can *hide* a notice; it cannot move a
+score, and there is no code path by which it could. `auto_irrelevant` /
+`auto_irrelevant_reasons` are additive columns stamped by a separate call that
+sits next to `_apply_score`, not within it. If a change would have a verdict
+affect `relevance_score`, that is a much larger decision than it looks —
+`test_marking_never_moves_a_relevance_score` and the baseline SHA both stand in
+its way, deliberately.
+
 ## Things that will bite you
+
+**Four tests in `test_api.py` fail on any day after 2026-08-26, and they were
+failing before you arrived.** `test_tender_filters[fit_statuses=manual_review]`,
+`[fit_statuses=not_fit]`, `[active_only=true&minimum_score=1]` and
+`test_stats_summarise_the_dashboard`. The `review-1` fixture's deadline is
+`NOW + 5 days` off the frozen `tests/test_ingest.NOW` (2026-08-21), while scoring
+and the `active_only` clause both read the real wall clock — so the notice is now
+expired, `is_actionable` flips and its fit drops from `manual_review` to
+`not_fit`. It is not fixable by moving the deadline: `test_date_window_filters`
+requires it inside `NOW + 10 days`, and the real clock has passed that. The
+honest fix injects a clock into the API, which is a bigger change than it looks.
+**Confirm any suite failure against a clean checkout before assuming it is
+yours** — these four are the baseline, and 538 passing is a green run.
+
+**A relationship loaded eagerly can be stale by the time you read it, and the
+symptom is the opposite of the bug.** `Tender.feedback` is `lazy="selectin"`, so
+any Tender already in the session has it cached — as `None` if there was no
+verdict when the row was read. Inserting a `TenderFeedback` row directly left
+that cache stale, and `feedback.predict` then saw no verdict and auto-hid a
+notice a human had *just marked relevant*. `set_verdict` and `clear_verdict`
+therefore assign through `tender.feedback` so SQLAlchemy keeps both sides in
+step. Any new writer of that relationship must do the same.
+
+**Both service caches are keyed on the data, which is right for one deployment
+and wrong for a test suite.** `matching_rules.engine_for` and
+`feedback.model_for` fingerprint the rows themselves, so two fresh in-memory
+databases with the same counts look identical and the second test is handed the
+first test's model. An autouse fixture in `conftest.py` clears both between
+tests; `feedback._fingerprint` also includes `max(Tender.id)` and
+`max(Tender.updated_at)` rather than only the count.
+
+**`/api/stats` counts the *visible* population, not everything stored.** Since
+D26 every count there excludes hidden notices, because the lens badges are read
+straight off it and the lists those lenses open hide them. `hidden_total` carries
+the remainder. So `total_tenders` is no longer the corpus size — the corpus is
+`total_tenders + hidden_total`, which is exactly what the All-tenders lens badge
+computes. A new count added to that response must apply `_visible_clause()` or it
+will disagree with the list it labels.
+
+**`hidden` is defined twice — in SQL and as a Pydantic computed field.** There is
+no avoiding it: the filter must run in the database and the boolean must reach
+the browser. `test_hidden_in_sql_and_hidden_in_the_response_select_the_same_rows`
+holds them together over the whole corpus. Change one, run that test.
+
+**A Pydantic `computed_field` is sent to the browser but is not in
+`model_fields`.** `test_api_contract.py` compared the frontend's declared fields
+against `model_fields` alone and so reported `TenderListItem.hidden` as a field
+the API never sends, while it was being sent on every row. It now reads
+`model_fields | model_computed_fields`.
 
 **Logs go to stderr. stdout belongs to `--json`.** The scheduled-fetch entrypoint's
 JSON report is redirected into a file that CI parses; one log line on stdout makes
@@ -268,6 +327,7 @@ and what constrains each one is a limit rather than a credential:
 | `POST /api/tenders/rescore` | 120s cooldown (429) | rewrites every stored row |
 | `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
 | `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
+| `POST`/`DELETE /api/tenders/{id}/feedback` | none | one row plus a local re-predict; marks come in bursts while reading a list (D26) |
 
 `ALLOW_OPERATOR_ACTIONS=false` closes the first two to the browser (403) and must
 be set before the API is ever internet-reachable. `X-Cron-Secret` still works and
@@ -315,6 +375,18 @@ with a full system fallback stack, because this host may have no route out.
 - The result card's title is the real `<button>` and its `::after` overlays the card
   as the hit area; the "Original notice" anchor sits above it. An anchor cannot live
   inside a button, and a div-with-onClick is not keyboard reachable.
+- **Anything else interactive on a card needs `position: relative; z-index: 1` and
+  `stopPropagation`**, for that same overlay — the Not-relevant button included.
+  Without both, the card swallows the click and opens the drawer instead.
+- **`hidden` is tri-state and its default is `false`, not `null` (D26).** An absent
+  `hidden` in the URL means the shipped default ("hide what was rejected"), which is
+  the one place the `tribool` helper is wrong — `hidden=all` is how a link asks for
+  everything. `hidden` is in `OWNED`, and it is the only thing distinguishing the
+  All-tenders lens from Not relevant; drop it from `OWNED` and the first of the two
+  lights for both presets.
+- The default view now carries **three** chips, not two: score floor, open-only, and
+  "hiding what was marked not relevant". The third is the least guessable reason a
+  count is low, so it is the one that most needs saying.
 - The whole filter set round-trips through the URL. The parameter names are a
   contract with the Slack digest (`minimum_score`, `active_only`, `sort`, `tender`).
 - Counts are shown only where a stored total is the honest reading. Facet counts

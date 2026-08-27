@@ -170,3 +170,40 @@ mockup. Counts on the fit / deployment / capability chips, because those come fr
 unfiltered `/api/stats` and inside a narrowed view promise results that are not
 there. Monospace as a costume — it appears only on source keys, references and raw
 payloads, which are genuinely code. A modal for anything but the detail drawer.
+
+## Marking a notice not relevant (D26)
+
+The first control on this surface that removes something from view, which makes
+principle 5 — *nothing is discarded, and the page says so where it could be
+doubted* — the binding constraint rather than a nicety.
+
+**One button on the card, both in the drawer.** Rejecting is the frequent act; it
+is what working through a list *is*. Keeping something is rare and deliberate and
+carries a note, so it lives in the detail panel. A pair of buttons on all
+twenty-five rows would make a results page look like a form.
+
+**The reject control is quiet, and coloured only on hover.** It appears on every
+row, and a column of red buttons reads as an error state — colour is meaning
+here, so a control that is merely available must not spend any.
+
+**Four places say so, because one silent removal would undo the trust:**
+
+* a chip in the toolbar on the default view, "hiding what was marked not
+  relevant", alongside the score floor and open-only chips;
+* the **Not relevant** lens in the rail, with its own count, clickable like every
+  other number;
+* a badge on the card naming *which* hid it — a reviewer's decision and a
+  machine's guess at one are different things, and only one of them is evidence;
+* the sentence after a mark, which states how many *other* notices it hid. One
+  click can remove a dozen rows; unannounced, that reads as the list breaking.
+
+**A machine hide always shows its reason, in words, on the card.** "Hidden
+because 'laboratory furniture' appears in 6 notices you marked not relevant and
+only 1 other." The full list is in the drawer and the whole model, with its
+evidence, is a table under Matching rules. Nothing here is allowed to be opaque:
+the phrase lists elsewhere on that page can be argued with by reading them, and a
+derived pattern earns the same standing only by showing its counts.
+
+**Nothing new was refused, and nothing previously refused was taken up.** No
+modal confirms a mark — it is reversible, and a confirmation for a reversible act
+is a tax on the frequent case. No icon-only button, no emoji, no new colour.

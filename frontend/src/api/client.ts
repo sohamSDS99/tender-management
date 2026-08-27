@@ -1,8 +1,11 @@
 import { FALLBACK_SWEEP_DAYS } from '../labels';
 import type {
   AutomationStatus,
+  FeedbackResponse,
   FetchStartedResponse,
+  LearnedModel,
   RescoreResponse,
+  Verdict,
   ScheduleResponse,
   FetchRun,
   SourceStatus,
@@ -112,6 +115,10 @@ export function buildQuery(filters: TenderFilters): string {
   if (filters.first_seen_from) params.set('first_seen_from', filters.first_seen_from);
   if (filters.active_only) params.set('active_only', 'true');
   if (filters.has_deadline !== null) params.set('has_deadline', String(filters.has_deadline));
+  // Always sent when it is not null, including `false` — `false` is the whole
+  // point of the parameter (hide what was rejected), so the usual
+  // "omit the default" shortening would silently turn the default view off.
+  if (filters.hidden !== null) params.set('hidden', String(filters.hidden));
   params.set('sort', filters.sort);
   params.set('page', String(filters.page));
   params.set('page_size', String(filters.page_size));
@@ -168,6 +175,25 @@ export const api = {
     }),
   /** Reload the relevance config and re-score every stored notice. */
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
+
+  /**
+   * Mark one notice relevant or not relevant (D26).
+   *
+   * Uncapped, unlike `fetchNow` and `rescore`: it spends no outbound request,
+   * and marks are made in bursts of a dozen while someone reads a page. The
+   * response says how many *other* notices the mark reclassified, which is the
+   * only way the learning is visible at the moment it happens.
+   */
+  setFeedback: (id: number, verdict: Verdict, note?: string) =>
+    request<FeedbackResponse>(`/api/tenders/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ verdict, note: note ?? null }),
+    }),
+  /** Withdraw a verdict. 200 even when there was nothing to withdraw. */
+  clearFeedback: (id: number) =>
+    request<FeedbackResponse>(`/api/tenders/${id}/feedback`, { method: 'DELETE' }),
+  /** The patterns learned so far, with the evidence for each. */
+  learned: () => request<LearnedModel>('/api/feedback/learned'),
 
   /**
    * Set or clear a source's API key.

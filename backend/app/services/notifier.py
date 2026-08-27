@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.logging_config import log_ctx
 from app.models import CLAIMED, FAILED, SENT, UNCONFIRMED, SlackNotification, Tender, utcnow
 from app.services.dhaka import format_dhaka
+from app.services.feedback import marked_irrelevant_subquery
 from app.settings import Settings, get_settings, redact
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,23 @@ class DigestOutcome:
 # --- selection -------------------------------------------------------------
 
 
+def _not_hidden() -> tuple:
+    """Never announce what a reviewer rejected, or what looks like it (D26).
+
+    This is the point of the whole feature as far as Slack is concerned. A
+    digest is the one place the tool interrupts somebody, so the population it
+    draws from has to be the one the dashboard would show - otherwise a notice
+    marked not relevant on Monday is pushed into a channel on Tuesday, and the
+    mark reads as broken. The ledger's unique constraint means an announcement
+    is never repeated, so a mark made *after* a digest went out is honoured for
+    every later run rather than retroactively unsending anything.
+    """
+    return (
+        Tender.auto_irrelevant.is_(False),
+        Tender.id.not_in(marked_irrelevant_subquery()),
+    )
+
+
 def qualifying_tenders(
     db: Session, since: datetime, settings: Settings | None = None, now: datetime | None = None
 ) -> list[Tender]:
@@ -126,6 +144,7 @@ def qualifying_tenders(
             Tender.first_seen_at >= since,
             Tender.relevance_score >= settings.slack_min_score,
             Tender.is_actionable.is_(True),
+            *_not_hidden(),
         )
         .order_by(Tender.relevance_score.desc(), Tender.id.asc())
     )
@@ -166,6 +185,7 @@ def announceable_tenders(
             Tender.relevance_score >= settings.slack_min_score,
             Tender.is_actionable.is_(True),
             Tender.id.not_in(delivered),
+            *_not_hidden(),
         )
         .order_by(Tender.relevance_score.desc(), Tender.id.asc())
     )

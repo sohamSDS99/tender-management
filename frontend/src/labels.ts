@@ -1,4 +1,4 @@
-import type { DeploymentFit, FitStatus } from './types';
+import type { DeploymentFit, FeedbackResponse, FitStatus } from './types';
 
 /**
  * Presentation helpers.
@@ -469,4 +469,35 @@ export function normalisePhrase(raw: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+/**
+ * What to say after a verdict (D26).
+ *
+ * The whole point of this sentence is that the learning is otherwise invisible:
+ * one click can remove a dozen rows from the page, and a reader who was not told
+ * that reads it as the list breaking. So it reports the number, and while the
+ * learner is still below its floor it says what is missing instead of implying
+ * that nothing happened.
+ */
+export function feedbackMessage(result: FeedbackResponse): string {
+  const { verdict, reclassified, learned } = result;
+  const others =
+    reclassified === 1 ? '1 other notice' : `${reclassified.toLocaleString('en-GB')} other notices`;
+
+  if (verdict === null) {
+    return reclassified > 0
+      ? `Mark withdrawn. ${others} changed as a result and are visible again.`
+      : 'Mark withdrawn. Nothing else changed.';
+  }
+  if (verdict === 'relevant') {
+    return 'Marked relevant. Its wording will not be used to hide anything else.';
+  }
+  if (!learned.active) {
+    const needed = learned.marks_needed;
+    return `Marked not relevant and hidden. ${needed} more ${needed === 1 ? 'mark' : 'marks'} and the system will start hiding notices like it on its own.`;
+  }
+  return reclassified > 0
+    ? `Marked not relevant and hidden. ${others} matched the same patterns and were hidden too — the Not relevant view lists them.`
+    : 'Marked not relevant and hidden. Nothing else matched its patterns.';
 }

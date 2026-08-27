@@ -1,4 +1,4 @@
-import type { Tender } from '../types';
+import type { Tender, Verdict } from '../types';
 import type { ScoreBands } from '../labels';
 import {
   deadlineUrgency,
@@ -51,6 +51,10 @@ export interface TenderListProps {
   onClearFilters: () => void;
   onFirstPage: () => void;
   onShowAll: () => void;
+  /** Record or withdraw a verdict. `null` withdraws it. */
+  onVerdict: (id: number, verdict: Verdict | null) => void;
+  /** The notice whose mark is in flight, so its own control can say so. */
+  verdictBusy: number | null;
 }
 
 const SCORE_CLASS = { green: 'green', amber: 'amber', red: 'red', grey: 'grey' } as const;
@@ -64,6 +68,8 @@ function Card({
   sourceLabel,
   categoryLabel,
   onSelect,
+  onVerdict,
+  verdictBusy,
 }: {
   tender: Tender;
   selected: boolean;
@@ -72,6 +78,8 @@ function Card({
   sourceLabel: (key: string) => string;
   categoryLabel: (key: string) => string;
   onSelect: (id: number) => void;
+  onVerdict: (id: number, verdict: Verdict | null) => void;
+  verdictBusy: number | null;
 }) {
   const { urgency, label } = deadlineUrgency(tender.deadline);
   const band = scoreTone(tender.relevance_score, bands);
@@ -79,6 +87,11 @@ function Card({
   const flag = tender.review_flags[0];
   const reason = tender.relevance_reasons[0];
   const href = safeHref(tender.source_url);
+  const verdict = tender.feedback?.verdict ?? null;
+  const marking = verdictBusy === tender.id;
+  // Only the learner's call needs explaining on the card. A reviewer's own mark
+  // needs no justification, and the notice they marked it on is right here.
+  const learnedReason = verdict === null ? tender.auto_irrelevant_reasons[0] : undefined;
 
   const meta = [
     tender.buyer_name,
@@ -112,6 +125,19 @@ function Card({
           ) : null}
           {isNew ? <span className="badge badge--new">New</span> : null}
           {!tender.is_actionable ? <span className="badge badge--grey">Closed</span> : null}
+          {/* Which of the two hid it, said in words rather than by colour: a
+              reviewer's decision and a machine's guess at one are different
+              things, and only one of them is evidence. */}
+          {verdict === 'irrelevant' ? (
+            <span className="badge badge--grey">Marked not relevant</span>
+          ) : verdict === 'relevant' ? (
+            <span className="badge badge--green">
+              <Icon name="check" size={11} />
+              Marked relevant
+            </span>
+          ) : tender.auto_irrelevant ? (
+            <span className="badge badge--grey">Hidden by learning</span>
+          ) : null}
         </div>
 
         <p className="metaline">
@@ -127,7 +153,12 @@ function Card({
             {reason}
           </p>
         ) : null}
-        {disqualifier ? (
+        {learnedReason ? (
+          <p className="flagline flagline--flag">
+            <Icon name="block" size={13} />
+            Hidden because {learnedReason}
+          </p>
+        ) : disqualifier ? (
           <p className="flagline flagline--bad">
             <Icon name="block" size={13} />
             {disqualifier}
@@ -168,6 +199,41 @@ function Card({
             <Icon name="external" size={11} />
           </a>
         ) : null}
+
+        {/* One button, not two. Rejecting is the frequent act - it is what
+            working through a list *is* - while keeping something is rare and
+            deliberate, so it lives in the detail panel with the note field
+            beside it. Raised above the title's overlay like the link above, or
+            the card would swallow the click and open the drawer instead. */}
+        {verdict === null ? (
+          <button
+            type="button"
+            className="verdict__btn"
+            disabled={marking}
+            title="Hide this notice, and teach the system to hide ones like it"
+            onClick={(event) => {
+              event.stopPropagation();
+              onVerdict(tender.id, 'irrelevant');
+            }}
+          >
+            <Icon name="block" size={11} />
+            {marking ? 'Marking…' : 'Not relevant'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="verdict__btn"
+            disabled={marking}
+            title="Withdraw this mark"
+            onClick={(event) => {
+              event.stopPropagation();
+              onVerdict(tender.id, null);
+            }}
+          >
+            <Icon name="refresh" size={11} />
+            {marking ? 'Undoing…' : 'Undo'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -211,6 +277,8 @@ export function TenderList({
   onClearFilters,
   onFirstPage,
   onShowAll,
+  onVerdict,
+  verdictBusy,
 }: TenderListProps) {
   if (error) {
     return (
@@ -303,6 +371,8 @@ export function TenderList({
           sourceLabel={sourceLabel}
           categoryLabel={categoryLabel}
           onSelect={onSelect}
+          onVerdict={onVerdict}
+          verdictBusy={verdictBusy}
         />
       ))}
     </div>

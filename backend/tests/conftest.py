@@ -53,6 +53,25 @@ def keyed_settings(settings: Settings) -> Settings:
     return settings.model_copy(update={"sam_gov_api_key": "test-key-not-real"})
 
 
+@pytest.fixture(autouse=True)
+def _clear_derived_caches():
+    """Both service caches are process-global; every test gets its own database.
+
+    Their fingerprints describe the data, which is the right invalidation rule
+    for one deployment and the wrong one for a suite where two fresh in-memory
+    databases can look identical. Cleared between tests so no test can be handed
+    the previous test's engine or learned model.
+    """
+    from app.services.feedback import reset_model_cache
+    from app.services.matching_rules import reset_engine_cache
+
+    reset_engine_cache()
+    reset_model_cache()
+    yield
+    reset_engine_cache()
+    reset_model_cache()
+
+
 @pytest.fixture
 def db_session():
     engine = create_engine(

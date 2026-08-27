@@ -3,11 +3,13 @@ import { ApiError, api } from '../api/client';
 import type {
   AutomationStatus,
   Density,
+  FeedbackResponse,
   FetchRun,
   SourceStatus,
   Stats,
   TenderFilters,
   TenderPage,
+  Verdict,
 } from '../types';
 import {
   DEFAULT_FILTERS,
@@ -30,6 +32,7 @@ import {
   FALLBACK_BANDS,
   FALLBACK_SWEEP_DAYS,
   countryLabel,
+  feedbackMessage,
   isSweepInFlight,
   deploymentLabel,
   fitLabel,
@@ -82,6 +85,8 @@ export function Dashboard() {
   // Which whole-system action is in flight, and what the server said about it.
   const [busy, setBusy] = useState<'fetch' | 'rescore' | null>(null);
   const [busySource, setBusySource] = useState<string | null>(null);
+  /** The notice whose verdict is being written, so only its own control waits. */
+  const [verdictBusy, setVerdictBusy] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(
     null,
   );
@@ -261,6 +266,44 @@ export function Dashboard() {
       }
     },
     [loadMeta, sweepDays],
+  );
+
+  // --- verdicts (D26) -----------------------------------------------------
+  /**
+   * Record or withdraw one verdict, and say what it changed.
+   *
+   * The list and the counts both move, so both are reloaded: the marked notice
+   * usually leaves the current view entirely, and a page that silently lost a
+   * row would read as a glitch rather than as the thing just asked for. The
+   * message is what makes the learning visible at the one moment it happens.
+   */
+  const announceVerdict = useCallback(
+    (result: FeedbackResponse) => {
+      setActionMessage({ tone: 'ok', text: feedbackMessage(result) });
+      setReloadToken((v) => v + 1);
+      void loadMeta();
+    },
+    [loadMeta],
+  );
+
+  const applyVerdict = useCallback(
+    async (id: number, verdict: Verdict | null) => {
+      setVerdictBusy(id);
+      setActionMessage(null);
+      try {
+        const result =
+          verdict === null ? await api.clearFeedback(id) : await api.setFeedback(id, verdict);
+        announceVerdict(result);
+      } catch (err) {
+        setActionMessage({
+          tone: 'bad',
+          text: err instanceof ApiError ? err.message : String(err),
+        });
+      } finally {
+        setVerdictBusy(null);
+      }
+    },
+    [announceVerdict],
   );
 
   // --- filters and views --------------------------------------------------
@@ -540,6 +583,8 @@ export function Dashboard() {
                   onClearFilters={clearAll}
                   onFirstPage={() => setFilters((prev) => ({ ...prev, page: 1 }))}
                   onShowAll={() => selectLens('all')}
+                  onVerdict={(id, verdict) => void applyVerdict(id, verdict)}
+                  verdictBusy={verdictBusy}
                 />
 
                 {page && !error ? (
@@ -604,6 +649,7 @@ export function Dashboard() {
         onNext={() => step(1)}
         hasPrev={selectedIndex > 0}
         hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
+        onFeedback={announceVerdict}
       />
     </>
   );
