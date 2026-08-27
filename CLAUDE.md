@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (29 records, D1–D29).
+`docs/DECISIONS.md` explains why it is built this way (30 records, D1–D30).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 594 tests, all passing
+./.venv/bin/python -m pytest -q          # 622 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 152 tests
+npx vitest run                           # 183 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -394,6 +394,66 @@ tests pin it; neither is optional.
 **Accepting is a POST, never a GET on the link itself.** Slack fetches URLs to
 build previews, and a GET that established an account would let an unfurl
 consume the invitation before the person saw it.
+
+**An administrator's link enters the dashboard with no click; a member's shows
+the accept screen (D30).** The page reads the link first —
+`POST /api/auth/invitation`, which writes *nothing* — and branches on the role.
+That is not a hole in the rule above: an unfurl fetches the page's HTML and runs
+none of its JavaScript, so no preview reaches either endpoint. If you are about
+to "fix" the auto-enter as an unfurl risk, read D30 first.
+
+**The lookup reports the *account's* role when there is an account**, and the
+roster entry's only when there is not. A colleague promoted under People would
+otherwise be sent back to an accept screen because the entry that admitted them
+still says `member`. Re-opening a link never *writes* a role —
+`test_re_opening_a_link_never_re_roles_an_existing_account` pins it, and without
+that guarantee "roster edits do not touch existing accounts" would hold only
+until the person next opened their own link.
+
+**Auto-entering is only for a browser with no session.** Somebody already signed
+in gets nothing spent on their behalf: their own link leads where they already
+are, and somebody else's must never silently swap one live session for another.
+An administrator holding a colleague's link sees the accept screen with both
+addresses on it **and a way out** — without that, the only button on the page
+signs them out of their own account and into the colleague's, and the only escape
+is a reload they have to think of.
+
+**Two accepts of a never-used link can arrive at once, and `users.email` is
+UNIQUE.** Before D30 that took two tabs and two clicks; now the page spends an
+administrator's link on load, so two tabs — or a browser that *prerenders* the
+URL out of the address bar and runs its JavaScript — are two accepts with no
+press between them. `accept_access_link` catches `IntegrityError`, rolls back,
+and re-reads the row the winner wrote. Note the shape of the argument: D29's
+unfurl reasoning covers link *previews*, which execute no JavaScript, and does
+**not** cover prerendering, which does. The consequence is bounded — a prerender
+can only sign in the person already holding the link — but the collision was
+real.
+
+**Both public doors cap the token at `MAX_TOKEN_LENGTH`.** `/accept` and
+`/invitation` are the only endpoints reachable with no session; a real token is
+43 characters in a `String(64)` column, so anything longer cannot match a row and
+is only a way to make an unauthenticated caller's nonsense expensive.
+
+**The link is read in parallel with the session, not after it.** Two sequential
+round trips would put the invited person behind twice as much blank frame on the
+one journey the feature exists for. Effect one reads the link, effect two decides
+once both answers are in — and the deciding effect has *no* cancellation on
+purpose, because it sets `entering` itself and a cleanup flipping `cancelled`
+would discard the result of the request it had just started.
+
+**`role` is required on `POST /api/auth/roster`** — no default, because the role
+now decides where the link lands its holder. **Re-roling somebody who has not
+joined revokes their link**, so a link already sent cannot start behaving
+differently from the one that was described when it was sent. Setting the role it
+already has is not a change and keeps the link; a joined entry keeps its link
+either way, because that link is the person's only credential.
+
+**Only an administrator can change a role, and `tests/test_roles.py` is where
+that is proved.** It covers the two endpoints that say `role` out loud *and* the
+three doors that have no `require_admin` to lose — `PATCH /me`, `POST /register`
+and `POST /accept` are safe because they never read a role from the caller, which
+is a property of their shape and exactly the kind of thing a refactor removes by
+accident. Every refusal is checked against the database, not the response body.
 
 The remaining ways in: bootstrap when no account exists (becomes admin), and a
 single-use invitation (D25) which still sets a password and is the outsider

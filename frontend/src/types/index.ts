@@ -477,6 +477,26 @@ export interface RevokedCount {
   revoked: number;
 }
 
+/**
+ * What an access link says about its owner, read before it is spent (D30).
+ *
+ * The page needs this to decide *where to land somebody*: an administrator goes
+ * straight to the dashboard, a member is shown the accept screen. Asking after
+ * accepting would be the wrong order — accepting is the half that cannot be
+ * undone.
+ */
+export interface Invitation {
+  email: string;
+  /**
+   * The account's role when there is one, the roster's promise when there is
+   * not. A colleague promoted last week is an administrator here even though
+   * the entry that let them in still says `member`.
+   */
+  role: UserRole;
+  /** True once this address has an account: "welcome back" rather than "join". */
+  joined: boolean;
+}
+
 // --- the workspace roster (D28) ---------------------------------------------
 //
 // The address is the permission, not the link. That is why `join_url` can be

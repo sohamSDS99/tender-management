@@ -50,9 +50,28 @@ export default function App() {
     );
   }
 
+  // Somebody arrived on an access link and we do not yet know whose it is (D30).
+  // The same blank frame, for the same reason and one more: the two roles land
+  // in different places, so painting *either* page before the answer arrives
+  // means painting the wrong one and taking it away again.
+  if (auth.invitationStatus === 'checking') {
+    return <div className="gate__wait" aria-busy="true" aria-label="Opening your invitation" />;
+  }
+
+  // An administrator's link is being spent right now. AuthPage rather than a
+  // blank frame: creating the account takes a moment, and a plate with their
+  // address on it says what is happening where an empty screen says nothing.
+  if (auth.invitationStatus === 'entering') return <AuthPage auth={auth} />;
+
   // Narrowed here so the Dashboard and everything under it can take a plain
   // `User` rather than `User | null` and a trail of non-null assertions.
   if (!auth.user) return <AuthPage auth={auth} />;
+
+  // Signed in, holding a link that belongs to somebody else. Showing the
+  // dashboard would be *correct* — this is their session — but it would also
+  // silently swallow the link, and the administrator testing it would conclude
+  // the feature works when they have not seen it. Say whose link it is instead.
+  if (auth.invitationForSomebodyElse) return <AuthPage auth={auth} />;
 
   return <Dashboard auth={auth} user={auth.user} />;
 }

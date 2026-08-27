@@ -194,15 +194,31 @@ def add_addresses(
 
 
 def set_entry_role(db: Session, entry: RosterEntry, role: str) -> RosterEntry:
-    """Change the role a *future* account will get.
+    """Change the role a *future* account will get, and withdraw the old link.
 
     Deliberately does not touch an account that already exists. Somebody who
     joined last week keeps the role they were given; moving them is what
     PATCH /api/auth/users is for, and doing it as a side effect of a roster edit
     would be a change nobody asked for happening in the wrong place.
+
+    **Re-roling somebody who has not joined revokes their link (D30).** Since the
+    role decides where the link *lands* them — an administrator goes straight to
+    the dashboard, a member is shown the accept screen — a link already sent
+    would quietly start behaving differently from the one the administrator
+    described when they sent it. Revoking makes that visible: the row shows no
+    link, and issuing a new one is the deliberate act that says "this is now an
+    administrator's link". It is also the mechanical form of the rule that the
+    role is set *before* a link exists.
+
+    Left alone once they have joined, because then the link is their only
+    credential and revoking it on a roster edit that changes nothing about their
+    account would lock them out for no reason.
     """
     if role not in ROLES:
         raise RosterError(f"Unknown role {role!r}.")
+    if role != entry.role and not entry.has_joined and entry.has_link:
+        entry.access_token = None
+        log_ctx(logger, logging.INFO, "access link revoked by role change", entry=entry.id)
     entry.role = role
     db.commit()
     return entry

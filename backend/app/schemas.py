@@ -606,7 +606,11 @@ class RosterAdd(BaseModel):
     """
 
     addresses: str
-    role: str = "member"
+    #: Required, with no default (D30). It used to default to ``member``, which
+    #: meant a caller that said nothing about the role still got a working link
+    #: — and now that the role decides where that link *lands* somebody, an
+    #: unstated role is a decision made by omission. Naming it is the point.
+    role: str
     note: str = ""
 
 
@@ -626,7 +630,46 @@ class RosterRoleUpdate(BaseModel):
     role: str
 
 
+#: Longest token either public door will look at. A real one is
+#: ``secrets.token_urlsafe(32)`` — 43 characters — and the column holding it is
+#: ``String(64)``, so anything past this cannot match a row and is only a way to
+#: make an unauthenticated caller's nonsense expensive. These are the two
+#: endpoints reachable with no session at all, which is why the cap is here and
+#: not left to the database comparison.
+MAX_TOKEN_LENGTH = 256
+
+
 class AcceptRequest(BaseModel):
     """The whole of what somebody sends to join. One field, and no password."""
 
-    token: str
+    token: str = Field(max_length=MAX_TOKEN_LENGTH)
+
+
+class InvitationLookup(BaseModel):
+    """Ask what a link is before spending it.
+
+    A POST for a read, which is unusual enough to say why: the token is a live
+    credential (D29), and a GET would put it in the query string of every access
+    log between the browser and the application. The body keeps it out of them.
+    """
+
+    token: str = Field(max_length=MAX_TOKEN_LENGTH)
+
+
+class InvitationOut(UtcModel):
+    """What an access link says about its owner, without consuming it.
+
+    The page needs this before it acts, because the two roles land in different
+    places (D30): an administrator goes straight to the dashboard, a member is
+    shown the accept screen. Deciding that after accepting would be the wrong
+    order — accepting is the half that cannot be undone.
+    """
+
+    email: str
+    #: The account's role when there is one, the roster's promise when there is
+    #: not. A colleague promoted last week must not be treated as a member
+    #: because the entry that let them in still says so.
+    role: str
+    #: True once this address has an account, so the screen can say "welcome
+    #: back" instead of offering to create something that already exists.
+    joined: bool

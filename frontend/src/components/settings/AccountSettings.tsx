@@ -47,8 +47,32 @@ export function AccountSettings({ auth, onBack }: { auth: Auth; onBack: () => vo
       <ProfileSection auth={auth} />
       <PasswordSection />
       <SessionsSection />
-      {auth.user.role === 'admin' ? <TeamAdmin auth={auth} /> : null}
+      {auth.user.role === 'admin' ? <TeamAdmin auth={auth} /> : <MemberNote />}
     </SettingsPage>
+  );
+}
+
+/**
+ * What a member sees where an administrator sees the workspace panels (D30).
+ *
+ * An empty space is a worse answer than a sentence. Somebody told to "change
+ * so-and-so's role" arrives here, finds nothing, and cannot tell whether the
+ * feature is missing, broken, or not theirs — so this says which, and says who
+ * to ask. It is the only member-facing statement of the rule, and the rule
+ * itself is enforced on the server: every endpoint that writes a role answers
+ * 403 to this account, whatever the page happens to render.
+ */
+function MemberNote() {
+  return (
+    <SettingsSection
+      title="Roles and invitations"
+      note="Administrators only. Members read tenders and keep a profile."
+    >
+      <p className="acct__empty">
+        Only an administrator can add people to this workspace or change what somebody is. Ask one
+        of them if you need a colleague added, or your own role changed.
+      </p>
+    </SettingsSection>
   );
 }
 

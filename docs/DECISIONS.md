@@ -1637,3 +1637,144 @@ password hash, whose value is that people reuse passwords.
   rejected as unnecessary.
 * **A link in Slack history outlives the conversation.** Revocation is the only
   answer, and it is one click per person in the roster panel.
+
+---
+
+## D30 — An administrator's link lands in the dashboard; a member's asks first
+
+**Decision.** Opening an access link no longer does one thing. The page reads the
+link before spending it, and then either enters or asks:
+
+* **an administrator** goes straight into the dashboard, with nothing to press
+* **a member** sees the accept screen — their address, the role they are joining
+  as, and one button
+
+Carried by `POST /api/auth/invitation` (read-only) and
+`accounts.describe_access_link`, the `landsStraightInDashboard` rule in
+`state/auth.ts`, the `checking` / `entering` / `ready` / `dead` branches in
+`App.tsx`, and the two screens in `components/auth/AuthPage.tsx`.
+
+**Why the two differ at all.** An administrator is the person who *hands out*
+links and sets the workspace up; asking them to confirm an invitation of a shape
+they authored is a step with nothing behind it. A member is joining something for
+the first time, and the accept screen is where they are told what — by whose
+address, as what role — before anything is created in their name. The asymmetry is
+the feature, not an optimisation of it.
+
+**This does not reverse "accepting is a POST, never a GET" (D29).** That rule
+exists because a chat client fetches a URL to build a preview, and a GET that
+established an account would let an unfurl consume the invitation. An unfurl
+fetches this page's *HTML* and executes none of its JavaScript, so no preview
+reaches `/invitation` or `/accept`. The click that is skipped for an
+administrator is skipped by a real browser running the application — which is a
+person opening their own link, and nothing else.
+
+**The read in front of the write.** `POST /api/auth/invitation` answers who a
+link belongs to, what role it grants, and whether they already have an account.
+It writes nothing: no account, no claim on the roster entry, no session. That
+property is what makes it safe to call on page load, and it is asserted directly
+— two lookups, then a check that no user exists, the entry still reads as
+waiting, and the link still works.
+
+It is unauthenticated, like `/accept` and for the same reason: the caller has no
+session, and the token is what stands in for one. It tells the holder of a link
+their own address and their own role, and holding the link already *is* being
+that person (D29) — so it discloses nothing they do not have. To anybody without
+a valid token it discloses nothing at all, with one message for never-existed,
+revoked and replaced.
+
+**A POST for a read**, which is worth naming because it looks wrong. The token is
+a live credential; a GET would write it into the query string of every access log
+between the browser and the application. The body keeps it out of them.
+
+**The effective role, not the roster's promise.** The lookup reports the
+*account's* role when there is an account, and the entry's only when there is
+not. A colleague promoted last week under People must not be sent back to an
+accept screen because the entry that let them in still says `member`. Re-opening
+a link never *writes* a role either way — that hole is pinned by a test, because
+"roster edits do not touch existing accounts" would otherwise be true only until
+the person next opened their own link.
+
+**Entering is for a browser with no session.** If somebody is already signed in,
+nothing is spent on their behalf: their own link would take them where they
+already are, and somebody else's must never silently swap one live session for
+another. An administrator holding a colleague's link is shown the accept screen
+with both addresses on it — because rendering the dashboard would be *correct*
+and would also swallow the link, leaving them to conclude the feature works when
+they have not seen it.
+
+### Only an administrator can change a role, and that is now tested
+
+The rule was already true of every endpoint that writes a role. It had no test of
+its own, which is the same gap the sign-in gate shipped with: dropping
+`require_admin` from one decorator would have gone through green, and the failure
+mode is not a broken page, it is a member promoting themselves.
+`tests/test_roles.py` enumerates every way a role can be written —
+`PATCH /users/{id}`, `PATCH /roster/{id}`, `POST /roster`, the link endpoints,
+and the three doors that have no `require_admin` to lose (`PATCH /me`,
+`POST /register`, `POST /accept`, none of which read a role from the caller).
+Each refusal is checked against the database rather than the response body: a 403
+with a silently applied write behind it is exactly the bug worth catching.
+
+A member sees a sentence where an administrator sees the workspace panels, rather
+than empty space. Somebody told to "change so-and-so's role" who finds nothing
+cannot tell whether the feature is missing, broken, or not theirs.
+
+### The role is settled before a link exists
+
+**`role` is required on `POST /api/auth/roster`, with no default.** It used to
+fall back to `member`, which was harmless while the role only decided what an
+account would be. Now it decides where the link *lands* its holder, so a request
+that does not name one is asking for a link whose behaviour nobody chose. The
+panel matches: the segmented control starts unset and the button stays disabled
+until it is pressed.
+
+**Re-roling somebody who has not joined revokes their link.** A link already
+delivered would otherwise start behaving differently from the one the
+administrator described when they sent it — same URL, different landing. Revoking
+makes that visible: the row shows no link, says why, and issuing a new one is the
+deliberate act that says "this is now an administrator's link". It is also the
+mechanical form of the ordering this record asks for — addresses and roles first,
+links second.
+
+Left alone once they have joined, in both directions: a roster role never moves
+an existing account, so revoking there would be a lockout in exchange for
+nothing, and their link is their only credential. Setting the role it already has
+is not a change and does not cost the link, or a panel that re-sent the current
+value on any edit would quietly invalidate everybody's.
+
+**What this costs.** An administrator who flips a role after sending a link has
+to send a new one. That is the intended cost: the alternative is a link whose
+meaning changed under its holder.
+
+### What the review of this record changed
+
+Written down because each of these was a real hole, not a tidy-up:
+
+* **Spending a link on load makes a concurrent first accept reachable without
+  anybody clicking twice** — two tabs, or a browser prerendering the URL from the
+  address bar and running its JavaScript. Both requests read no account, both
+  insert, and `users.email` is UNIQUE. `accept_access_link` now catches
+  `IntegrityError`, rolls back and re-reads the winner's row. Note what this says
+  about D29's unfurl argument: it covers link *previews*, which execute no
+  JavaScript, and it does **not** cover prerendering, which does. The consequence
+  is bounded — a prerender can only sign in whoever already holds the link — but
+  the collision was not hypothetical.
+* **The screen for somebody else's link had one button and it was the wrong
+  one.** An administrator checking a colleague's link could only sign themselves
+  out of their own account and into it. There is now a way to put the link down.
+* **`/accept` and `/invitation` are the only endpoints reachable with no
+  session**, and both took a string of any length. Capped at
+  `MAX_TOKEN_LENGTH`: a real token is 43 characters in a `String(64)` column, so
+  anything longer cannot match a row.
+* **The lookup ran after the session call rather than beside it**, which put the
+  invited person behind two round trips of blank frame on the one journey this
+  whole record is about. Split into a read and a decide, in parallel.
+* **`authApi.invitation` had no test of the request it makes.** Every test of the
+  landing behaviour mocks that method, so a wrong path or a GET would have left
+  the suite green and broken the feature for exactly the people who cannot report
+  it — because they cannot get in.
+* **The roster panel had no test at all**, and it is where the "roles before
+  links" sequence is enforced. `WorkspaceRoster.test.tsx` covers it, and both
+  halves were mutation-checked: restoring the `member` default and disabling the
+  revoke-on-re-role each turn tests red.
