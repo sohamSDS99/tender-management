@@ -448,9 +448,12 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str = ""
-    #: Required except on the bootstrap registration. Comes from ?invite= in the
-    #: link an administrator sent.
+    #: A single-use invitation, from ?invite= (D25). For somebody who is not on
+    #: the workspace roster.
     invite_token: str | None = None
+    #: The shared workspace join link, from ?join= (D28). Only works when the
+    #: address is also on the roster — the ordinary path for a colleague.
+    join_token: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -521,3 +524,74 @@ class UserAdminUpdate(BaseModel):
 
 class RevokedCount(BaseModel):
     revoked: int
+
+
+# --- the workspace roster (D28) ---------------------------------------------
+
+
+class RosterEntryOut(UtcModel):
+    """One address permitted to hold an account."""
+
+    id: int
+    email: str
+    #: The role this address gets *when it joins*. Changing it does not move an
+    #: account that already exists.
+    role: str
+    note: str
+    created_at: datetime
+    #: Null until they register. The admin list sorts on this so the people who
+    #: still need the link are at the top.
+    joined_at: datetime | None
+
+
+class RosterView(UtcModel):
+    """Everything the Workspace panel draws in one call.
+
+    The join link is included rather than fetched separately because the panel
+    is useless without it — an administrator opening this is almost always
+    there to copy the link or to add somebody who needs it.
+    """
+
+    entries: list[RosterEntryOut]
+    total: int
+    joined: int
+    waiting: int
+    #: Null until a link has been created. Readable on purpose: it is meant to
+    #: be sent to a whole team and shown again later, and it is safe because the
+    #: roster is the permission, not the link (D28).
+    join_url: str | None
+
+
+class RosterAdd(BaseModel):
+    """A pasted blob rather than a validated list.
+
+    Commas, semicolons, spaces and newlines all work, because that is what
+    comes out of a mail client's To: field, a spreadsheet column and a Slack
+    message — and asking somebody to reformat a list they already have is the
+    friction this feature exists to remove.
+    """
+
+    addresses: str
+    role: str = "member"
+    note: str = ""
+
+
+class RosterAdded(UtcModel):
+    """What the paste did. Both halves matter to the reader.
+
+    Addresses already present are reported rather than treated as an error:
+    re-pasting a team list to add one person is a normal thing to do, and it
+    must not look like a failure or silently re-role the other nine.
+    """
+
+    added: list[RosterEntryOut]
+    already_present: list[str]
+
+
+class RosterRoleUpdate(BaseModel):
+    role: str
+
+
+class JoinLink(UtcModel):
+    url: str
+    token: str

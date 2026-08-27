@@ -28,7 +28,7 @@ import type { Auth } from '../../state/auth';
  * dependency.
  */
 export function AuthPage({ auth }: { auth: Auth }) {
-  const canRegister = auth.bootstrap || auth.inviteToken !== null;
+  const canRegister = auth.bootstrap || auth.inviteToken !== null || auth.joinToken !== null;
   const [mode, setMode] = useState<'signin' | 'register'>(canRegister ? 'register' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -110,7 +110,9 @@ export function AuthPage({ auth }: { auth: Auth }) {
             {auth.bootstrap
               ? 'First account'
               : registering
-                ? 'By invitation'
+                ? auth.joinToken
+                  ? 'Join this workspace'
+                  : 'By invitation'
                 : 'Restricted dashboard'}
           </p>
           <h2 className="gate__title">{registering ? 'Create your account' : 'Sign in'}</h2>
@@ -119,6 +121,11 @@ export function AuthPage({ auth }: { auth: Auth }) {
             <p className="gate__note">
               No account exists yet. <b>This one becomes the administrator</b>, and everyone after
               you joins by invitation.
+            </p>
+          ) : registering && auth.joinToken ? (
+            <p className="gate__note">
+              Use the address your administrator added to this workspace. Any other address will be
+              turned away.
             </p>
           ) : registering ? (
             <p className="gate__note">You are joining on an invitation.</p>

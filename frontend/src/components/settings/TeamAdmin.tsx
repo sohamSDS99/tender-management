@@ -5,6 +5,7 @@ import { formatDateTime } from '../../labels';
 import type { Invite, InviteCreated, User, UserRole } from '../../types';
 import { Icon } from '../Icon';
 import { SettingsRow, SettingsSection } from './SettingsPage';
+import { WorkspaceRoster } from './WorkspaceRoster';
 
 /**
  * The administrator's half of the account page: who may join, and who is here.
@@ -40,6 +41,13 @@ export function TeamAdmin({ auth }: { auth: Auth }) {
 
   return (
     <>
+      {/*
+        Order follows how the work actually happens: the workspace list and its
+        shared link first, because that is the ordinary way somebody joins;
+        single-use invitations second, kept for the outsider who is not on the
+        list at all; then everyone who already has an account.
+      */}
+      <WorkspaceRoster />
       <InviteSection invites={invites} onChanged={load} />
       <PeopleSection users={users} auth={auth} onChanged={load} error={error} />
     </>
@@ -105,7 +113,7 @@ function InviteSection({ invites, onChanged }: { invites: Invite[]; onChanged: (
   return (
     <SettingsSection
       title="Invitations"
-      note="Registration is closed except by invitation. There is no email here, so send the link yourself."
+      note="For somebody who is not on the workspace list — a contractor, a one-off. Single-use, expiring, and shown here exactly once."
     >
       {created ? (
         <div className="invite__new">

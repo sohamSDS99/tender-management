@@ -21,23 +21,29 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Invite, User, UserSession, utcnow
+from app.models import Invite, RosterEntry, User, UserSession, utcnow
 from app.schemas import (
     InviteCreate,
     InviteCreated,
     InviteOut,
+    JoinLink,
     LoginRequest,
     PasswordChange,
     ProfileUpdate,
     RegisterRequest,
     RevokedCount,
+    RosterAdd,
+    RosterAdded,
+    RosterEntryOut,
+    RosterRoleUpdate,
+    RosterView,
     SessionOut,
     SessionState,
     UserAdminUpdate,
     UserOut,
 )
 from app.security import Principal, current_principal, require_admin, require_principal, settings_dep
-from app.services import accounts
+from app.services import accounts, roster
 from app.settings import Settings
 
 router = APIRouter(prefix="/api/auth", tags=["accounts"])
@@ -164,6 +170,7 @@ def register(
             password=payload.password,
             display_name=payload.display_name,
             invite_token=payload.invite_token,
+            join_token=payload.join_token,
             settings=settings,
         )
     except accounts.AccountError as exc:
@@ -373,3 +380,125 @@ def update_user(
     except accounts.AccountError as exc:
         raise _fail(exc) from None
     return _user_out(target)
+
+
+# --- the workspace roster (D28) ---------------------------------------------
+
+
+def _roster_out(entry: RosterEntry) -> RosterEntryOut:
+    return RosterEntryOut(
+        id=entry.id,
+        email=entry.email,
+        role=entry.role,
+        note=entry.note,
+        created_at=entry.created_at,
+        joined_at=entry.joined_at,
+    )
+
+
+def _roster_view(db: Session, settings: Settings) -> RosterView:
+    token = roster.get_join_token(db)
+    return RosterView(
+        entries=[_roster_out(e) for e in roster.list_entries(db)],
+        **roster.counts(db),
+        join_url=roster.join_url(token, settings) if token else None,
+    )
+
+
+@router.get("/roster", response_model=RosterView, summary="Who may hold an account")
+def read_roster(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> RosterView:
+    """The roster and the join link together.
+
+    One call rather than two, because the panel is useless without both: an
+    administrator opening it is almost always there to copy the link or to add
+    somebody who needs it.
+    """
+    return _roster_view(db, settings)
+
+
+@router.post("/roster", response_model=RosterAdded, status_code=201, summary="Add addresses")
+def add_to_roster(
+    payload: RosterAdd,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RosterAdded:
+    """Add a pasted list of addresses. Adding is not sending.
+
+    Nobody is notified — this records who is *allowed* in. Delivering the join
+    link stays a separate, deliberate act, which is why the link is shown
+    alongside rather than fired off automatically.
+    """
+    try:
+        added, existing = roster.add_addresses(
+            db, principal.user, raw=payload.addresses, role=payload.role, note=payload.note
+        )
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return RosterAdded(added=[_roster_out(e) for e in added], already_present=existing)
+
+
+@router.patch("/roster/{entry_id}", response_model=RosterEntryOut, summary="Change the role on joining")
+def update_roster_entry(
+    entry_id: int,
+    payload: RosterRoleUpdate,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> RosterEntryOut:
+    """Changes what a *future* account gets, not an existing one.
+
+    Somebody who joined last week keeps the role they were given. Moving them is
+    what PATCH /api/auth/users/{id} is for, and doing it as a side effect of a
+    roster edit would be a change nobody asked for, in the wrong place.
+    """
+    entry = db.get(RosterEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No such roster entry.")
+    try:
+        entry = roster.set_entry_role(db, entry, payload.role)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return _roster_out(entry)
+
+
+@router.delete("/roster/{entry_id}", status_code=204, summary="Remove an address")
+def remove_from_roster(
+    entry_id: int,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Withdraws permission to register. Does **not** close an existing account.
+
+    Two different acts with different consequences: this one stops somebody
+    signing up, while ending a current person's access kills their sessions and
+    is guarded against stranding the last administrator. Conflating them would
+    let a roster tidy-up lock everybody out.
+    """
+    entry = db.get(RosterEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No such roster entry.")
+    try:
+        roster.remove_entry(db, principal.user, entry)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return Response(status_code=204)
+
+
+@router.post("/roster/join-link", response_model=JoinLink, summary="Create or replace the join link")
+def rotate_join_link(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> JoinLink:
+    """Mints a new link and kills the previous one.
+
+    The same endpoint creates the first link and replaces a leaked one, because
+    they are the same operation and a separate "create" would be a second door
+    to keep in step. Anyone who has already registered is unaffected: the token
+    grants registration and nothing else.
+    """
+    token = roster.rotate_join_token(db)
+    return JoinLink(url=roster.join_url(token, settings), token=token)

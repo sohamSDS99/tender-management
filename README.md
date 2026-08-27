@@ -809,7 +809,7 @@ tender-monitor/
 ├── config/relevance_profiles.yaml  all keywords, weights, patterns, caps (frozen, and never
 │                                   rewritten — overrides live in app_settings)
 ├── docs/
-│   ├── DECISIONS.md                24 records, D1–D24: every choice and accepted risk
+│   ├── DECISIONS.md                28 records, D1–D28: every choice and accepted risk
 │   ├── RUNBOOK.md                  deploy, rotate a secret, re-run a window, diagnose
 │   ├── DEPLOY-RAILWAY.md           the hosted deployment: services, variables, trigger owner
 │   └── DEMO.md                     repeatable demo with a fallback for every step
@@ -831,7 +831,8 @@ hiding pages, so `curl` gets the same `401` a browser does.
 
 | Action | Where |
 | --- | --- |
-| Create the first account | The sign-in page offers **Create account** while no account exists. The first one becomes the administrator and needs no invitation. |
+| Create the first account | The sign-in page offers **Create account** while no account exists. The first one becomes the administrator and needs no permission at all. |
+| Add your team | **Settings → Account → Workspace members**: paste their addresses, then send everyone the one join link. |
 | Sign in | The sign-in page — it is the whole page when signed out, not a dialog over the dashboard. |
 | Sign out | The account control at the foot of the left sidebar. |
 | Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
