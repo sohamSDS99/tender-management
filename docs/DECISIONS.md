@@ -1778,3 +1778,116 @@ Written down because each of these was a real hole, not a tidy-up:
   links" sequence is enforced. `WorkspaceRoster.test.tsx` covers it, and both
   halves were mutation-checked: restoring the `member` default and disabling the
   revoke-on-re-role each turn tests red.
+
+---
+
+## D31 — Every account can have a password, because signing out was a lockout
+
+**Decision.** An account may hold a password *and* an access link, and three
+things can now put one there: an administrator creates the account with one
+(`POST /api/auth/users`), an administrator sets one on an existing account
+(`POST /api/auth/users/{id}/password`), or the owner sets a first one themselves
+(`POST /api/auth/me/password` with no `current_password`). `UserOut.has_password`
+reports whether an account has one, and the account page warns the accounts that
+do not.
+
+**This does not delete D29. It removes the word "only" from it.** The access link
+is still the frictionless first entry, still durable, still the whole of what a
+new colleague needs. What changes is that it is no longer the *sole* credential,
+because being the sole credential is what made the failure below possible.
+
+### The defect, as reported
+
+Four steps, nothing exotic in any of them:
+
+1. somebody opens their access link and lands in the dashboard (D29)
+2. they press **Sign out**
+3. the sign-in page asks for an email and a password
+4. they have never had a password, so there is no answer they can give
+
+Everything that could be done about it was outside the product: find the original
+link in a chat history, or find somebody with a shell on the deployment host to
+run `python -m app.accounts_cli reset-password`. The page did not say that, and
+nothing anywhere showed that this account was one press away from that state.
+
+**D29 said a permanent link was "the only shape where nothing else is needed
+stays true past the first fortnight".** That was right about the link and wrong
+about the sentence: it stayed true right up until somebody signed out, and
+signing out is not an exotic act. The record reasoned carefully about a link
+being *lost* and not at all about a session being *ended on purpose*.
+
+### Why a password rather than something cleverer
+
+Three alternatives were considered and rejected:
+
+* **Remember the link on the device.** A long-lived cookie, or `localStorage`,
+  so the sign-in page could offer "continue as you". It works, and it makes
+  **Sign out** a lie on a shared machine — the one place the button matters most.
+  Splitting it into "sign out" and "sign out and forget this device" is a
+  distinction nobody reads before clicking.
+* **Never sign them out.** Hiding the button for passwordless accounts. Removes
+  the one control somebody needs when they are on somebody else's laptop.
+* **Email them their link.** D27 rejected mail transport, and reviving it to fix
+  a lockout would make signing back in depend on a mail relay being up.
+
+A password is the boring answer, and it is the one the person asking for this
+asked for: *"whenever they log out, they can log in through this password and
+mail ID."*
+
+### The three doors, and what each one refuses
+
+**`POST /api/auth/users`** — administrators only. The fourth way an account can
+come into existence, and the only one an administrator drives end to end; the
+other three all hand the password decision to somebody else. It starts **no
+session** and returns no cookie, because the administrator is creating somebody
+*else's* account and a cookie here would sign them in as that person. A duplicate
+address is `409`, not an overwrite — otherwise "add this person" silently becomes
+"reset their password".
+
+**`POST /api/auth/users/{id}/password`** — administrators only, and the remedy
+for anybody already stranded. **Every session of theirs ends, including the one
+they may be reading on**, which differs from the self-service change on purpose:
+the administrator cannot know which of somebody's sessions is the one that needed
+the reset, and sparing the target's own browser would make a reset performed
+because of a suspected compromise decorative. The count comes back so the panel
+can say what it did to them.
+
+**`POST /api/auth/me/password`** — `current_password` is now optional, and
+**which case this is comes from the stored hash, never from what the caller
+sends.** That ordering is the whole of the security argument. Written the other
+way round — "no current password sent means none is needed" — anybody holding a
+stolen session could rotate the password and own the account outright.
+`test_an_account_with_a_password_still_has_to_prove_it` pins it, and the
+mutation that inverts the condition turns it red.
+
+Sending a `current_password` for an account that has none is refused rather than
+ignored: somebody typing into that box is describing a belief about their own
+account, and quietly accepting it teaches them the wrong thing.
+
+**The empty-hash guard from D29 is what makes all of this safe to write.**
+`verify_password` refuses an empty *stored* hash first and unconditionally, so
+"this account has no password" can never be satisfied by submitting an empty one.
+D31 adds a password form to exactly the accounts with an empty hash, which puts
+the reflex to loosen that check closer to hand than it has ever been. Do not.
+
+### What the pages say now
+
+`has_password` exists so the interface can stop being silent about the state that
+caused this. A passwordless account sees an amber panel saying that signing out
+would lock it out and a form with no impossible field in it; the administrator's
+**People** list marks those accounts **No password** and offers **Set password**
+beside each; and the sign-in page's footer names the two ways back for somebody
+who has already signed out.
+
+The new-account form shows the password **in the clear as it is typed**. This is
+an administrator dictating a credential to a colleague, and a masked field they
+cannot read back is how a typo becomes a support request. Nothing is emailed;
+delivery stays a deliberate act, as it is for an access link.
+
+### What this costs
+
+An administrator now hands out a password as well as, or instead of, a link — one
+more thing to deliver. And a password that an administrator chose is a password
+somebody else knows, until the owner changes it. Both were accepted against the
+alternative, which is a colleague who cannot get back into the tool because they
+pressed the button that says **Sign out**.

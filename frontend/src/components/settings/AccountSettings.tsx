@@ -45,7 +45,7 @@ export function AccountSettings({ auth, onBack }: { auth: Auth; onBack: () => vo
       onBack={onBack}
     >
       <ProfileSection auth={auth} />
-      <PasswordSection />
+      <PasswordSection auth={auth} />
       <SessionsSection />
       {auth.user.role === 'admin' ? <TeamAdmin auth={auth} /> : <MemberNote />}
     </SettingsPage>
@@ -169,7 +169,20 @@ function ProfileSection({ auth }: { auth: Auth }) {
  * leaves the question the person actually had — is the machine I am worried
  * about still signed in? — unanswered.
  */
-function PasswordSection() {
+/**
+ * Set a first password, or change an existing one (D31).
+ *
+ * Two forms in one, and which one it is comes from the account rather than from
+ * a toggle. Somebody who joined by access link has no password to prove, so
+ * asking them for a current one would leave the single group who most needs a
+ * password unable to give themselves one — they are the people for whom signing
+ * out is a lockout rather than a sign-out.
+ *
+ * For that account the section leads with the consequence rather than the field,
+ * because "you have no password" is a fact about their access, not a setting.
+ */
+function PasswordSection({ auth }: { auth: Auth }) {
+  const hasPassword = auth.user?.has_password ?? true;
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [status, setStatus] = useState<string | null>(null);
@@ -182,13 +195,17 @@ function PasswordSection() {
     setError(null);
     setStatus(null);
     try {
-      const { revoked } = await authApi.changePassword(current, next);
+      const { revoked } = await authApi.changePassword(hasPassword ? current : null, next);
       setCurrent('');
       setNext('');
+      // The account changed shape, so the cached user is now wrong about the one
+      // thing this whole section is about.
+      if (auth.user && !hasPassword) auth.setUser({ ...auth.user, has_password: true });
+      const verb = hasPassword ? 'Password changed' : 'Password set';
       setStatus(
         revoked === 0
-          ? 'Password changed. No other browsers were signed in.'
-          : `Password changed. ${revoked} other ${revoked === 1 ? 'session was' : 'sessions were'} signed out.`,
+          ? `${verb}. No other browsers were signed in.`
+          : `${verb}. ${revoked} other ${revoked === 1 ? 'session was' : 'sessions were'} signed out.`,
       );
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not change it.');
@@ -200,19 +217,32 @@ function PasswordSection() {
   return (
     <SettingsSection
       title="Password"
-      note="Changing it signs out every other browser. This one stays signed in."
+      note={
+        hasPassword
+          ? 'Changing it signs out every other browser. This one stays signed in.'
+          : 'You joined with an access link and have no password yet. Set one and you can always sign in with your email address, even after signing out.'
+      }
     >
+      {hasPassword ? null : (
+        <p className="acct__warn" role="status">
+          <b>Signing out now would lock you out.</b> Your access link is the only way back in, so if
+          you no longer have it you would need an administrator to let you in again. Setting a
+          password fixes that for good.
+        </p>
+      )}
       <form onSubmit={save}>
-        <SettingsRow label="Current password">
-          <input
-            className="input"
-            type="password"
-            required
-            value={current}
-            autoComplete="current-password"
-            onChange={(event) => setCurrent(event.target.value)}
-          />
-        </SettingsRow>
+        {hasPassword ? (
+          <SettingsRow label="Current password">
+            <input
+              className="input"
+              type="password"
+              required
+              value={current}
+              autoComplete="current-password"
+              onChange={(event) => setCurrent(event.target.value)}
+            />
+          </SettingsRow>
+        ) : null}
         <SettingsRow label="New password" hint="At least 10 characters.">
           <input
             className="input"
@@ -227,9 +257,15 @@ function PasswordSection() {
           <button
             type="submit"
             className="btn btn--primary btn--sm"
-            disabled={busy || !current || !next}
+            disabled={busy || (hasPassword && !current) || !next}
           >
-            {busy ? 'Changing…' : 'Change password'}
+            {busy
+              ? hasPassword
+                ? 'Changing…'
+                : 'Setting…'
+              : hasPassword
+                ? 'Change password'
+                : 'Set a password'}
           </button>
           {status ? <span className="acct__ok">{status}</span> : null}
           {error ? (

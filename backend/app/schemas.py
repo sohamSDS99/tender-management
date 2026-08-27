@@ -457,6 +457,11 @@ class UserOut(UtcModel):
     display_name: str
     role: str
     is_active: bool
+    #: Whether they can sign in with a password at all (D31). Not the password,
+    #: not a hint at it — the one bit that decides whether signing out is
+    #: reversible for this person. Drives the warning on the account page and the
+    #: "No password" mark in the administrator's list.
+    has_password: bool
     created_at: datetime
     last_login_at: datetime | None
 
@@ -504,8 +509,31 @@ class ProfileUpdate(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    current_password: str
+    """Change a password, or set a first one.
+
+    ``current_password`` is optional because an account that joined by access
+    link has none to give (D31), and requiring it would leave exactly the people
+    who most need a password unable to set one. The server decides which case
+    this is from the stored hash, never from what the caller sends.
+    """
+
+    current_password: str | None = None
     new_password: str
+
+
+class UserCreate(BaseModel):
+    """An administrator making somebody an account outright (D31)."""
+
+    email: str
+    display_name: str = ""
+    role: str
+    password: str
+
+
+class PasswordSet(BaseModel):
+    """An administrator setting somebody else's password (D31)."""
+
+    password: str
 
 
 class SessionOut(UtcModel):

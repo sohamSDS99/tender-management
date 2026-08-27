@@ -533,24 +533,136 @@ def change_password(
     db: Session,
     user: User,
     *,
-    current_password: str,
+    current_password: str | None,
     new_password: str,
     keep_session_id: int | None,
     settings: Settings,
 ) -> int:
-    """Rotate a password and end every other session. Returns how many ended.
+    """Set or rotate a password and end every other session. Returns how many ended.
 
     Ending the others is the point, not a nicety: the reason to change a
     password is usually that somebody else may know the old one, and leaving
     their session alive makes the change cosmetic.
+
+    **An account that has no password yet may set a first one without proving an
+    old one (D31), because there is no old one to prove.** Somebody who joined by
+    access link has ``password_hash == ""``, and requiring a current password
+    would leave the one group who most needs a password unable to give themselves
+    one. They are not unauthenticated: they are holding a live session, which is
+    the same thing the ordinary change relies on.
+
+    The empty-hash guard in ``verify_password`` is what makes this safe to write
+    this way. It refuses an empty *stored* hash outright, so "no password yet"
+    can never be satisfied by submitting an empty one.
     """
-    if not verify_password(current_password, user.password_hash):
-        raise InvalidCredentials("That is not your current password.")
+    if user.has_password:
+        if not verify_password(current_password or "", user.password_hash):
+            raise InvalidCredentials("That is not your current password.")
+    elif current_password:
+        # They sent one for an account that has none. Refusing beats ignoring:
+        # somebody typing a password into "current" is describing a belief about
+        # their own account, and silently accepting it teaches them the wrong
+        # thing about what just happened.
+        raise InvalidCredentials("This account has no password yet. Leave that field blank.")
+
     check_password(new_password, user.email, settings)
+    first = not user.has_password
     user.password_hash = hash_password(new_password)
     revoked = revoke_sessions(db, user, except_id=keep_session_id, commit=False)
     db.commit()
-    log_ctx(logger, logging.INFO, "password changed", user_id=user.id, sessions_ended=revoked)
+    log_ctx(
+        logger,
+        logging.INFO,
+        "password set" if first else "password changed",
+        user_id=user.id,
+        sessions_ended=revoked,
+    )
+    return revoked
+
+
+def create_account(
+    db: Session,
+    actor: User,
+    *,
+    email: str,
+    display_name: str,
+    role: str,
+    password: str,
+    settings: Settings,
+) -> User:
+    """An administrator makes somebody an account outright, password and all (D31).
+
+    The fourth way an account can come into existence, and the only one an
+    administrator drives end to end: bootstrap (first ever), a single-use
+    invitation (D25), an access link (D29), and this.
+
+    It exists because the other three all hand the *password* decision to
+    somebody else — bootstrap and invitation ask the new person to choose one,
+    and an access link never involves one at all. None of them answers "put these
+    five people in, with passwords, now", which is the request this serves.
+
+    Their sessions are not started here; they sign in themselves. So the
+    administrator has to deliver the password, exactly as they already deliver
+    an access link.
+    """
+    if role not in ROLES:
+        raise AccountError(f"Unknown role {role!r}.")
+    email = normalise_email(email)
+    check_password(password, email, settings)
+    display_name = clean_display_name(display_name, email)
+
+    if get_by_email(db, email) is not None:
+        # Named plainly rather than folded into a vague failure. This endpoint is
+        # administrators-only, so there is no directory to leak: they can already
+        # read the whole account list.
+        raise EmailTaken("An account already exists for that email address.")
+
+    user = User(
+        email=email,
+        display_name=display_name,
+        password_hash=hash_password(password),
+        role=role,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    log_ctx(logger, logging.INFO, "account created by administrator", actor=actor.id, user_id=user.id)
+    return user
+
+
+def set_password(db: Session, actor: User, target: User, new_password: str, settings: Settings) -> int:
+    """An administrator sets somebody's password. Returns sessions ended.
+
+    The answer to the trap D31 exists to close: somebody who joined by access
+    link, signed out, and no longer has the link. Before this the only remedy was
+    a shell on the host (``python -m app.accounts_cli reset-password``), which is
+    not a remedy an administrator has at 9pm.
+
+    **Every session of theirs ends**, including the one they may be reading on.
+    That is the same rule the self-service change follows and for the same
+    reason: if the password needed changing because somebody else may know it,
+    leaving a live session behind makes the change cosmetic. The difference is
+    that here even the target's own current browser goes, because the
+    administrator doing this cannot know which of those sessions is the problem.
+
+    No exemption for the last administrator. Setting a password does not remove
+    anybody's access, so there is nothing to strand.
+    """
+    check_password(new_password, target.email, settings)
+    first = not target.has_password
+    target.password_hash = hash_password(new_password)
+    revoked = revoke_sessions(db, target, except_id=None, commit=False)
+    target.failed_logins = 0
+    target.locked_until = None
+    db.commit()
+    log_ctx(
+        logger,
+        logging.INFO,
+        "password set by administrator" if first else "password reset by administrator",
+        actor=actor.id,
+        user_id=target.id,
+        sessions_ended=revoked,
+    )
     return revoked
 
 

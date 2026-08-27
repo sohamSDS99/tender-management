@@ -84,17 +84,33 @@ def test_the_second_registration_needs_an_invite(anon_client: TestClient):
 
 
 def test_registration_never_leaks_the_password_hash(anon_client: TestClient):
+    """The response describes the account and carries no part of the credential.
+
+    This used to assert that the string "password" appeared nowhere in the body,
+    which was a fair proxy until D31 added ``has_password`` — a boolean saying
+    whether signing out is reversible for this person, which is not a secret and
+    is the whole point of that field. The check is now on the thing that actually
+    matters: the exact key set, no hash under any name, and nothing resembling
+    the submitted password or a scrypt digest.
+    """
     body = register_first_admin(anon_client)
-    assert "password" not in str(body).lower()
+
     assert set(body) == {
         "id",
         "email",
         "display_name",
         "role",
         "is_active",
+        "has_password",
         "created_at",
         "last_login_at",
     }
+    assert body["has_password"] is True, "a registered account has one, by definition"
+
+    serialised = str(body).lower()
+    assert "hash" not in serialised
+    assert "scrypt" not in serialised, "the stored form begins scrypt$…"
+    assert GOOD_PASSWORD.lower() not in serialised, "nor the password that was just submitted"
 
 
 # --- the invite chain -------------------------------------------------------

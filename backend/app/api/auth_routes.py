@@ -31,6 +31,7 @@ from app.schemas import (
     InviteOut,
     LoginRequest,
     PasswordChange,
+    PasswordSet,
     ProfileUpdate,
     RegisterRequest,
     RevokedCount,
@@ -42,6 +43,7 @@ from app.schemas import (
     SessionOut,
     SessionState,
     UserAdminUpdate,
+    UserCreate,
     UserOut,
 )
 from app.security import Principal, current_principal, require_admin, require_principal, settings_dep
@@ -309,14 +311,20 @@ def update_me(
     return _user_out(user)
 
 
-@router.post("/me/password", response_model=RevokedCount, summary="Change your password")
+@router.post("/me/password", response_model=RevokedCount, summary="Set or change your password")
 def change_password(
     payload: PasswordChange,
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
     settings: Settings = Depends(settings_dep),
 ) -> RevokedCount:
-    """Rotates the password and ends every *other* session.
+    """Sets a first password, or rotates an existing one, and ends every *other* session.
+
+    ``current_password`` is optional, and which case this is comes from the
+    stored hash rather than from what the caller sent (D31). An account that
+    joined by access link has no password to prove, and requiring one would leave
+    precisely the people who most need a password unable to give themselves one —
+    they are the ones for whom signing out is a lockout.
 
     The count comes back so the dashboard can say what happened. "Password
     changed" alone leaves a person wondering whether the laptop they are worried
@@ -416,6 +424,73 @@ def revoke_invite(
 @router.get("/users", response_model=list[UserOut], summary="Everyone with an account")
 def list_users(_: Principal = Depends(require_admin), db: Session = Depends(get_db)) -> list[UserOut]:
     return [_user_out(user) for user in accounts.list_users(db)]
+
+
+@router.post("/users", response_model=UserOut, status_code=201, summary="Create an account")
+def create_user(
+    payload: UserCreate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> UserOut:
+    """An administrator makes somebody an account, password and all (D31).
+
+    The fourth door, and the only one an administrator drives end to end. The
+    other three each hand the password decision to somebody else: bootstrap and a
+    single-use invitation ask the new person to choose one, and an access link
+    never involves a password at all — which is how somebody ends up able to get
+    in exactly once and then not again.
+
+    No session is started. They sign in themselves, so the administrator has to
+    deliver the password the same way they already deliver an access link.
+    """
+    try:
+        user = accounts.create_account(
+            db,
+            principal.user,
+            email=payload.email,
+            display_name=payload.display_name,
+            role=payload.role,
+            password=payload.password,
+            settings=settings,
+        )
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return _user_out(user)
+
+
+@router.post(
+    "/users/{user_id}/password",
+    response_model=RevokedCount,
+    summary="Set somebody's password",
+)
+def set_user_password(
+    user_id: int,
+    payload: PasswordSet,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> RevokedCount:
+    """Give somebody a password, or replace the one they have (D31).
+
+    The remedy for the trap this record exists to close: somebody joined by
+    access link, signed out, and no longer has the link. Until now the only fix
+    was a shell on the deployment host, which is not a fix an administrator has
+    at nine in the evening.
+
+    **Every session of theirs ends, including the one they are reading on.** The
+    administrator cannot know which of those sessions is the one that needed
+    changing, so all of them go, and the count comes back so the panel can say
+    what happened.
+    """
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="No such account.")
+    try:
+        revoked = accounts.set_password(db, principal.user, target, payload.password, settings)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return RevokedCount(revoked=revoked)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut, summary="Change a role, or deactivate")

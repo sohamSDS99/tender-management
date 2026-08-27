@@ -427,10 +427,12 @@ Interactive documentation: <http://localhost:8000/docs>.
 | POST | `/api/auth/register` | create an account; first one on a fresh deployment becomes admin |
 | POST | `/api/auth/login` · `/logout` | start or end a session (HttpOnly cookie) |
 | GET · PATCH | `/api/auth/me` | your profile |
-| POST | `/api/auth/me/password` | change it; ends every *other* session |
+| POST | `/api/auth/me/password` | set a first password or change an existing one; ends every *other* session. `current_password` is optional and only for an account that has none, D31 |
 | GET · DELETE | `/api/auth/sessions` | your signed-in browsers; sign out everywhere else |
 | GET · POST · DELETE | `/api/auth/invites` | invitations — **admin only** |
 | GET · PATCH | `/api/auth/users` | roles and deactivation — **admin only** |
+| POST | `/api/auth/users` | create an account with a password, so they can sign in from the start — **admin only**, starts no session, D31 |
+| POST | `/api/auth/users/{id}/password` | set or reset somebody's password; ends **every** session they have — **admin only**, D31 |
 | GET · POST | `/api/auth/roster` | who may hold an account, each with their own access link — **admin only**; `role` is required on POST, D30 |
 | PATCH · DELETE | `/api/auth/roster/{id}` | change the role a link grants (which withdraws the link, D30), or take the address off the list — **admin only** |
 | POST · DELETE | `/api/auth/roster/{id}/link` | issue/replace or revoke that person's access link — **admin only** |
@@ -844,6 +846,8 @@ hiding pages, so `curl` gets the same `401` a browser does.
 | Sign in | The sign-in page — it is the whole page when signed out, not a dialog over the dashboard. |
 | Sign out | The account control at the foot of the left sidebar. |
 | Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
+| Add somebody with a password | **Settings → Account → Add a person** (administrators only). They can sign in with their email from the start, D31. |
+| Set or reset somebody's password | **Settings → Account → People** — anybody marked **No password** can only get in with their link until you do. |
 | Invite someone | **Settings → Account → Invitations** (administrators only). |
 | Change a role, deactivate someone | **Settings → Account → People** (administrators only — a member is refused by the API, not just by a hidden panel). |
 
@@ -888,6 +892,23 @@ deactivate their account under **People**, which outranks any link.
 
 A **single-use invitation** is still there for somebody not on the list at all, such as a
 contractor. That path does still ask them to set a password.
+
+**Signing out must never be a lockout, so every account should have a password (D31).**
+The link is the easy way in; the password is the way *back*. Somebody who joined by link and
+never set one could press **Sign out** and find a form asking for a password they had never
+had — that is fixed three ways:
+
+* **Add a person** (Settings → Account) creates the account *with* a password, so they can
+  sign in with their email address from the start. Nothing is emailed — send it to them.
+* Anybody already in can set their own first password under **Settings → Account → Password**.
+  No current password is asked for, because there is not one. Their account page warns them
+  in amber until they do.
+* **People** marks anybody with no password and offers **Set password** beside them. That is
+  the rescue for somebody already signed out who has lost their link. It ends **every**
+  session they have, including one they may be reading on.
+
+A password an administrator chose is a password somebody else knows, so tell them to change
+it once they are in.
 
 Other things worth knowing:
 
