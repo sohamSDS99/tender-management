@@ -154,3 +154,65 @@ def require_admin(principal: Principal = Depends(require_principal)) -> Principa
     if not principal.user.is_admin:
         raise HTTPException(status_code=403, detail="That needs an administrator account.")
     return principal
+
+
+# --- the sign-in gate (D26) -------------------------------------------------
+
+#: The only paths a signed-out caller may reach.
+#:
+#: Deliberately tiny, and deliberately an allow-list rather than a deny-list: a
+#: route added tomorrow is private without anyone remembering to make it so. The
+#: cost of that choice is that a genuinely public new endpoint must be added
+#: here on purpose, which is the right way round.
+#:
+#: ``/health`` is not a courtesy. Railway's healthcheck probes it over plain
+#: HTTP with no cookie, and a 401 there fails the deploy - the replica never
+#: becomes healthy and the release is rolled back, with the application logs
+#: looking perfectly fine throughout. Do not remove it to tidy the list.
+#:
+#: The other four are the doors themselves. ``/logout`` is public because
+#: answering 401 to "sign me out" leaves a stale cookie in the browser, and
+#: ``/session`` is public because it is how the page discovers it is signed out.
+PUBLIC_PATHS = frozenset(
+    {
+        "/health",
+        "/api/auth/session",
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/logout",
+    }
+)
+
+
+def enforce_sign_in(
+    request: Request,
+    principal: Principal | None = Depends(current_principal),
+    trusted: bool = Depends(has_cron_secret),
+    settings: Settings = Depends(settings_dep),
+) -> None:
+    """Refuse anyone who is not signed in. Applied to every route in the app.
+
+    Registered as an *application-level* dependency in ``create_app`` rather than
+    on each router, which is the whole point: a new endpoint is private the
+    moment it exists, and nobody has to remember a decorator. It is a dependency
+    rather than middleware so that ``app.dependency_overrides`` still reaches it
+    in tests - middleware would open its own database session and quietly bypass
+    the fixture's.
+
+    **This reverses D25**, which said accounts gate nothing. See D26 for why, and
+    do not soften it back without reading that record: a good deal of this
+    codebase's prose was written under the old rule.
+
+    ``X-Cron-Secret`` still passes. That is not a hole in the gate, it is the
+    machine door: the secret is a service credential that D5 forbids putting in
+    the page, so no browser can present it, and it was already a privilege
+    bypass before this gate existed (D23). With ``CRON_SECRET`` unset - the
+    default - ``has_cron_secret`` is always False and the door is not there at
+    all.
+    """
+    if not settings.require_sign_in:
+        return
+    if request.url.path in PUBLIC_PATHS or trusted:
+        return
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Sign in to use this dashboard.")

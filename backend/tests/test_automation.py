@@ -371,24 +371,26 @@ def test_a_refused_change_leaves_the_previous_schedule_running(client) -> None:
     assert client.get("/api/automation").json()["run_hours_local"] == [9, 21]
 
 
-def test_the_schedule_endpoint_needs_no_shared_secret(anon_client) -> None:
+def test_the_schedule_endpoint_needs_no_shared_secret(client) -> None:
     """A member of staff setting the time in the dashboard *is* the authorisation.
 
-    Since D23 nothing is gated on the secret, so the contrast is no longer
-    "gated vs ungated" but *what* limits each one: choosing a time is free and
+    Still true, and still nothing to do with CRON_SECRET. What changed in D26 is
+    only *who counts as a member of staff*: they must now be signed in, so this
+    uses the signed-in client. The contrast the test draws is unchanged - what
+    limits each endpoint is a cost, not a credential: choosing a time is free and
     unlimited, while starting a sweep spends outbound requests and so carries a
     cooldown. Proven by starting one and being refused the second immediately.
     """
-    assert anon_client.put("/api/automation/schedule", json={"hours_local": [8, 20]}).status_code == 200
-    assert anon_client.put("/api/automation/schedule", json={"hours_local": [9, 21]}).status_code == 200
+    assert client.put("/api/automation/schedule", json={"hours_local": [8, 20]}).status_code == 200
+    assert client.put("/api/automation/schedule", json={"hours_local": [9, 21]}).status_code == 200
 
-    assert anon_client.post("/api/fetch").status_code == 202
-    assert anon_client.post("/api/fetch").status_code in (409, 429)
+    assert client.post("/api/fetch").status_code == 202
+    assert client.post("/api/fetch").status_code in (409, 429)
 
     # Re-scoring has its own, separate cooldown: it rewrites every row but spends
     # no outbound request, so a sweep must not gate it and vice versa.
-    assert anon_client.post("/api/tenders/rescore").status_code == 200
-    assert anon_client.post("/api/tenders/rescore").status_code == 429
+    assert client.post("/api/tenders/rescore").status_code == 200
+    assert client.post("/api/tenders/rescore").status_code == 429
 
 
 # --- pausing and resuming the sweep (docs/DECISIONS.md D21) ----------------
@@ -481,16 +483,16 @@ def test_a_nonsense_trigger_state_is_refused(client) -> None:
     assert client.put("/api/automation/trigger", json={}).status_code == 422
 
 
-def test_the_trigger_endpoint_needs_no_shared_secret(anon_client) -> None:
+def test_the_trigger_endpoint_needs_no_shared_secret(client) -> None:
     """Same authorisation as the schedule: the person in the dashboard (D19/D21).
 
     Pausing spends no outbound requests and rewrites no rows, so it carries no
     cooldown at all - unlike a sweep, which does (D23). Toggling repeatedly is
     therefore always allowed.
     """
-    assert anon_client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
-    assert anon_client.put("/api/automation/trigger", json={"enabled": True}).status_code == 200
-    assert anon_client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
+    assert client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
+    assert client.put("/api/automation/trigger", json={"enabled": True}).status_code == 200
+    assert client.put("/api/automation/trigger", json={"enabled": False}).status_code == 200
 
 
 def test_setting_times_while_paused_says_so_rather_than_blaming_another_process(client) -> None:

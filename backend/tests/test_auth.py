@@ -586,32 +586,103 @@ def test_an_invite_for_an_address_that_already_has_an_account_is_refused(admin_a
     assert response.status_code == 409
 
 
-# --- D25's actual promise ---------------------------------------------------
+# --- the sign-in gate (D26 reverses D25) ------------------------------------
+#
+# D25 shipped accounts on the explicit promise that they gated nothing, and the
+# two tests that lived here asserted exactly that. D26 reversed it on request:
+# the dashboard must not show anything to someone who has not signed in, and
+# hiding only the React pages would have been theatre while `curl /api/tenders`
+# still returned everything.
+#
+# These replace them. The old ones were not quietly deleted - the reversal is
+# the point, and a reader comparing git history should find the promise and its
+# withdrawal in the same place.
 
 
-def test_reads_stay_open_after_accounts_exist(anon_client, db_session, monkeypatch, settings):
-    """The regression for the whole decision.
+def test_reads_are_closed_to_a_stranger(anon_client, db_session, monkeypatch, settings):
+    """The whole of D26 in one assertion."""
+    from tests.conftest import _build_app
 
-    Accounts were added on the explicit promise that they gate nothing: a
-    signed-out browser sees exactly what it saw before D25. If a
-    ``Depends(require_principal)`` ever lands on a tender route, this is the
-    test that says so.
+    register_first_admin(anon_client)
+    stranger = TestClient(_build_app(db_session, monkeypatch, settings))
+    for path in ("/api/tenders", "/api/stats", "/api/sources", "/api/automation", "/api/fetch-runs"):
+        assert stranger.get(path).status_code == 401, path
+
+
+def test_the_operator_actions_are_closed_to_a_stranger(anon_client, db_session, monkeypatch, settings):
+    """D23's cost limits are still the control *behind* the door, not the door."""
+    from tests.conftest import _build_app
+
+    register_first_admin(anon_client)
+    stranger = TestClient(_build_app(db_session, monkeypatch, settings))
+    assert stranger.post("/api/tenders/rescore").status_code == 401
+    # ...and the person who signed in still gets through.
+    assert anon_client.post("/api/tenders/rescore").status_code == 200
+
+
+def test_a_signed_in_reader_sees_everything_they_saw_before(anon_client):
+    """The gate must not have narrowed what an account can actually read."""
+    register_first_admin(anon_client)
+    for path in ("/api/tenders", "/api/stats", "/api/sources", "/api/automation", "/api/fetch-runs"):
+        assert anon_client.get(path).status_code == 200, path
+
+
+def test_signing_out_closes_the_door_again(anon_client):
+    """The session is the key, so ending it must actually lock the reader out."""
+    register_first_admin(anon_client)
+    assert anon_client.get("/api/tenders").status_code == 200
+    anon_client.post("/api/auth/logout")
+    assert anon_client.get("/api/tenders").status_code == 401
+
+
+def test_an_expired_session_closes_the_door_on_an_ordinary_route(anon_client, db_session):
+    """Not just on /api/auth/me - expiry has to reach the whole app."""
+    register_first_admin(anon_client)
+    session = db_session.query(UserSession).one()
+    session.expires_at = utcnow() - timedelta(seconds=1)
+    db_session.commit()
+    assert anon_client.get("/api/tenders").status_code == 401
+
+
+def test_a_deactivated_account_loses_the_whole_dashboard(admin_and_member):
+    """Deactivation has to mean more than "cannot see your profile"."""
+    admin, member, member_id = admin_and_member
+    assert member.get("/api/tenders").status_code == 200
+    admin.patch(f"/api/auth/users/{member_id}", json={"is_active": False})
+    assert member.get("/api/tenders").status_code == 401
+
+
+def test_the_machine_door_still_opens(cron_client):
+    """CRON_SECRET passes the gate. It is an identity, not a hole.
+
+    No browser can hold it (D5), and it is unset by default - so on a deployment
+    that never sets one, this door does not exist.
+    """
+    assert cron_client.get("/api/tenders").status_code == 200
+    assert cron_client.post("/api/tenders/rescore").status_code == 200
+
+
+def test_an_unset_cron_secret_is_not_a_skeleton_key(db_session, monkeypatch, settings):
+    """The empty string must never compare equal to a missing header."""
+    from tests.conftest import _build_app
+
+    no_secret = settings.model_copy(update={"cron_secret": ""})
+    client = TestClient(_build_app(db_session, monkeypatch, no_secret))
+    assert client.get("/api/tenders", headers={"X-Cron-Secret": ""}).status_code == 401
+    assert client.get("/api/tenders").status_code == 401
+
+
+def test_the_gate_can_be_switched_off_to_get_back_in(db_session, monkeypatch, open_settings):
+    """REQUIRE_SIGN_IN=false is the documented way out of a locked-out deployment.
+
+    Worth a test because it is the recovery path: if it silently stopped working,
+    nobody would find out until the day they needed it.
     """
     from tests.conftest import _build_app
 
-    register_first_admin(anon_client)
-    stranger = TestClient(_build_app(db_session, monkeypatch, settings))
-    for path in ("/health", "/api/tenders", "/api/stats", "/api/sources", "/api/automation"):
-        assert stranger.get(path).status_code == 200, path
-
-
-def test_the_operator_actions_are_still_callable_signed_out(anon_client, db_session, monkeypatch, settings):
-    """D23's cost limits stayed the control; they did not become a login."""
-    from tests.conftest import _build_app
-
-    register_first_admin(anon_client)
-    stranger = TestClient(_build_app(db_session, monkeypatch, settings))
-    assert stranger.post("/api/tenders/rescore").status_code == 200
+    client = TestClient(_build_app(db_session, monkeypatch, open_settings))
+    assert client.get("/api/tenders").status_code == 200
+    assert client.get("/api/stats").status_code == 200
 
 
 # --- the service, directly --------------------------------------------------

@@ -15,6 +15,10 @@ Measured on 2026-08-24 against the same five connectors at the same instant:
 34 notices against 119. The button was not broken; it was digging in a hole the
 scheduler had already emptied.
 
+Since D26 that operator is a *signed-in* one - the fixture is `client`, not
+`anon_client`, because an anonymous caller no longer reaches these endpoints at
+all. Nothing else about the window changed.
+
 A human clicking Fetch means "go and look harder", which is a different question
 from the one the schedule asks. So an operator sweep gets its own, deliberately
 deeper default - and the 72-hour floor inside the frozen `window()` still applies
@@ -60,18 +64,18 @@ def window_days(body: dict) -> float:
 # --- the defect this module exists for -------------------------------------
 
 
-def test_an_operator_sweep_looks_deeper_than_the_scheduled_one(anon_client, settings, no_connectors):
+def test_an_operator_sweep_looks_deeper_than_the_scheduled_one(client, settings, no_connectors):
     """An empty body must not mean "repeat the sweep that already ran"."""
-    response = anon_client.post("/api/fetch", json={})
+    response = client.post("/api/fetch", json={})
     assert response.status_code == 202
     body = response.json()
     assert body["days_back"] == settings.operator_fetch_days_back
     assert window_days(body) == pytest.approx(settings.operator_fetch_days_back, abs=0.01)
 
 
-def test_no_body_at_all_behaves_the_same_as_an_empty_one(anon_client, settings, no_connectors):
+def test_no_body_at_all_behaves_the_same_as_an_empty_one(client, settings, no_connectors):
     """The dashboard sends `{}`; curl users send nothing. Both are an operator."""
-    response = anon_client.post("/api/fetch")
+    response = client.post("/api/fetch")
     assert response.status_code == 202
     assert response.json()["days_back"] == settings.operator_fetch_days_back
 
@@ -81,59 +85,59 @@ def test_the_default_is_deeper_than_the_schedules_overlap(settings):
     assert settings.operator_fetch_days_back * 24 > settings.fetch_min_lookback_hours
 
 
-def test_an_explicit_window_still_wins(anon_client, no_connectors):
-    response = anon_client.post("/api/fetch", json={"days_back": 7})
+def test_an_explicit_window_still_wins(client, no_connectors):
+    response = client.post("/api/fetch", json={"days_back": 7})
     assert response.status_code == 202
     body = response.json()
     assert body["days_back"] == 7
     assert window_days(body) == pytest.approx(7, abs=0.01)
 
 
-def test_the_frozen_seventy_two_hour_floor_still_applies(anon_client, settings, no_connectors):
+def test_the_frozen_seventy_two_hour_floor_still_applies(client, settings, no_connectors):
     """Asking for nothing must not produce a window shallower than the schedule's.
 
     `ingest.window()` enforces FETCH_MIN_LOOKBACK_HOURS and its semantics are
     frozen; this pins that the route cannot route around it.
     """
-    response = anon_client.post("/api/fetch", json={"days_back": 0})
+    response = client.post("/api/fetch", json={"days_back": 0})
     assert response.status_code == 202
     assert window_days(response.json()) == pytest.approx(settings.fetch_min_lookback_hours / 24, abs=0.01)
 
 
-def test_the_window_reaches_the_sources_that_will_be_queried(anon_client, settings, no_connectors):
+def test_the_window_reaches_the_sources_that_will_be_queried(client, settings, no_connectors):
     """The reported window must be the one the connectors are actually handed.
 
     Reporting one window and searching another is exactly the class of bug that
     let this go unnoticed - the response looked right either way.
     """
-    anon_client.post("/api/fetch", json={"days_back": 12})
+    client.post("/api/fetch", json={"days_back": 12})
     assert len(no_connectors) == 1
     handed = no_connectors[0]
     assert (handed["date_to"] - handed["date_from"]).total_seconds() / 86400.0 == pytest.approx(12, abs=0.01)
 
 
-def test_the_dashboard_is_told_the_depth_rather_than_keeping_its_own_copy(anon_client, settings):
+def test_the_dashboard_is_told_the_depth_rather_than_keeping_its_own_copy(client, settings):
     """One source of truth for the window, like the score bands in /api/stats.
 
     The frontend needs the number to state it at the point of action. If it kept
     its own constant instead, the two would drift and the button could quietly go
     back to searching the window the scheduler has already emptied.
     """
-    body = anon_client.get("/api/automation").json()
+    body = client.get("/api/automation").json()
     assert body["operator_fetch_days_back"] == settings.operator_fetch_days_back
 
 
 # --- provenance: an operator sweep is a sweep, and groups like one ----------
 
 
-def test_an_operator_sweep_is_grouped_by_a_batch_id(anon_client, db_session, no_connectors):
+def test_an_operator_sweep_is_grouped_by_a_batch_id(client, db_session, no_connectors):
     """Without one, `automation.last_batch()` falls back to grouping on window_to.
 
     That fallback exists for rows written before the column did (D8), not as the
     normal path. An operator sweep that carries no batch id also reports
     `sent_in_last_batch: 0` regardless of what happened.
     """
-    response = anon_client.post("/api/fetch", json={})
+    response = client.post("/api/fetch", json={})
     batch_id = response.json()["batch_id"]
     assert batch_id
 
@@ -143,26 +147,27 @@ def test_an_operator_sweep_is_grouped_by_a_batch_id(anon_client, db_session, no_
     assert {row.trigger for row in rows} == {"manual"}
 
 
-def test_two_sweeps_do_not_share_a_batch_id(client, no_connectors):
+def test_two_sweeps_do_not_share_a_batch_id(cron_client, no_connectors):
     """Each sweep gets its own id, or `last_batch()` would merge two sweeps.
 
     Uses the trusted client on purpose: an *operator* second sweep this soon is
     refused by the cooldown (429), which is the guard working. Only a caller
-    holding CRON_SECRET controls its own timing.
+    holding CRON_SECRET controls its own timing - and since D26 that is also the
+    only caller who reaches the endpoint without signing in.
     """
-    first = client.post("/api/fetch", json={}).json()["batch_id"]
-    second = client.post("/api/fetch", json={"sources": ["ted"]}).json()["batch_id"]
+    first = cron_client.post("/api/fetch", json={}).json()["batch_id"]
+    second = cron_client.post("/api/fetch", json={"sources": ["ted"]}).json()["batch_id"]
     assert first and second and first != second
 
 
-def test_a_second_operator_sweep_is_still_refused_by_the_cooldown(anon_client, no_connectors):
+def test_a_second_operator_sweep_is_still_refused_by_the_cooldown(client, no_connectors):
     """Widening the window must not have widened what a held-down button can do.
 
     A 30-day sweep is more expensive than a 3-day one, so the single-flight and
     cooldown guards matter more now, not less.
     """
-    assert anon_client.post("/api/fetch", json={}).status_code == 202
-    refused = anon_client.post("/api/fetch", json={})
+    assert client.post("/api/fetch", json={}).status_code == 202
+    refused = client.post("/api/fetch", json={})
     assert refused.status_code in (409, 429)
     assert "Retry-After" in refused.headers or refused.status_code == 409
 
@@ -225,7 +230,9 @@ async def test_a_cancelled_run_settles_as_failed_instead_of_claiming_to_run(
             raise asyncio.CancelledError()
 
     monkeypatch.setattr(ingest, "SessionLocal", db_session.info["factory"])
-    monkeypatch.setattr(ingest, "build_connector", lambda source, s=None, transport=None, **kw: Hanging(settings))
+    monkeypatch.setattr(
+        ingest, "build_connector", lambda source, s=None, transport=None, **kw: Hanging(settings)
+    )
     run_ids = ingest._create_runs(["ted"], utcnow(), utcnow(), "manual", "batch-cancel")
 
     with pytest.raises(asyncio.CancelledError):

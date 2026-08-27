@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (25 records, D1–D25).
+`docs/DECISIONS.md` explains why it is built this way (26 records, D1–D26).
 
 ## What this is
 
@@ -26,7 +26,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 515 tests
+./.venv/bin/python -m pytest -q          # 528 tests (4 pre-existing failures, see below)
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 7 revisions, head c7e1a4b90f32
 
@@ -223,18 +223,60 @@ when it looks fragile.
 
 ## Auth boundary
 
-**There are accounts now (D25), and they gate nothing.** This is the single
-easiest thing in the repository to get wrong, because "we added authentication"
-and "we added accounts" sound like the same sentence and are not. No tender
-route, no stats route, no operator action and no settings endpoint gained a
-`Depends`. A signed-out browser is served exactly what it was served before.
-`tests/test_auth.py::test_reads_stay_open_after_accounts_exist` fails loudly if
-that stops being true — if you find yourself regenerating it, you are reversing
-a decision, not fixing a test.
+**The dashboard is closed. Every route needs a session (D26).** This section said
+the exact opposite until D26, in bold, so distrust any memory of it: D25 shipped
+accounts that gated nothing, and that promise was withdrawn on request. The
+reversal is the feature, not a regression.
 
-The only endpoints that refuse a caller are the ones under `/api/auth` that read
-or change an account: `require_principal` (401) and `require_admin` (403) at the
-foot of `app/security.py`, and nowhere else.
+The gate is `security.enforce_sign_in`, registered as an **application-level**
+dependency in `create_app`. That placement is deliberate — a route added tomorrow
+is private without anyone remembering, and exposure is the thing you have to
+choose rather than privacy being the thing you have to remember. It is a
+dependency rather than middleware so `app.dependency_overrides` still reaches it;
+middleware would open its own database session and bypass the tests'.
+
+**Five paths are public, and `/health` is not optional.** Railway's healthcheck
+probes it with no cookie. A 401 there does not fail loudly, it fails the
+*deployment* — the replica never becomes healthy, the release rolls back, and
+every application log line looks fine throughout. The other four are the doors
+themselves (`/api/auth/session`, `/login`, `/register`, `/logout`).
+
+**FastAPI's docs routes do not inherit app-level dependencies.** `/docs`,
+`/redoc` and `/openapi.json` are registered through Starlette's `add_route`,
+while `dependencies` only reach `add_api_route` — so with `docs_url="/docs"` they
+answered **200** to a stranger while every other route answered 401, handing over
+every path, parameter and schema name. `create_app` registers all three itself
+now. Reverting to `docs_url=...` reopens it silently;
+`test_the_docs_are_behind_the_gate_too` is the tripwire.
+
+**Signed in ≠ unlimited. These are two different axes and conflating them is the
+easy mistake.** The gate decides who gets through the door. D23's cost controls
+decide what they may do once inside, and they are unchanged — a signed-in
+operator can hammer eight public services just as hard as an anonymous one could:
+
+| Endpoint | Limit | Why that limit |
+|---|---|---|
+| `POST /api/fetch` | single-flight (409) + 300s cooldown (429) | spends outbound requests against 8 public services |
+| `POST /api/tenders/rescore` | 120s cooldown (429) | rewrites every stored row |
+| `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
+| `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
+
+`ALLOW_OPERATOR_ACTIONS=false` still closes the first two to the browser (403).
+
+**`X-Cron-Secret` passes the gate.** A machine identity, not a hole: D5 forbids
+putting it in the page so no browser holds one, and with `CRON_SECRET` unset —
+the default — the door does not exist. Nothing uses it over HTTP today; the
+scheduled fetch runs `python -m app.jobs.scheduled_fetch` against the database.
+
+**`REQUIRE_SIGN_IN=false` is the way back in**, not a hedge. If the gate
+misbehaves, one platform variable restores an open API without a deploy, which
+beats being locked out of the tool that manages accounts. Defaults to true.
+
+**The `client` fixture is a signed-in administrator and deliberately does NOT
+send the shared secret.** The secret bypasses the gate, so a fixture carrying it
+would sail past the very thing the suite should exercise — every pre-existing
+test would keep passing even if the gate refused every real human. Tests that
+genuinely need to skip an operator cooldown use `cron_client` and say why.
 
 Registration is invite-only *after the first account*. The first registration on
 an empty deployment needs no invite and becomes an administrator — so between
@@ -251,34 +293,32 @@ the documented deployment is plain HTTP; set it true only behind TLS. If sign-in
 are handed to the administrator to deliver. The recovery path for a locked-out
 account is `python -m app.accounts_cli reset-password` on the host.
 
-**`SameSite=Lax` is the entire CSRF defence**, and that is only sufficient
-because nothing is gated on identity (D23 + D25). The moment any endpoint is
-gated on a session, Lax stops being enough and a token becomes necessary.
-
-Reads are open by design — the data is public procurement notices, the tool is
-internal-network only (D5, D18, as amended by D25).
-
-**Nothing is gated on the shared secret any more (D23).** The secret is now a
-*bypass* of the cost limits, not a key. Every write is callable from the browser,
-and what constrains each one is a limit rather than a credential:
-
-| Endpoint | Limit | Why that limit |
-|---|---|---|
-| `POST /api/fetch` | single-flight (409) + 300s cooldown (429) | spends outbound requests against 8 public services |
-| `POST /api/tenders/rescore` | 120s cooldown (429) | rewrites every stored row |
-| `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
-| `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
-
-`ALLOW_OPERATOR_ACTIONS=false` closes the first two to the browser (403) and must
-be set before the API is ever internet-reachable. `X-Cron-Secret` still works and
-skips the cooldowns, for CI. An unset `CRON_SECRET` no longer 503s these endpoints —
-it used to, which was right while the secret was the only control and only broke
-the dashboard once the limits existed. `tests/test_operator_guards.py` and
-`test_security.py` assert all of it.
+**`SameSite=Lax` is the entire CSRF defence, and D26 raised the stakes on it.**
+It was sufficient under D25 because nothing was gated on identity, so there was
+no privilege to ride. Now there is. It still holds — the dashboard is same-origin
+with the API in both deployments, and Lax blocks cross-site form posts — but a
+token becomes the right answer the moment anything here is exposed differently.
 
 **A crashed sweep must not brick the Fetch button.** `_sweep_in_flight()` ignores
 `fetch_runs` rows older than `STALE_RUN_MINUTES`; without that, one orphaned
 `running` row disables operator fetches for ever. D23.
+
+## Known-failing tests, not caused by you
+
+`tests/test_api.py` has **4 failures on `main`** and has since roughly 2026-08-26:
+`test_stats_summarise_the_dashboard` and three `test_tender_filters` cases.
+
+The cause is the wall-clock hazard already described above, re-armed. The `seeded`
+fixture builds deadlines from the frozen `NOW` (`2026-08-21 12:00`) but
+`is_actionable` is computed by the relevance engine against the **real** clock at
+ingest time, so `NOW + timedelta(days=5)` silently became a past deadline on
+2026-08-26 and `actionable` fell from 3 to 2. Freezing the fixture without
+freezing the server's clock only moves the explosion later.
+
+The honest fix threads a `now` through `store_tenders`/`upsert_tender` to the
+engine, which is an additive parameter but lands in `app/services/ingest.py` —
+frozen-core, "additive only". Left alone deliberately; it needs a decision, not a
+patch. Verify with `git stash && pytest tests/test_api.py` before blaming a branch.
 
 ## Frontend
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, auth as authApi } from '../api/client';
+import { ApiError, auth as authApi, setUnauthorizedHandler } from '../api/client';
 import type { SessionState, User } from '../types';
 
 /**
@@ -131,6 +131,17 @@ export function useAuth(): Auth {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A session can die while the tab is open — it expires, an administrator
+  // deactivates the account, or the password is changed elsewhere. The next call
+  // to any endpoint answers 401, and this turns that into the sign-in page
+  // instead of a dashboard full of individual error panels.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setState((prev) => (prev.user ? { ...prev, user: null } : prev));
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   // Take the invite out of the URL as soon as it has been read into state.
   useEffect(() => {
