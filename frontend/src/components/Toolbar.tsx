@@ -101,7 +101,11 @@ export function Toolbar({
           <span className="filterbar__label">Active</span>
           {chips.map((chip) =>
             chip.locked ? (
-              <span className="fchip fchip--locked" key={chip.label} title="Set by the current view">
+              <span
+                className="fchip fchip--locked"
+                key={chip.label}
+                title="Set by the current view"
+              >
                 {chip.label}
               </span>
             ) : (
@@ -125,7 +129,6 @@ export function Toolbar({
           ) : null}
         </div>
       ) : null}
-
     </div>
   );
 }

@@ -6,8 +6,18 @@ import { SettingsRow, SettingsSection } from './SettingsPage';
 
 /** The five fields a record must supply to become a tender. */
 const FIELDS: { key: string; label: string; required?: boolean; hint: string }[] = [
-  { key: 'source_notice_id', label: 'Notice ID', required: true, hint: 'Half the dedupe key — without it every sweep re-adds everything' },
-  { key: 'title', label: 'Title', required: true, hint: 'Scored, displayed, and the main thing matched against' },
+  {
+    key: 'source_notice_id',
+    label: 'Notice ID',
+    required: true,
+    hint: 'Half the dedupe key — without it every sweep re-adds everything',
+  },
+  {
+    key: 'title',
+    label: 'Title',
+    required: true,
+    hint: 'Scored, displayed, and the main thing matched against',
+  },
   { key: 'description', label: 'Description', hint: 'Most of the relevance signal lives here' },
   { key: 'source_url', label: 'Link to the notice', hint: 'How anyone acts on a result' },
   { key: 'deadline', label: 'Deadline', hint: 'Drives Closing soon and the digest urgency' },
@@ -17,7 +27,11 @@ const FIELDS: { key: string; label: string; required?: boolean; hint: string }[]
 ];
 
 const slug = (value: string) =>
-  value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
 
 /**
  * Add a source by pointing at its API.
@@ -44,8 +58,7 @@ export function AddSource({ onAdded }: { onAdded: () => void }) {
 
   const needsMapping = probe?.format === 'json';
   const mapped = FIELDS.filter((f) => f.required).every((f) => mapping[f.key]);
-  const canSave =
-    probe?.ok === true && displayName.trim().length > 0 && (!needsMapping || mapped);
+  const canSave = probe?.ok === true && displayName.trim().length > 0 && (!needsMapping || mapped);
 
   const reset = () => {
     setUrl('');
@@ -67,7 +80,9 @@ export function AddSource({ onAdded }: { onAdded: () => void }) {
         auth,
         auth_param: authParam || null,
         credential,
-        mapping: Object.keys(mapping).length ? { ...mapping, records: mapping.records ?? '' } : null,
+        mapping: Object.keys(mapping).length
+          ? { ...mapping, records: mapping.records ?? '' }
+          : null,
       });
       setProbe(result);
       if (result.records_path) setMapping((prev) => ({ ...prev, records: result.records_path! }));
@@ -117,7 +132,10 @@ export function AddSource({ onAdded }: { onAdded: () => void }) {
   }
 
   return (
-    <SettingsSection title="Add a source" note="Nothing is saved until the endpoint answers with notices.">
+    <SettingsSection
+      title="Add a source"
+      note="Nothing is saved until the endpoint answers with notices."
+    >
       {error ? (
         <p className="notice notice--bad" role="status">
           {error}
@@ -152,7 +170,13 @@ export function AddSource({ onAdded }: { onAdded: () => void }) {
               aria-pressed={auth === value}
               onClick={() => setAuth(value)}
             >
-              {value === 'none' ? 'None' : value === 'query' ? 'Query' : value === 'header' ? 'Header' : 'Bearer'}
+              {value === 'none'
+                ? 'None'
+                : value === 'query'
+                  ? 'Query'
+                  : value === 'header'
+                    ? 'Header'
+                    : 'Bearer'}
             </button>
           ))}
         </div>

@@ -100,9 +100,7 @@ export function SourceCard({
               : 'No successful run yet'}
             {/* Only when one is actually missing. Saying "needs an API key"
                 beside a key that is set reads as the key not having worked. */}
-            {source.requires_api_key && !source.credential_configured
-              ? ' · needs an API key'
-              : ''}
+            {source.requires_api_key && !source.credential_configured ? ' · needs an API key' : ''}
             {!source.enabled ? ' · switched off in configuration' : ''}
           </p>
 
