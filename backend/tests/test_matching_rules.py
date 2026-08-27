@@ -116,10 +116,16 @@ def test_put_stores_and_reports_what_was_rescored(client):
     assert client.get("/api/matching-rules").json()["overridden"] == ["bands"]
 
 
-def test_delete_hands_control_back_to_the_file(client):
-    client.put("/api/matching-rules", json={"bands": {"good_fit": 75}})
-    assert client.delete("/api/matching-rules").status_code == 200
-    assert client.get("/api/matching-rules").json()["overridden"] == []
+def test_delete_hands_control_back_to_the_file(cron_client):
+    """Trusted caller, because saving *and* resetting both re-score.
+
+    Two re-scores in one test is exactly what the 120s cooldown exists to refuse
+    (D23), so an ordinary signed-in operator gets a 429 on the second - correct
+    behaviour, and not what this test is about.
+    """
+    cron_client.put("/api/matching-rules", json={"bands": {"good_fit": 75}})
+    assert cron_client.delete("/api/matching-rules").status_code == 200
+    assert cron_client.get("/api/matching-rules").json()["overridden"] == []
 
 
 def test_a_changed_band_actually_moves_the_scoring_engine(client, db_session):

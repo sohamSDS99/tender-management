@@ -126,17 +126,24 @@ def test_put_is_refused_for_a_source_that_takes_no_key(client):
 
 
 def test_put_is_refused_when_operator_actions_are_off(db_session, monkeypatch, settings):
+    """403 for the *reason given*, not 401 for having no account.
+
+    Built through the shared helper so the sign-in gate sees the same settings
+    the route does. Rolling a bare `create_app()` here overrode only
+    `routes.settings_dep`, left `security.settings_dep` on the real environment,
+    and the request died at the gate with a 401 - which would have passed a
+    naive "it was refused" assertion while proving nothing about
+    ALLOW_OPERATOR_ACTIONS.
+    """
     from fastapi.testclient import TestClient
 
-    from app.api.routes import settings_dep as routes_settings_dep
-    from app.db import get_db
-    from app.main import create_app
+    from tests.conftest import _build_app, make_account
 
     closed = settings.model_copy(update={"allow_operator_actions": False})
-    app = create_app()
-    app.dependency_overrides[get_db] = lambda: db_session
-    app.dependency_overrides[routes_settings_dep] = lambda: closed
-    response = TestClient(app).put("/api/sources/sam/credential", json={"value": "x"})
+    app = _build_app(db_session, monkeypatch, closed)
+    _, token = make_account(db_session, closed)
+    client = TestClient(app, cookies={closed.session_cookie_name: token})
+    response = client.put("/api/sources/sam/credential", json={"value": "x"})
     assert response.status_code == 403
     assert "ALLOW_OPERATOR_ACTIONS" in response.json()["detail"]
 

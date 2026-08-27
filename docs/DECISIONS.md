@@ -5,8 +5,9 @@ produced them. Each record names the files that carry the decision, so a reader 
 check the code rather than trust the prose. Verified against commit `7957480`.
 
 Read D2 before enabling any scheduler, and D5 before making the API reachable from
-anywhere other than the machine it runs on. D25 added user accounts and is
-explicit that they gate nothing — do not read it as authentication.
+anywhere other than the machine it runs on. **D26 supersedes both on the
+question of access: the dashboard now requires a session.** D5's "reads stay
+open" and D25's "accounts gate nothing" are history, not instructions.
 
 ---
 
@@ -1221,3 +1222,96 @@ buttons only make the reason legible before the click.
 * **Nothing is attributed to a user yet.** A sweep started by a signed-in
   operator records `trigger=manual` exactly as before. Adding `triggered_by`
   would touch `fetch_runs`, and attribution was not what was asked for.
+
+---
+
+## D26 — The dashboard is closed. Sign-in is required, and that reverses D25
+
+**Decision.** Every route requires a session except the five in
+`app/security.py::PUBLIC_PATHS`. The dashboard renders a full-page sign-in
+screen and does not mount at all until there is a session. Carried by
+`security.enforce_sign_in` (registered as an *application-level* dependency in
+`create_app`), `REQUIRE_SIGN_IN` in settings, `frontend/src/App.tsx` and
+`components/auth/AuthPage.tsx`.
+
+**This reverses D25 outright.** D25 shipped accounts on the explicit promise that
+they gated nothing, and it was built that way on purpose. The requirement changed:
+people should not see the inside of this dashboard without an account. D25 is
+history now, not instruction — and a good deal of prose written under it (D5's
+"reads stay open", the old README section 13, the old CLAUDE.md auth section) has
+been corrected rather than left to contradict the code.
+
+**Hiding the UI alone was never an option.** Gating the React pages while
+`GET /api/tenders` still answered anybody would have been theatre: the data is
+one `curl` away, and the person asking for this would reasonably believe it was
+closed. So the gate is on the server, and the frontend change is a consequence of
+it rather than the substance.
+
+**The public list is five paths, and one of them is not optional.**
+
+| Path | Why it must stay open |
+|---|---|
+| `/health` | **Railway's healthcheck probes it with no cookie.** A 401 here does not fail loudly, it fails the *deploy*: the replica never becomes healthy, the release rolls back, and the application logs look perfectly fine throughout. |
+| `/api/auth/session` | How the page discovers it is signed out. |
+| `/api/auth/login`, `/register` | The doors themselves. |
+| `/api/auth/logout` | Answering 401 to "sign me out" leaves a stale cookie in the browser. |
+
+**It is an allow-list on an app-level dependency, so new routes are private by
+default.** A per-router dependency would make privacy a thing somebody has to
+remember; this makes exposure the thing somebody has to choose. It is a
+dependency rather than middleware specifically so `app.dependency_overrides`
+still reaches it — middleware would open its own database session and quietly
+bypass the one the tests inject.
+
+**`X-Cron-Secret` still passes, and that is a door rather than a hole.** It is a
+machine identity: D5 forbids putting it in the page, so no browser can hold one,
+and it was already a privilege bypass before this gate existed (D23). With
+`CRON_SECRET` unset — the default — `has_cron_secret` is always False and the
+door is not there. Nothing currently uses it over HTTP; the scheduled fetch runs
+`python -m app.jobs.scheduled_fetch` against the database directly.
+
+**The bug this found.** With the gate wired and every route answering 401,
+`/docs`, `/redoc` and `/openapi.json` still answered **200** to a stranger —
+handing over every path, parameter and schema name. FastAPI registers those three
+through Starlette's `add_route`, and application-level `dependencies` only reach
+`add_api_route`. `create_app` now registers them itself as ordinary API routes so
+they sit inside the same dependency chain. It was found by running the server and
+reading the status codes, not by reading the code, and
+`test_the_docs_are_behind_the_gate_too` exists so it cannot come back quietly.
+
+**What did *not* change.** D23's cost controls are untouched and still the only
+thing standing between an operator and eight public services: single-flight and a
+300s cooldown on `POST /api/fetch`, 120s on `/rescore`. Being signed in gets you
+through the door; it does not exempt you from what is behind it. Confusing the
+two axes is the easy mistake here, and the test module docstring in
+`tests/test_security.py` says so at the top.
+
+**`REQUIRE_SIGN_IN` is a switch, defaulting to true.** Not a hedge — the way back
+in. If the gate itself misbehaves, flipping one platform variable restores an
+open API without a deploy, which beats being locked out of the tool that manages
+the accounts. A control that defaults to off is not a control, so it defaults on,
+and `test_the_gate_can_be_switched_off_to_get_back_in` covers the recovery path
+because nobody discovers a broken escape hatch until they need it.
+
+**The sign-in page is a page, not a modal — and that is a design fix, not a
+preference.** `DESIGN.md` refuses "a modal for anything but the detail drawer",
+so the `AuthDialog` shipped in D25 violated the design system on the day it
+landed. It has been deleted. Beyond the rule, a modal implies the thing behind it
+is still yours to look at, which is now exactly wrong. The replacement is an
+asymmetric split — black plate, white form — because a centred card is the
+reflexive shape for this screen and this product is a monochrome instrument
+console, not a web form floating in space. With no colour to spend and gradients,
+glass and ornament all refused, the character comes from typographic range
+instead: a wordmark tracked to -0.04em against micro-labels at +0.18em. No new
+font, no new colour, no new dependency.
+
+**Consequences accepted:**
+
+* **Slack digest deep links now land on the sign-in page.** The `?tender=` link
+  survives sign-in — the page does not navigate or reload, App simply swaps the
+  gate for the dashboard — so the reader arrives where the link pointed. But they
+  will be asked to sign in first, every time their session has lapsed.
+* **The `X-Cron-Secret` holder can read everything.** It is a credential; that is
+  what credentials do. Rotate it if a non-account path is unwanted.
+* **`REQUIRE_SIGN_IN=false` returns the API to D25's behaviour**, and anyone
+  setting it should read this record first.

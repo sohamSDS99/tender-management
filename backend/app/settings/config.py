@@ -170,6 +170,16 @@ class Settings(BaseSettings):
     # Re-scoring spends no outbound request but rewrites every stored row.
     operator_rescore_cooldown_seconds: int = 120
 
+    # --- accounts (D25, gated by D26) ---
+    # The sign-in gate. True means every route except PUBLIC_PATHS in
+    # app/security.py needs a session, which is what D26 decided.
+    #
+    # It is a switch rather than a constant for one reason: it is the way back in
+    # if the gate itself misbehaves. Flipping it to false on the platform
+    # restores an open API without a deploy, which beats being locked out of the
+    # tool that manages the accounts. Default true - a security control that
+    # defaults to off is not a control.
+    require_sign_in: bool = True
     # --- accounts (D25) ---
     # Accounts gate nothing: reads were open before them and still are. These
     # values decide how long a signed-in browser stays signed in and how hard it
