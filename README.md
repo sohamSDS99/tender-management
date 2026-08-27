@@ -431,11 +431,19 @@ Interactive documentation: <http://localhost:8000/docs>.
 | GET · DELETE | `/api/auth/sessions` | your signed-in browsers; sign out everywhere else |
 | GET · POST · DELETE | `/api/auth/invites` | invitations — **admin only** |
 | GET · PATCH | `/api/auth/users` | roles and deactivation — **admin only** |
+| GET · POST | `/api/auth/roster` | who may hold an account, each with their own access link — **admin only**; `role` is required on POST, D30 |
+| PATCH · DELETE | `/api/auth/roster/{id}` | change the role a link grants (which withdraws the link, D30), or take the address off the list — **admin only** |
+| POST · DELETE | `/api/auth/roster/{id}/link` | issue/replace or revoke that person's access link — **admin only** |
+| POST | `/api/auth/invitation` | what an access link is — address, role, whether they have joined. Reads only; spends nothing, D30 |
+| POST | `/api/auth/accept` | open an access link: creates the account if needed and signs in, no password, D29 |
 
-**Every path above requires a session (D26)**, except `/health` and the four `/api/auth`
-doors (`session`, `login`, `register`, `logout`). A signed-out caller gets `401`; a signed-in
-member who is not an administrator gets `403` on the invite and user endpoints. `/docs`,
-`/redoc` and `/openapi.json` are gated too, and are removed entirely by `ENABLE_API_DOCS=false`.
+**Every path above requires a session (D26)**, except `/health` and the six `/api/auth`
+doors (`session`, `login`, `register`, `logout`, `invitation`, `accept`) — the last two are
+public because their caller has no session by definition and the link is what stands in for
+one. A signed-out caller gets `401`; a signed-in member who is not an administrator gets
+`403` on the invite, user and roster endpoints — **only an administrator can change anybody's
+role** (D30). `/docs`, `/redoc` and `/openapi.json` are gated too, and are removed entirely by
+`ENABLE_API_DOCS=false`.
 
 This reverses the older "reads stay open" position in D5 and D25 — see section 12 and D26.
 
@@ -832,12 +840,12 @@ hiding pages, so `curl` gets the same `401` a browser does.
 | Action | Where |
 | --- | --- |
 | Create the first account | The sign-in page offers **Create account** while no account exists. The first one becomes the administrator and needs no permission at all. |
-| Add your team | **Settings → Account → Workspace members**: paste their addresses; each row gets its own link to send. |
+| Add your team | **Settings → Account → Workspace members**: paste their addresses, choose **Member** or **Administrator**, then send each row's link. The role is required — it decides where the link lands them (D30). |
 | Sign in | The sign-in page — it is the whole page when signed out, not a dialog over the dashboard. |
 | Sign out | The account control at the foot of the left sidebar. |
 | Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
 | Invite someone | **Settings → Account → Invitations** (administrators only). |
-| Change a role, deactivate someone | **Settings → Account → People** (administrators only). |
+| Change a role, deactivate someone | **Settings → Account → People** (administrators only — a member is refused by the API, not just by a hidden panel). |
 
 **Register immediately after the first start.** Until somebody does, the next person to
 reach the dashboard becomes the administrator. If you are too late, create one from a
@@ -849,10 +857,29 @@ docker compose exec backend python -m app.accounts_cli create-admin \
 ```
 
 After that first account, **people join by opening their own link — there is no password**
-(D29). Add their addresses under **Workspace members** and each row gets a personal link
-immediately. Send each person theirs, however you already talk to them. They open it, press
-**Accept invitation**, and they are in. The same link signs them in again later on any
-device, so there is nothing for them to remember and nothing for you to reset.
+(D29). Add their addresses under **Workspace members**, choose the role for that batch, and
+each row comes back with a personal link. Send each person theirs, however you already talk
+to them. The same link signs them in again later on any device, so there is nothing for them
+to remember and nothing for you to reset.
+
+**Where the link lands them depends on the role you chose (D30).** A **member** sees an
+accept screen naming their address and the role they are joining as, presses one button, and
+is in. An **administrator** is simply in — no button, because the people who hand out links
+gain nothing from confirming one. Each row on the panel says which of the two it is.
+
+**Change the role before you send the link.** Re-roling somebody who has not joined yet
+withdraws their link on purpose: the same URL would otherwise land them somewhere different
+from what you told them. The row will say so and offer **Generate link** — send the new one.
+Once somebody has joined, their roster role is frozen history and their role is changed under
+**People** instead.
+
+**Only an administrator can change anybody's role.** That is enforced by the API on every
+endpoint that writes one, not by hiding the panel: a member calling it directly gets `403`.
+A member sees a short explanation under **Settings → Account** saying so, rather than an
+empty space they cannot interpret.
+
+**If you open somebody else's link while signed in as yourself**, the page says whose it is
+and offers to leave it alone. It never swaps your session for theirs on its own.
 
 **Every link is a live credential.** Whoever holds it is that person, so treat one like a
 password: send it directly rather than to a channel, and press **Revoke** if it spreads.

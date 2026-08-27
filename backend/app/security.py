@@ -181,6 +181,9 @@ PUBLIC_PATHS = frozenset(
         "/api/auth/register",
         # The passwordless door (D29). The caller has no session by definition.
         "/api/auth/accept",
+        # And the read in front of it (D30): what the link is, before it is
+        # spent. Same caller, same lack of a session, and it writes nothing.
+        "/api/auth/invitation",
         "/api/auth/logout",
     }
 )

@@ -100,3 +100,58 @@ describe('no-content responses', () => {
     );
   });
 });
+
+/**
+ * The invitation lookup, pinned to the request it must actually make (D30).
+ *
+ * Every test of the landing behaviour mocks this method, so a wrong path, a GET
+ * instead of a POST, or a token in the query string would leave the whole suite
+ * green and break the feature in production — for exactly the people who cannot
+ * report it, because they cannot get in.
+ */
+describe('the invitation lookup asks the right question', () => {
+  function stubJson(body: unknown, status = 200): ReturnType<typeof vi.fn> {
+    const spy = vi.fn(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', spy);
+    return spy;
+  }
+
+  it('posts the token in the body, never in the URL', async () => {
+    const spy = stubJson({ email: 'a@b.com', role: 'member', joined: false });
+    const { auth } = await import('./client');
+
+    await auth.invitation('a-live-credential');
+
+    const [url, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/auth/invitation');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ token: 'a-live-credential' });
+    // The token is a live credential. In a query string it lands in the access
+    // log of everything between the browser and the application.
+    expect(url).not.toContain('a-live-credential');
+  });
+
+  it('returns the role the page branches on', async () => {
+    stubJson({ email: 'boss@b.com', role: 'admin', joined: true });
+    const { auth } = await import('./client');
+
+    await expect(auth.invitation('t')).resolves.toEqual({
+      email: 'boss@b.com',
+      role: 'admin',
+      joined: true,
+    });
+  });
+
+  it('surfaces the API’s own words when the link is refused', async () => {
+    stubJson({ detail: 'That link is not valid. Ask an administrator for a new one.' }, 400);
+    const { auth } = await import('./client');
+
+    await expect(auth.invitation('stale')).rejects.toThrow('That link is not valid');
+  });
+});

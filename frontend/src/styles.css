@@ -3314,6 +3314,40 @@ html[data-density='compact'] .score {
 .gate__note--quiet {
   color: var(--ink-muted);
 }
+/* Who this link belongs to, and what it makes them (D30).
+   The plate's specimen list, brought across to the light column: same
+   label-and-value shape, same wide micro-label against a plain value, so the two
+   halves of the page read as one system. A hairline above and below rather than a
+   card — it is a fact to check on the way past, not a panel with a job. */
+.gate__ident {
+  margin: 0 0 24px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+.gate__ident > div {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.gate__ident dt {
+  font-size: 0.66rem;
+  font-weight: 550;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.gate__ident dd {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--ink);
+  /* An address is long and must not push the column open. */
+  overflow-wrap: anywhere;
+}
 .gate__fields {
   display: flex;
   flex-direction: column;
@@ -3376,6 +3410,15 @@ html[data-density='compact'] .score {
 }
 .gate__formInner > *:nth-child(5) {
   animation-delay: 160ms;
+}
+/* The accept screen is the longest of these columns — eyebrow, title, the
+   identity rows, a note, the button and the footer — so the sequence runs to
+   seven rather than stopping at five and letting the tail arrive all at once. */
+.gate__formInner > *:nth-child(6) {
+  animation-delay: 200ms;
+}
+.gate__formInner > *:nth-child(7) {
+  animation-delay: 240ms;
 }
 
 /* Desktop-only is the standing rule, but a narrow window must degrade rather
@@ -3647,6 +3690,14 @@ html[data-density='compact'] .score {
 .roster__link {
   margin-top: 10px;
   margin-bottom: 0;
+}
+/* Where this person's link lands them, said in words (D30). Sits directly under
+   the link it describes, at the size of a caption rather than a status — it
+   answers a question about the row above it, it is not news. */
+.roster__lands {
+  margin: 6px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
 }
 .roster__counts {
   margin: 0 0 12px;

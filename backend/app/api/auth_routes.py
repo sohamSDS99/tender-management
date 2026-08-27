@@ -24,6 +24,8 @@ from app.db import get_db
 from app.models import Invite, RosterEntry, User, UserSession, utcnow
 from app.schemas import (
     AcceptRequest,
+    InvitationLookup,
+    InvitationOut,
     InviteCreate,
     InviteCreated,
     InviteOut,
@@ -181,6 +183,37 @@ def register(
     )
     _set_cookie(response, token, settings)
     return _user_out(user)
+
+
+@router.post("/invitation", response_model=InvitationOut, summary="What an access link is")
+def read_invitation(
+    payload: InvitationLookup,
+    db: Session = Depends(get_db),
+) -> InvitationOut:
+    """Who a link belongs to and what it will make them. Spends nothing.
+
+    Public, like ``/accept`` and for the same reason: the caller has no session,
+    the token is what stands in for one. It answers the holder of a link with
+    their own address and their own role, and holding the link already *is*
+    being that person (D29) — so this discloses nothing they do not have. To
+    anybody without a valid token it discloses nothing at all.
+
+    The page calls this first because the two roles land in different places
+    (D30). An administrator's link enters the dashboard with no click; a
+    member's shows the accept screen. Both need to be known *before* accepting,
+    which is the irreversible half.
+
+    **This does not weaken "accepting is a POST, never a GET".** A chat client
+    unfurling the link fetches the page's HTML and runs none of its JavaScript,
+    so no unfurl reaches this endpoint or ``/accept``. The click that is skipped
+    for an administrator is skipped by a real browser executing the app, which
+    is a person opening their link and nothing else.
+    """
+    try:
+        invitation = accounts.describe_access_link(db, payload.token)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return InvitationOut(email=invitation.email, role=invitation.role, joined=invitation.joined)
 
 
 @router.post("/accept", response_model=UserOut, summary="Open an access link")
@@ -464,6 +497,10 @@ def add_to_roster(
 
     Nobody is notified. Delivering the link stays a deliberate act, which is the
     whole workflow: the administrator sends each person theirs.
+
+    ``role`` is required rather than defaulted (D30). The role now decides where
+    the link lands its holder, so a request that does not name one is asking for
+    a link whose behaviour nobody chose.
     """
     try:
         added, existing = roster.add_addresses(

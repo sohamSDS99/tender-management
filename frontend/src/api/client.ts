@@ -21,6 +21,7 @@ import type {
   RulesPreview,
   SettingsSecrets,
   AuthSession,
+  Invitation,
   Invite,
   InviteCreated,
   RevokedCount,
@@ -306,6 +307,21 @@ export const auth = {
    */
   accept: (token: string) =>
     request<User>('/api/auth/accept', { method: 'POST', body: JSON.stringify({ token }) }),
+  /**
+   * What an access link is, without spending it (D30).
+   *
+   * Called before `accept`, because the two roles land in different places and
+   * that has to be known before the irreversible half runs: an administrator
+   * enters the dashboard with no click, a member is shown the accept screen.
+   *
+   * A POST for a read, deliberately. The token is a live credential, and a GET
+   * would write it into the query string of every access log on the way.
+   */
+  invitation: (token: string) =>
+    request<Invitation>('/api/auth/invitation', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
 
   updateProfile: (body: { display_name?: string; email?: string }) =>
     request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),

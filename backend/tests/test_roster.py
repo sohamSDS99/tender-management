@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import RosterEntry
+from app.models import RosterEntry, User
 from app.services import roster
 from tests.conftest import _build_app, make_account
 
@@ -188,8 +188,6 @@ def test_the_empty_hash_never_verifies_at_the_lowest_level():
 
 
 def test_a_link_account_stores_no_password_at_all(admin, joiner, db_session):
-    from app.models import User
-
     token = access_link(admin, "colleague@example.com")
     accept(joiner, token)
     user = db_session.query(User).filter(User.email == "colleague@example.com").one()
@@ -219,7 +217,9 @@ def test_adding_somebody_mints_their_link_there_and_then(admin):
     Requiring a second click per person before anybody could join would put the
     clerical work straight back.
     """
-    added = admin.post("/api/auth/roster", json={"addresses": "a@x.com, b@x.com, c@x.com"}).json()["added"]
+    added = admin.post(
+        "/api/auth/roster", json={"addresses": "a@x.com, b@x.com, c@x.com", "role": "member"}
+    ).json()["added"]
     assert len(added) == 3
     assert all(e["access_url"] for e in added)
     assert len({e["access_url"] for e in added}) == 3, "each person gets their own"
@@ -275,8 +275,8 @@ def test_an_enormous_paste_is_refused_before_it_is_validated():
 
 def test_re_pasting_a_team_list_reports_rather_than_errors(admin):
     """Adding one person to a list of ten is a normal thing to do."""
-    admin.post("/api/auth/roster", json={"addresses": "a@x.com, b@x.com"})
-    again = admin.post("/api/auth/roster", json={"addresses": "a@x.com, b@x.com, c@x.com"})
+    admin.post("/api/auth/roster", json={"addresses": "a@x.com, b@x.com", "role": "member"})
+    again = admin.post("/api/auth/roster", json={"addresses": "a@x.com, b@x.com, c@x.com", "role": "member"})
 
     assert again.status_code == 201
     body = again.json()
@@ -333,7 +333,7 @@ def test_removing_an_address_does_not_close_the_account_it_became(admin, joiner)
 def test_an_admin_cannot_remove_their_own_address(admin):
     """Nothing breaks, but it reliably confuses: they stay signed in with an
     account the roster no longer explains."""
-    admin.post("/api/auth/roster", json={"addresses": "boss@example.com"})
+    admin.post("/api/auth/roster", json={"addresses": "boss@example.com", "role": "member"})
     entry_id = next(
         e["id"] for e in admin.get("/api/auth/roster").json()["entries"] if e["email"] == "boss@example.com"
     )
@@ -399,7 +399,7 @@ def test_the_first_account_still_needs_nothing(db_session, monkeypatch, settings
 def test_the_entries_put_the_people_still_waiting_first(admin, joiner):
     """They are who an administrator is looking for."""
     token = access_link(admin, "aaa@x.com")
-    admin.post("/api/auth/roster", json={"addresses": "zzz@x.com"})
+    admin.post("/api/auth/roster", json={"addresses": "zzz@x.com", "role": "member"})
     accept(joiner, token)
 
     emails = [e["email"] for e in admin.get("/api/auth/roster").json()["entries"]]
@@ -417,3 +417,207 @@ def test_every_stored_value_fits_its_column(settings):
 
     long_note = " ".join(["note"] * 500)
     assert len(" ".join(long_note.split())[:200]) <= 200
+
+
+# --- what a link is, before it is spent (D30) -------------------------------
+#
+# The page has to know where to land somebody *before* it acts: an
+# administrator's link enters the dashboard with no click, a member's shows the
+# accept screen. So there is a read in front of the write, and the whole of what
+# matters about it is that it is a read.
+
+
+def look_up(client: TestClient, token: str):
+    return client.post("/api/auth/invitation", json={"token": token})
+
+
+def test_a_link_can_be_read_without_a_session(admin, joiner):
+    """No cookie, by definition: this is the caller who has not joined yet."""
+    token = access_link(admin, "colleague@example.com", role="member")
+
+    response = look_up(joiner, token)
+
+    assert response.status_code == 200
+    assert response.json() == {"email": "colleague@example.com", "role": "member", "joined": False}
+
+
+def test_reading_a_link_spends_nothing(admin, joiner, db_session):
+    """The property the whole endpoint rests on.
+
+    If a lookup created the account or claimed the entry, then a browser
+    prefetching the page — or a reader who opened it and closed it again — would
+    have joined without ever pressing anything.
+    """
+    token = access_link(admin, "colleague@example.com", role="member")
+
+    look_up(joiner, token)
+    look_up(joiner, token)
+
+    assert db_session.query(User).filter(User.email == "colleague@example.com").count() == 0
+    assert admin.get("/api/auth/roster").json()["waiting"] == 1
+    # And the link is still worth what it was worth.
+    assert accept(joiner, token).status_code == 200
+
+
+def test_the_lookup_says_which_of_the_two_this_link_is(admin, joiner):
+    """The one thing the page branches on."""
+    member_token = access_link(admin, "member@example.com", role="member")
+    admin_token = access_link(admin, "deputy@example.com", role="admin")
+
+    assert look_up(joiner, member_token).json()["role"] == "member"
+    assert look_up(joiner, admin_token).json()["role"] == "admin"
+
+
+def test_the_lookup_reports_the_account_role_once_there_is_an_account(admin, joiner, db_session):
+    """A colleague promoted last week must not be sent back to the accept screen.
+
+    The roster entry still says ``member`` — roster edits do not follow an
+    account, and nothing rewrites the entry on a promotion. So the effective
+    role is the *account's* whenever there is one, and only the entry's promise
+    when there is not.
+    """
+    token = access_link(admin, "colleague@example.com", role="member")
+    accept(joiner, token)
+    user = db_session.query(User).filter(User.email == "colleague@example.com").one()
+
+    admin.patch(f"/api/auth/users/{user.id}", json={"role": "admin"})
+
+    body = look_up(joiner, token).json()
+    assert body == {"email": "colleague@example.com", "role": "admin", "joined": True}
+
+
+@pytest.mark.parametrize("token", ["", "   ", "not-a-real-token"])
+def test_reading_a_link_that_is_not_real_says_the_same_thing_accepting_does(joiner, token):
+    """One message for never-existed, revoked and replaced.
+
+    Splitting them would tell a stranger holding a stale link whether it was
+    ever real, and none of the three changes what the reader should do.
+    """
+    response = look_up(joiner, token)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "That link is not valid. Ask an administrator for a new one."
+
+
+def test_a_revoked_link_reads_as_dead_before_anybody_presses_anything(admin, joiner):
+    token = access_link(admin, "colleague@example.com")
+    entry_id = admin.get("/api/auth/roster").json()["entries"][0]["id"]
+    admin.delete(f"/api/auth/roster/{entry_id}/link")
+
+    assert look_up(joiner, token).status_code == 400
+
+
+# --- the role is settled before the link exists (D30) -----------------------
+
+
+def test_adding_somebody_without_saying_the_role_is_refused(admin):
+    """``role`` has no default any more.
+
+    It used to fall back to ``member``, which was harmless while the role only
+    decided what the account would be. Now it also decides where the link lands
+    its holder, so a request that does not name one is asking for a link whose
+    behaviour nobody chose.
+    """
+    response = admin.post("/api/auth/roster", json={"addresses": "someone@x.com"})
+    assert response.status_code == 422
+    assert admin.get("/api/auth/roster").json()["total"] == 0
+
+
+def test_re_roling_somebody_who_has_not_joined_withdraws_their_link(admin, joiner):
+    """Because the link they were sent would otherwise land them somewhere else.
+
+    A member's link shows the accept screen; an administrator's goes straight
+    in. Flipping the role under a link already delivered changes what that link
+    does without changing the link, which is the kind of surprise that ends with
+    an administrator swearing the feature is broken. Revoking makes it visible:
+    the row shows no link, and issuing a new one is the deliberate act.
+    """
+    token = access_link(admin, "deputy@example.com", role="member")
+    entry_id = admin.get("/api/auth/roster").json()["entries"][0]["id"]
+
+    updated = admin.patch(f"/api/auth/roster/{entry_id}", json={"role": "admin"})
+
+    assert updated.json()["role"] == "admin"
+    assert updated.json()["access_url"] is None, "the old link is gone from the panel"
+    assert look_up(joiner, token).status_code == 400, "and it no longer opens anything"
+    assert accept(joiner, token).status_code == 400
+
+
+def test_setting_the_role_it_already_has_leaves_the_link_alone(admin, joiner):
+    """Re-asserting a role is not a change, and must not cost the link.
+
+    Otherwise a panel that re-sends the current value on any edit would quietly
+    invalidate everybody's link.
+    """
+    token = access_link(admin, "colleague@example.com", role="member")
+    entry_id = admin.get("/api/auth/roster").json()["entries"][0]["id"]
+
+    updated = admin.patch(f"/api/auth/roster/{entry_id}", json={"role": "member"})
+
+    assert updated.json()["access_url"] is not None
+    assert accept(joiner, token).status_code == 200
+
+
+def test_re_roling_somebody_who_has_already_joined_does_not_take_their_link(admin, joiner):
+    """Their link is their only credential, and the edit changes nothing anyway.
+
+    A roster role never moves an existing account, so revoking here would be a
+    lockout in exchange for nothing.
+    """
+    token = access_link(admin, "colleague@example.com", role="member")
+    entry_id = admin.get("/api/auth/roster").json()["entries"][0]["id"]
+    accept(joiner, token)
+
+    admin.patch(f"/api/auth/roster/{entry_id}", json={"role": "admin"})
+
+    assert accept(joiner, token).status_code == 200, "they can still sign in"
+    assert look_up(joiner, token).json()["role"] == "member", "and they are still a member"
+
+
+def test_two_arrivals_on_one_fresh_link_do_not_collide(admin, joiner, db_session, monkeypatch):
+    """Two accepts of the same never-used link must not answer 500.
+
+    Reachable without anybody double-clicking since D30: an administrator's link
+    is spent by the page on load, so two tabs — or a browser that prerenders the
+    URL out of the address bar and runs its JavaScript — are two accepts with no
+    press between them. Both read no account, both insert, and ``users.email`` is
+    UNIQUE.
+
+    Simulated rather than actually raced, because a deterministic two-connection
+    race is not something a test suite should try to arrange: the winner's row is
+    written first, then ``get_by_email`` is blinded exactly once, which puts the
+    second request in precisely the state the loser of the race is in.
+    """
+    from app.services import accounts as accounts_module
+
+    token = access_link(admin, "colleague@example.com")
+    assert accept(joiner, token).status_code == 200
+
+    real = accounts_module.get_by_email
+    seen: list[str] = []
+
+    def blind_once(db, email):
+        seen.append(email)
+        if len(seen) == 1:
+            return None
+        return real(db, email)
+
+    monkeypatch.setattr(accounts_module, "get_by_email", blind_once)
+
+    second = accept(joiner, token)
+
+    assert second.status_code == 200, "the loser of the race recovers, it does not 500"
+    assert second.json()["email"] == "colleague@example.com"
+    assert len(seen) == 2, "it re-read the row the winner wrote"
+    assert db_session.query(User).filter(User.email == "colleague@example.com").count() == 1
+
+
+@pytest.mark.parametrize("path", ["/api/auth/accept", "/api/auth/invitation"])
+def test_neither_public_door_will_read_an_enormous_token(joiner, path):
+    """The two endpoints an unauthenticated caller can reach take one string each.
+
+    A real token is 43 characters in a ``String(64)`` column, so anything past
+    the cap cannot match a row — it is only a way to make somebody else's
+    database do pointless work. Refused by validation before it gets there.
+    """
+    response = joiner.post(path, json={"token": "x" * 100_000})
+    assert response.status_code == 422

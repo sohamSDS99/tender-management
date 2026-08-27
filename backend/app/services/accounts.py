@@ -33,9 +33,11 @@ import base64
 import hashlib
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
@@ -392,6 +394,58 @@ def authenticate(db: Session, *, email: str, password: str, settings: Settings) 
     return user
 
 
+@dataclass(frozen=True)
+class Invitation:
+    """What an access link says about its owner, without spending it.
+
+    Read-only by construction: a frozen dataclass built from two selects, so
+    there is no path from a lookup to a write. That matters because this is the
+    one part of the join flow a *stranger* can call — the caller has no session,
+    only a token.
+    """
+
+    email: str
+    #: What this person will be when they are in. The **account's** role when
+    #: they already have one, the roster's promise when they do not — because a
+    #: colleague promoted last week must not be treated as a member merely
+    #: because the entry that let them in still says so.
+    role: str
+    #: True once this address has an account. Lets the page say "welcome back"
+    #: rather than offering to create something that exists.
+    joined: bool
+
+
+def describe_access_link(db: Session, raw_token: str) -> Invitation:
+    """Who a link belongs to and what it will make them. Consumes nothing.
+
+    Exists so the page can decide *where to land somebody* before it acts (D30):
+    an administrator goes straight to the dashboard, a member is shown the
+    accept screen. Without this the page would have to accept first and ask
+    afterwards, which is the wrong order — accepting is the irreversible half.
+
+    Safe to leave unauthenticated. It tells the holder of a link their own
+    address and their own role, and holding the link already *is* being that
+    person (D29), so there is nothing here they do not already have. It reveals
+    nothing at all to somebody without a valid token, and 32 bytes of `secrets`
+    entropy is not guessable by enumeration.
+    """
+    from app.services import roster as roster_service
+
+    entry = roster_service.entry_for_token(db, raw_token)
+    if entry is None:
+        # The same one message accept_access_link gives, for the same reason:
+        # splitting "never existed" from "revoked" would tell a stranger holding
+        # a stale link whether it was ever real.
+        raise InvalidInvite("That link is not valid. Ask an administrator for a new one.")
+
+    user = get_by_email(db, entry.email)
+    return Invitation(
+        email=entry.email,
+        role=user.role if user is not None else entry.role,
+        joined=user is not None,
+    )
+
+
 def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> User:
     """Open somebody's personal link: create their account if needed, then sign in.
 
@@ -412,9 +466,10 @@ def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> Us
         # real, and none of the three changes what the reader should do.
         raise InvalidInvite("That link is not valid. Ask an administrator for a new one.")
 
+    created = False
     user = get_by_email(db, entry.email)
     if user is None:
-        user = User(
+        candidate = User(
             email=entry.email,
             display_name=clean_display_name("", entry.email),
             password_hash=NO_PASSWORD,
@@ -422,8 +477,30 @@ def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> Us
             is_active=True,
             last_login_at=utcnow(),
         )
-        db.add(user)
-        db.flush()
+        db.add(candidate)
+        try:
+            db.flush()
+        except IntegrityError:
+            # Two arrivals on one never-used link, at the same moment. Both read
+            # no account and both inserted, and `users.email` is UNIQUE, so one
+            # of them lost.
+            #
+            # Reachable without anybody double-clicking anything since D30: an
+            # administrator's link is spent by the page on load, so two tabs — or
+            # a browser that *prerenders* the URL from the address bar and runs
+            # its JavaScript — are two accepts with no press between them. The
+            # loser recovers by reading the row the winner wrote, because the
+            # request it is serving asked for something that is now true.
+            db.rollback()
+            user = get_by_email(db, entry.email)
+            if user is None:
+                # Not the race, then. Something else about this row is invalid
+                # and swallowing it would hide a real fault.
+                raise
+        else:
+            user, created = candidate, True
+
+    if created:
         roster_service.claim(db, entry, user)
         log_ctx(logger, logging.INFO, "account created from access link", user_id=user.id)
     else:

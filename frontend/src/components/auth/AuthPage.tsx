@@ -105,20 +105,35 @@ export function AuthPage({ auth }: { auth: Auth }) {
       </section>
 
       <section className="gate__form">
-        {auth.acceptToken ? (
+        {auth.invitationStatus === 'entering' ? (
+          <EnteringDashboard auth={auth} />
+        ) : auth.acceptToken && auth.invitationStatus !== 'dead' ? (
           <AcceptInvitation auth={auth} />
         ) : (
           <div className="gate__formInner">
             <p className="gate__eyebrow">
               {auth.bootstrap
                 ? 'First account'
-                : registering
-                  ? auth.joinToken
-                    ? 'Join this workspace'
-                    : 'By invitation'
-                  : 'Restricted dashboard'}
+                : auth.invitationStatus === 'dead'
+                  ? 'That link has expired'
+                  : registering
+                    ? auth.joinToken
+                      ? 'Join this workspace'
+                      : 'By invitation'
+                    : 'Restricted dashboard'}
             </p>
             <h2 className="gate__title">{registering ? 'Create your account' : 'Sign in'}</h2>
+
+            {/*
+              A link that the API refused. Said here rather than behind a button
+              press, because the lookup already knows — and because the only
+              useful action is the one this sentence names.
+            */}
+            {auth.invitationStatus === 'dead' && auth.invitationError ? (
+              <p className="gate__error" role="alert">
+                {auth.invitationError}
+              </p>
+            ) : null}
 
             {auth.bootstrap ? (
               <p className="gate__note">
@@ -230,21 +245,67 @@ export function AuthPage({ auth }: { auth: Auth }) {
 }
 
 /**
- * The whole of what an invited person does: read one line, press one button.
+ * An administrator's link, being spent. Nothing to press (D30).
+ *
+ * The one screen in this product that exists purely to be brief. It is *not* a
+ * blank frame, and that is the design decision: creating an account takes a
+ * round trip, and a screen with the plate, their address and a verb on it says
+ * "this is working" where an empty half-page says "this is broken". Same
+ * composition as every other state, so nothing shifts when it is replaced.
+ *
+ * No spinner. `DESIGN.md` gives this surface one authored moment and it is the
+ * detail drawer; the staggered reveal the gate already animates carries the
+ * sense of motion, and `aria-busy` carries it to a screen reader.
+ */
+function EnteringDashboard({ auth }: { auth: Auth }) {
+  return (
+    <div className="gate__formInner" aria-busy="true">
+      <p className="gate__eyebrow">Administrator</p>
+      <h2 className="gate__title">Opening the dashboard</h2>
+      <p className="gate__note">
+        {auth.invitation ? (
+          <>
+            Signing you in as <b>{auth.invitation.email}</b>. There is nothing to accept — an
+            administrator&rsquo;s link goes straight through.
+          </>
+        ) : (
+          <>Signing you in.</>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A member's link: read who you are, press one button (D30).
  *
  * No fields, because there is nothing to collect — the link they followed *is*
  * the credential (D29), so their address and role are already known and a
  * password never enters the picture.
  *
- * It is a button rather than something that fires on load, and that is not
- * decoration. Slack and every other chat client fetches a URL to build a
- * preview; auto-accepting would let an unfurl consume the invitation before the
- * person ever opened it. It also gives them a moment to see what they are
- * joining, which a silent redirect does not.
+ * **A member presses a button and an administrator does not, and that asymmetry
+ * is the feature.** Somebody joining for the first time is told what they are
+ * joining, by whose address, before anything happens; an administrator set the
+ * workspace up and gains nothing from confirming a shape they authored. The
+ * unfurl hazard D29 named is unaffected either way — a chat client fetches this
+ * page's HTML and runs none of its JavaScript, so no preview reaches `/accept`.
+ *
+ * **The address is on screen because a wrong link is otherwise invisible.** Two
+ * colleagues each forwarded the other's link would both join as the wrong
+ * person and nobody would find out until the audit. Naming it turns that into
+ * something a reader can see before they press.
+ *
+ * Degrades on purpose: with no `invitation` — the lookup could not be reached —
+ * this falls back to exactly the screen it was before, one button and no claims
+ * about who is holding the link.
  */
 function AcceptInvitation({ auth }: { auth: Auth }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(auth.invitationError);
+
+  const invitation = auth.invitation;
+  const returning = invitation?.joined ?? false;
+  const elsewhere = auth.invitationForSomebodyElse;
 
   const accept = async () => {
     setBusy(true);
@@ -261,12 +322,44 @@ function AcceptInvitation({ auth }: { auth: Auth }) {
 
   return (
     <div className="gate__formInner">
-      <p className="gate__eyebrow">You have been invited</p>
-      <h2 className="gate__title">Join Tender Monitor</h2>
-      <p className="gate__note">
-        Press the button and you are in. <b>There is no password to set</b> — this link is yours,
-        and it will sign you in again whenever you open it.
+      <p className="gate__eyebrow">
+        {elsewhere ? 'Somebody else’s link' : returning ? 'Welcome back' : 'You have been invited'}
       </p>
+      <h2 className="gate__title">{returning ? 'Sign back in' : 'Join Tender Monitor'}</h2>
+
+      {invitation ? (
+        // A hairline row rather than a heading: it is a fact to check, not the
+        // thing being said. Same shape as the plate's specimen list, which is
+        // the one pattern this surface already uses for label-and-value.
+        <dl className="gate__ident">
+          <div>
+            <dt>Link belongs to</dt>
+            <dd>{invitation.email}</dd>
+          </div>
+          <div>
+            <dt>You join as</dt>
+            <dd>{invitation.role === 'admin' ? 'Administrator' : 'Member'}</dd>
+          </div>
+        </dl>
+      ) : null}
+
+      {elsewhere && auth.user ? (
+        <p className="gate__note">
+          You are signed in as <b>{auth.user.email}</b>, and this link is not yours. Accepting it
+          switches this browser to {invitation?.email ?? 'its owner'} — and their link stays theirs
+          to use.
+        </p>
+      ) : returning ? (
+        <p className="gate__note">
+          You already have an account here. <b>There is still no password</b> — press the button and
+          this browser is signed in again.
+        </p>
+      ) : (
+        <p className="gate__note">
+          Press the button and you are in. <b>There is no password to set</b> — this link is yours,
+          and it will sign you in again whenever you open it.
+        </p>
+      )}
 
       {error ? (
         <p className="gate__error" role="alert">
@@ -280,13 +373,28 @@ function AcceptInvitation({ auth }: { auth: Auth }) {
         disabled={busy}
         onClick={() => void accept()}
       >
-        {busy ? 'Joining…' : 'Accept invitation'}
+        {busy
+          ? returning
+            ? 'Signing in…'
+            : 'Joining…'
+          : returning
+            ? 'Continue to the dashboard'
+            : 'Accept invitation'}
       </button>
 
       <p className="gate__foot">
-        <span className="gate__closed">
-          Keep the link. Opening it on another device signs you in there too.
-        </span>
+        {elsewhere && auth.user ? (
+          // The way out. Without it the only button on this page signs them out
+          // of their own account and into a colleague's, and the only escape is
+          // a reload they have to think of.
+          <button type="button" className="linkish" onClick={auth.dismissInvitation}>
+            Not now — stay signed in as {auth.user.email}
+          </button>
+        ) : (
+          <span className="gate__closed">
+            Keep the link. Opening it on another device signs you in there too.
+          </span>
+        )}
       </p>
     </div>
   );

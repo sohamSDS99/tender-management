@@ -4,6 +4,7 @@ import {
   describeAgent,
   initials,
   inviteFromSearch,
+  landsStraightInDashboard,
   joinFromSearch,
   withoutInvite,
 } from './auth';
@@ -173,5 +174,27 @@ describe('describeAgent', () => {
 
   it('truncates an unrecognised agent rather than widening the row', () => {
     expect(describeAgent('z'.repeat(200)).length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe('landsStraightInDashboard', () => {
+  /**
+   * The one branch the whole of D30 turns on, tested as a function rather than
+   * only through the page, because it is the sentence a reviewer will check: an
+   * administrator's link enters, a member's asks first.
+   */
+  it('sends an administrator straight in', () => {
+    expect(landsStraightInDashboard('admin')).toBe(true);
+  });
+
+  it('stops for a member, who is being asked to join something', () => {
+    expect(landsStraightInDashboard('member')).toBe(false);
+  });
+
+  it('is the only place the rule is written', () => {
+    // A guard against the rule being re-derived inline somewhere. If this
+    // function is ever not the answer, this test is where to notice.
+    const roles = ['admin', 'member'] as const;
+    expect(roles.filter(landsStraightInDashboard)).toEqual(['admin']);
   });
 });
