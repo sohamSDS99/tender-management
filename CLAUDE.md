@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (26 records, D1–D26).
+`docs/DECISIONS.md` explains why it is built this way (27 records, D1–D27).
 
 ## What this is
 
@@ -26,7 +26,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 528 tests (4 pre-existing failures, see below)
+./.venv/bin/python -m pytest -q          # 548 tests (4 pre-existing failures, see below)
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 7 revisions, head c7e1a4b90f32
 
@@ -289,9 +289,24 @@ next request is anonymous. `SESSION_COOKIE_SECURE` is false by default because
 the documented deployment is plain HTTP; set it true only behind TLS. If sign-in
 "succeeds and does nothing", check this before anything else.
 
-**There is no email transport, so there is no password reset.** Invitation links
-are handed to the administrator to deliver. The recovery path for a locked-out
-account is `python -m app.accounts_cli reset-password` on the host.
+**Invitations are emailed when SMTP is configured (D27); password resets are
+not.** With no `SMTP_HOST` the endpoint behaves exactly as before and the
+dashboard says the link was not sent. Two rules in `app/services/mailer.py` are
+load-bearing and easy to undo by accident:
+
+* **The invite is committed before anything is sent**, so a broken mail server
+  costs nobody their invitation. Every failure is a return value, never an
+  exception — the caller is inside a request, and an uncaught `SMTPException`
+  there is a 500 on an operation that succeeded.
+* **Nothing about the message is logged.** The body carries a live single-use
+  token, so only the recipient, the outcome and the exception class are logged.
+  `smtp_password` is in `SECRET_FIELDS`.
+
+The response says `sent` only once the relay accepted it, and the link is shown
+in the UI even on success — it exists in one response and can never be
+retrieved, so hiding it would make a delivery failure discovered later
+unrecoverable. There is still no password reset: the recovery path for a
+locked-out account is `python -m app.accounts_cli reset-password` on the host.
 
 **`SameSite=Lax` is the entire CSRF defence, and D26 raised the stakes on it.**
 It was sufficient under D25 because nothing was gated on identity, so there was

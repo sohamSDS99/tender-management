@@ -3557,3 +3557,18 @@ html[data-density='compact'] .score {
 .people__role {
   flex: none;
 }
+
+/* An invitation whose email failed. Amber edge rather than red: the invitation
+   itself is fine and usable, only the delivery of it is not — and the link
+   directly below is the working fallback. */
+.invite__new.is-warn {
+  border-left-color: var(--mark-warning);
+}
+.invite__new.is-warn .invite__newhead svg {
+  color: var(--mark-warning);
+}
+.invite__why {
+  margin: 0 0 10px;
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+}

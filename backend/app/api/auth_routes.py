@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Invite, User, UserSession, utcnow
 from app.schemas import (
+    DeliveryOut,
     InviteCreate,
     InviteCreated,
     InviteOut,
@@ -37,7 +38,8 @@ from app.schemas import (
     UserOut,
 )
 from app.security import Principal, current_principal, require_admin, require_principal, settings_dep
-from app.services import accounts
+from app.services import accounts, mailer
+from app.services.dhaka import format_dhaka
 from app.settings import Settings
 
 router = APIRouter(prefix="/api/auth", tags=["accounts"])
@@ -306,12 +308,18 @@ def create_invite(
     db: Session = Depends(get_db),
     settings: Settings = Depends(settings_dep),
 ) -> InviteCreated:
-    """Issue a single-use link. The token is in this response and nowhere else.
+    """Issue a single-use link, then try to email it.
 
-    There is no mail transport in this product (Slack is the only outbound
-    channel, and it posts to a channel rather than to a person), so the link is
-    handed back to the administrator to deliver however they already talk to the
-    person they are inviting.
+    **Order matters and is not an implementation detail.** The invitation is
+    created and committed first, and only then is anything sent. A mail server
+    that is down, slow or misconfigured therefore costs the administrator
+    nothing: they still have a working link to paste, which is exactly the
+    behaviour this endpoint had before mail existed (D27).
+
+    The response says which of those two worlds they are in. It does not claim
+    the message was sent until ``mailer.send`` has returned saying so — a
+    dashboard that reports success while SMTP is refusing connections is worse
+    than one that reports nothing, because the administrator stops watching.
     """
     try:
         token, invite = accounts.create_invite(
@@ -324,7 +332,31 @@ def create_invite(
         )
     except accounts.AccountError as exc:
         raise _fail(exc) from None
-    return InviteCreated(invite=_invite_out(invite), token=token, url=accounts.invite_url(token, settings))
+
+    url = accounts.invite_url(token, settings)
+    delivery = mailer.Delivery(
+        mailer.SKIPPED, "This invitation has no address, so there was nobody to email."
+    )
+    if invite.email:
+        delivery = mailer.send(
+            settings,
+            to=invite.email,
+            subject=f"{principal.user.display_name} invited you to Tender Monitor",
+            body=mailer.invitation_body(
+                url=url,
+                inviter=principal.user.display_name,
+                role=invite.role,
+                expires=format_dhaka(invite.expires_at, with_time=False),
+                app_url=settings.app_base_url,
+            ),
+        )
+
+    return InviteCreated(
+        invite=_invite_out(invite),
+        token=token,
+        url=url,
+        delivery=DeliveryOut(status=delivery.status, detail=delivery.detail),
+    )
 
 
 @router.delete("/invites/{invite_id}", status_code=204, summary="Withdraw an invitation")

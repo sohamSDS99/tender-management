@@ -784,9 +784,14 @@ docker compose exec backend python -m app.accounts_cli create-admin \
   --email you@example.com --name "Your Name"
 ```
 
-Registration is invite-only after that first account. There is no email transport here,
-so an invitation is a single-use link that expires in 7 days and that **you** deliver —
-it is shown once, at creation, and cannot be retrieved afterwards.
+Registration is invite-only after that first account. An invitation is a single-use link
+that expires in 7 days. **If `SMTP_HOST` is configured it is emailed to the invitee** (D27);
+either way it is shown to you once, at creation, and cannot be retrieved afterwards — so a
+delivery failure is still recoverable by pasting it yourself.
+
+The panel tells you which happened: *emailed to …*, *the email did not send* with the reason,
+or *created* when no mail server is configured. It never says "sent" unless the mail server
+accepted the message.
 
 Other things worth knowing:
 

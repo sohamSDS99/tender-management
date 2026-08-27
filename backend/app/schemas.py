@@ -409,17 +409,34 @@ class InviteCreate(BaseModel):
     note: str = ""
 
 
+class DeliveryOut(BaseModel):
+    """What the mail attempt did. Rendered verbatim by the dashboard.
+
+    Carried in the response rather than inferred from a status code because
+    "invitation created" and "invitation emailed" are different facts and the
+    administrator needs both — the first decides whether to try again, the
+    second decides whether to go and paste the link into Slack.
+    """
+
+    #: sent / skipped / failed
+    status: str
+    #: One sentence for the person reading it. Never contains the token.
+    detail: str
+
+
 class InviteCreated(UtcModel):
     """The one response in the API that carries a live credential.
 
     The token is returned exactly once, at creation, because only its SHA-256 is
     stored. An administrator who loses the link issues another one; there is no
-    endpoint that can show it again.
+    endpoint that can show it again — which is also why `url` is still returned
+    when the email succeeded. Mail is best effort; the link is the guarantee.
     """
 
     invite: InviteOut
     token: str
     url: str
+    delivery: DeliveryOut
 
 
 class UserAdminUpdate(BaseModel):

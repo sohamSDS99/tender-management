@@ -1315,3 +1315,82 @@ font, no new colour, no new dependency.
   what credentials do. Rotate it if a non-account path is unwanted.
 * **`REQUIRE_SIGN_IN=false` returns the API to D25's behaviour**, and anyone
   setting it should read this record first.
+
+---
+
+## D27 — Invitations are emailed, over SMTP, from the standard library
+
+**Decision.** `POST /api/auth/invites` now emails the invitation link to the
+address on it, and reports what happened in the response. Carried by
+`app/services/mailer.py`, the `SMTP_*` settings, and the delivery line in
+`components/settings/TeamAdmin.tsx`. Unset by default: with no `SMTP_HOST` the
+endpoint behaves exactly as it did before, and says so.
+
+**Why it was needed.** D25 shipped invitations with no way to deliver them. The
+UI said "there is no email here, so send the link yourself" and that was
+honest — but it made the invited person's experience depend on an administrator
+remembering to paste a link into Slack, and gave the invitee no way to know they
+had been invited at all. That is a gap, not a principle.
+
+**`smtplib`, not a provider SDK.** Same reasoning as `hashlib.scrypt` in D25: no
+new runtime dependency, and SMTP is the one interface every provider exposes.
+Resend, Google Workspace, Postmark and a company relay are all host, port and
+credentials, so the choice of provider is configuration rather than a code
+change — and nothing in the repository has to be revisited when it changes.
+
+**The invite is committed before anything is sent, and that ordering is the
+design.** A mail server that is down, slow or misconfigured must not cost an
+administrator their invitation. The worst outcome is precisely the behaviour the
+product had the day before: a working link to paste. Every failure inside
+`mailer.send` comes back as a value, never an exception, because the caller is
+inside a request and an uncaught `SMTPException` there is a 500 on an operation
+that actually succeeded.
+
+**The response never claims more than happened.** `delivery.status` is `sent`
+only once the server accepted the message; otherwise `skipped` (nothing
+configured, or an invitation with no address) or `failed`. The dashboard renders
+that verbatim, and shows the link in **every** case including success — the
+token exists in exactly one response and can never be retrieved, so hiding it on
+a successful send would make a delivery failure discovered an hour later
+unrecoverable.
+
+This is not a hypothetical standard. The same mistake shipped in a sibling
+product here: a handoff told the user an email had been sent *before* sending
+it, and logged the failure at INFO where nobody was looking. The rule that came
+out of it is the one applied here — do not report an outcome you have not
+observed, and make failures louder than successes.
+
+**Nothing about the message reaches the log.** An invitation body contains a
+live single-use credential, so the body, the URL and the token are never passed
+to the logger; only the recipient, the outcome and the exception class are.
+`smtp_password` is registered in `SECRET_FIELDS`, like the Slack bot token, so
+an SMTP stack trace is safe to store in `FetchRun.error_message` or surface
+through `/api/automation`.
+
+**Plain text, deliberately.** An HTML invitation buys nothing here and costs a
+second body to keep in step, more ways to render badly, and a stronger spam
+signal from a domain that sends almost nothing. The body says who invited them
+and what the product is, because a bare link from an unfamiliar domain is
+indistinguishable from phishing — which is the correct reflex, so the message
+has to earn the click.
+
+**Certificate verification is not configurable.** `smtp_use_starttls` (587) and
+`smtp_use_ssl` (465) both use `ssl.create_default_context()`, and there is no
+switch to disable verification. A mail path that silently accepts any
+certificate is worse than no mail path, and "it did not work so I turned off
+verification" is the most common way that setting gets used.
+
+**Accepted:**
+
+* **`sent` means accepted by the relay, not delivered.** Nothing short of a
+  bounce webhook or a read receipt proves delivery, and this product has
+  neither. The wording in the UI says "emailed", not "received".
+* **No retry.** A failed send leaves a usable link on screen, which is a better
+  answer than a queue this product has no worker to drain.
+* **Only invitations are emailed.** Not password resets — there is still no
+  self-serve reset, and adding one would need a second token type with its own
+  expiry and revocation semantics.
+* **The quoted-printable body is not a bug.** A long invite URL is soft-wrapped
+  on the wire and `=` becomes `=3D`; every mail client since 1992 decodes it
+  back to one line. Verified against a real SMTP conversation, because reading
+  the raw socket bytes suggests otherwise.

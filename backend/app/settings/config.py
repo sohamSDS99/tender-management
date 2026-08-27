@@ -199,6 +199,31 @@ class Settings(BaseSettings):
     login_max_failures: int = 8
     login_lockout_minutes: int = 15
 
+    # --- outbound email (D27) ---
+    # SMTP rather than a provider SDK: no new dependency, and it is the one
+    # interface Resend, Google Workspace, Postmark and a company relay all
+    # offer. Unset by default, in which case invitations simply are not emailed
+    # and the dashboard says so.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    # Secret. Never logged; redacted by app.settings.redact().
+    smtp_password: str = ""
+    # The envelope sender. Required alongside smtp_host for mail to be
+    # considered configured at all.
+    smtp_from: str = ""
+    smtp_from_name: str = "Tender Monitor"
+    # 587 + STARTTLS is the common case; set smtp_use_ssl for implicit TLS on
+    # 465. Both verify certificates - there is no switch to turn that off,
+    # because a mail path that silently accepts any certificate is worse than
+    # no mail path.
+    smtp_use_starttls: bool = True
+    smtp_use_ssl: bool = False
+    # Bounded because this runs inside a request. A dropped SMTP connection
+    # otherwise hangs until the OS gives up, and the administrator watches a
+    # spinner with no idea whether the invitation exists.
+    smtp_timeout_seconds: int = 15
+
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to
     # {public_app_url}/?tender={id}, which Dashboard.tsx already reads.
@@ -285,6 +310,7 @@ SECRET_FIELDS = (
     "slack_bot_token",
     "cron_secret",
     "sam_gov_api_key",
+    "smtp_password",
     "database_url",
 )
 

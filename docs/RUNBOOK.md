@@ -813,8 +813,21 @@ docker compose exec backend python -m app.accounts_cli invite \
   --email colleague@example.com --role member
 ```
 
-Either way you get a link. There is no mail transport in this product, so
-**you deliver it** — Slack, email, however you already talk to that person.
+You get a link either way. **If SMTP is configured the invitee is emailed it
+directly** (D27), and the panel says so; if it is not configured, or the send
+fails, **you deliver the link** — Slack, email, however you already talk to that
+person.
+
+Configure mail with `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
+and `SMTP_FROM`. Any provider works. Two things to get right:
+
+* `SMTP_FROM`'s domain must be one the provider is authorised to send for, or
+  the mail is accepted and then filed as spam.
+* Setting the variables recreates the container, which is what makes them take
+  effect — a restart is not enough.
+
+To check it without inviting anybody real, invite an address you own and watch
+the panel: it reports `emailed to …` only once the relay accepted the message.
 
 Three things about the link, all deliberate:
 
@@ -900,3 +913,32 @@ curl -o /dev/null -w '%{http_code}\n' https://<host>/health         # want 200
 The second line matters as much as the first: `/health` must stay public or
 Railway's healthcheck fails and the next deploy rolls back, with the application
 logs looking healthy the whole time.
+
+### The invitation email did not arrive
+
+The dashboard distinguishes three states, and they need different responses.
+
+**"Invitation created" with no mention of email** — no mail server is
+configured. Nothing was attempted. Set the `SMTP_*` variables, or send the link
+yourself.
+
+**"The email did not send"** — a transport is configured and refused. The reason
+is on screen (the exception class), and the failure is logged at WARNING with
+the recipient. The link on screen still works; use it, then fix the transport:
+
+```bash
+railway logs --service backend | grep "invitation email failed"
+```
+
+`SMTPAuthenticationError` is credentials. `SMTPRecipientsRefused` is the address
+or an unverified sending domain. `OSError`/`TimeoutError` is host, port or
+egress.
+
+**"Emailed to …" but nothing arrived** — the relay accepted it, so the problem
+is after the handoff: spam filtering, or a sending domain the provider is not
+authorised for. Check the provider's own delivery log. Note that `sent` means
+*accepted by the relay*, never *delivered* — this product has no bounce handling
+and cannot know the difference.
+
+In all three cases the invitation itself is fine. It is created before anything
+is sent, precisely so that a mail problem is never also an account problem.

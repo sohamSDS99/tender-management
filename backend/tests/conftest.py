@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import models  # noqa: F401  - registers every mapper before create_all
 from app.db import Base, get_db
 from app.settings import Settings
 
@@ -55,6 +56,14 @@ def keyed_settings(settings: Settings) -> Settings:
 
 @pytest.fixture
 def db_session():
+    """An empty in-memory database with the full schema.
+
+    `app.models` is imported at the top of this file rather than incidentally by
+    whichever test happens to run: `create_all` only creates the tables that are
+    registered on the metadata *at that moment*, so a test module that did not
+    import a model got a database silently missing its table, and failed with
+    "no such table" a long way from the cause.
+    """
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
     )

@@ -105,15 +105,42 @@ function InviteSection({ invites, onChanged }: { invites: Invite[]; onChanged: (
   return (
     <SettingsSection
       title="Invitations"
-      note="Registration is closed except by invitation. There is no email here, so send the link yourself."
+      note="Registration is closed except by invitation. The link is emailed when a mail server is configured, and shown here once either way."
     >
       {created ? (
-        <div className="invite__new">
+        <div className={`invite__new${created.delivery.status === 'failed' ? ' is-warn' : ''}`}>
+          {/*
+            Says what happened to the *message*, not just to the invitation.
+            These are two different facts and an administrator needs both: the
+            first decides whether the person will hear about it, the second
+            decides whether to go and paste the link somewhere.
+
+            The link is shown in every case, including a successful send. It
+            exists in exactly one response and can never be retrieved again, so
+            hiding it on success would mean a delivery failure discovered an
+            hour later is unrecoverable.
+          */}
           <p className="invite__newhead">
-            <Icon name="check" size={14} />
-            Invitation created for <b>{created.invite.email ?? 'anyone with the link'}</b>. This
-            link is shown once.
+            <Icon name={created.delivery.status === 'failed' ? 'warn' : 'check'} size={14} />
+            {created.delivery.status === 'sent' ? (
+              <>
+                Invitation <b>emailed to {created.invite.email}</b>. The link is also below, shown
+                once.
+              </>
+            ) : created.delivery.status === 'failed' ? (
+              <>
+                Invitation created, but <b>the email did not send</b>. Send this link yourself.
+              </>
+            ) : (
+              <>
+                Invitation created for <b>{created.invite.email ?? 'anyone with the link'}</b>. This
+                link is shown once.
+              </>
+            )}
           </p>
+          {created.delivery.status !== 'sent' ? (
+            <p className="invite__why">{created.delivery.detail}</p>
+          ) : null}
           <div className="invite__link">
             <input
               className="input mono"

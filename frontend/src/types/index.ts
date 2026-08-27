@@ -387,16 +387,27 @@ export interface Invite {
   accepted_at: string | null;
 }
 
+/** What the server's attempt to email an invitation actually did (D27). */
+export interface Delivery {
+  /** `sent` only once the mail server accepted the message. */
+  status: 'sent' | 'skipped' | 'failed';
+  /** One sentence written for the administrator. Never contains the token. */
+  detail: string;
+}
+
 /**
  * The one response in the API carrying a live credential.
  *
  * `token` and `url` are returned once, at creation, because only a hash of the
- * token is stored. There is no endpoint that can show them again.
+ * token is stored. There is no endpoint that can show them again — which is why
+ * they come back even when the email succeeded. Mail is best effort; the link
+ * is the guarantee.
  */
 export interface InviteCreated {
   invite: Invite;
   token: string;
   url: string;
+  delivery: Delivery;
 }
 
 export interface RevokedCount {
