@@ -2,13 +2,18 @@ import { Fragment, useEffect, useState } from 'react';
 import type { MatchingProfile, MatchingRules, RulesPreview } from '../types';
 import { api } from '../api/client';
 import { Icon } from './Icon';
+import { LearnedPatterns } from './settings/LearnedPatterns';
 import { PhraseTable } from './settings/PhraseTable';
 import { SettingsPage } from './settings/SettingsPage';
 
 const WEIGHTS: { key: string; label: string; hint: string }[] = [
   { key: 'topic', label: 'Topic', hint: 'How much the subject matter matters' },
   { key: 'product_fit', label: 'Product fit', hint: 'Cloud vs on-premises, and what we sell' },
-  { key: 'procurement_intent', label: 'Procurement intent', hint: 'Whether it reads as a real buy' },
+  {
+    key: 'procurement_intent',
+    label: 'Procurement intent',
+    hint: 'Whether it reads as a real buy',
+  },
 ];
 
 const BANDS: { key: string; label: string }[] = [
@@ -59,7 +64,10 @@ export function MatchingRulesSettings({
         setFileProfiles(data.file_profiles ?? []);
       })
       .catch((error: unknown) =>
-        setMessage({ tone: 'bad', text: error instanceof Error ? error.message : 'Could not load.' }),
+        setMessage({
+          tone: 'bad',
+          text: error instanceof Error ? error.message : 'Could not load.',
+        }),
       );
     return () => {
       live = false;
@@ -67,7 +75,11 @@ export function MatchingRulesSettings({
   }, []);
 
   const slug = (value: string) =>
-    value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 64);
 
   const newKey = slug(newProfile);
   const canAddProfile =
@@ -109,7 +121,12 @@ export function MatchingRulesSettings({
           { label: p.label, strong: p.strong, medium: p.medium, weak: p.weak },
         ]),
       );
-      const result = await api.saveMatchingRules({ weights, bands, profiles: asProfiles, removed_profiles: removed });
+      const result = await api.saveMatchingRules({
+        weights,
+        bands,
+        profiles: asProfiles,
+        removed_profiles: removed,
+      });
       setMessage({
         tone: 'ok',
         text: `Saved. ${result.rescored.toLocaleString('en-GB')} notices re-scored under the new rules.`,
@@ -133,7 +150,14 @@ export function MatchingRulesSettings({
           { label: p.label, strong: p.strong, medium: p.medium, weak: p.weak },
         ]),
       );
-      setConfirming(await api.previewMatchingRules({ weights, bands, profiles: asProfiles, removed_profiles: removed }));
+      setConfirming(
+        await api.previewMatchingRules({
+          weights,
+          bands,
+          profiles: asProfiles,
+          removed_profiles: removed,
+        }),
+      );
     } catch (error) {
       setMessage({
         tone: 'bad',
@@ -161,7 +185,10 @@ export function MatchingRulesSettings({
       });
       onRescored();
     } catch (error) {
-      setMessage({ tone: 'bad', text: error instanceof Error ? error.message : 'Could not reset.' });
+      setMessage({
+        tone: 'bad',
+        text: error instanceof Error ? error.message : 'Could not reset.',
+      });
     } finally {
       setBusy(false);
     }
@@ -187,9 +214,11 @@ export function MatchingRulesSettings({
       blurb="How a notice earns its score. Phrase lists and regexes live in config/relevance_profiles.yaml; what you change here is stored separately and merged over the file, so the file stays readable and resetting is one click."
       onBack={onBack}
     >
-
       {message ? (
-        <p className={`notice${message.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`} role="status">
+        <p
+          className={`notice${message.tone === 'bad' ? ' notice--bad' : ' notice--ok'}`}
+          role="status"
+        >
           {message.text}
         </p>
       ) : null}
@@ -368,7 +397,12 @@ export function MatchingRulesSettings({
                 ? ' Nothing moves — saving only records the new rules.'
                 : ' Anyone working from the current ordering will see it change.'}
             </p>
-            <button type="button" className="btn btn--primary" disabled={busy} onClick={() => void save()}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy}
+              onClick={() => void save()}
+            >
               {busy ? 'Re-scoring…' : 'Save and re-score'}
             </button>
             <button type="button" className="btn btn--ghost" onClick={() => setConfirming(null)}>
@@ -394,6 +428,12 @@ export function MatchingRulesSettings({
           </>
         )}
       </div>
+
+      {/* Below the save button, deliberately: everything above is a rule
+          somebody writes and saves, and this is a rule the system derived. It
+          belongs on this page because it is also matching, and it has no save
+          of its own because the only way to change it is to change a verdict. */}
+      <LearnedPatterns />
     </SettingsPage>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '../api/client';
-import type { TenderDetail } from '../types';
+import type { FeedbackResponse, TenderDetail, Verdict } from '../types';
 import type { ScoreBands } from '../labels';
 import {
   countryLabel,
@@ -47,6 +47,7 @@ export function DetailPanel({
   onNext,
   hasPrev,
   hasNext,
+  onFeedback,
 }: {
   bands: ScoreBands;
   sourceLabel: (key: string) => string;
@@ -57,10 +58,17 @@ export function DetailPanel({
   onNext: () => void;
   hasPrev: boolean;
   hasNext: boolean;
+  /** Told what the mark changed, so the page behind can say so and reload. */
+  onFeedback: (result: FeedbackResponse) => void;
 }) {
   const [tender, setTender] = useState<TenderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [marking, setMarking] = useState(false);
+  // Kept separate from `error`: a failed mark must not replace the notice the
+  // reader is looking at with an error page.
+  const [markError, setMarkError] = useState<string | null>(null);
   const open = tenderId !== null;
 
   useEffect(() => {
@@ -70,9 +78,17 @@ export function DetailPanel({
       return;
     }
     let cancelled = false;
+    setMarkError(null);
     api
       .tender(tenderId)
-      .then((data) => !cancelled && (setTender(data), setError(null)))
+      .then(
+        (data) =>
+          !cancelled &&
+          // The note field is seeded from the stored note, so editing a mark
+          // shows what was written rather than an empty box that would silently
+          // erase it on the next save.
+          (setTender(data), setNote(data.feedback?.note ?? ''), setError(null)),
+      )
       .catch((err) => {
         if (cancelled) return;
         setTender(null);
@@ -87,6 +103,37 @@ export function DetailPanel({
     setCopied(what);
     window.setTimeout(() => setCopied(null), 1600);
   }, []);
+
+  /**
+   * Record or withdraw a verdict, then re-read the notice.
+   *
+   * The second call is deliberate rather than lazy: marking one notice can
+   * change what the learner concludes about *this* one too, and the response to
+   * a POST carries the model, not the tender. Re-reading gets the authoritative
+   * `hidden` and the reasons behind it instead of a guess assembled here.
+   */
+  const mark = useCallback(
+    async (verdict: Verdict | null) => {
+      if (tenderId === null) return;
+      setMarking(true);
+      setMarkError(null);
+      try {
+        const result =
+          verdict === null
+            ? await api.clearFeedback(tenderId)
+            : await api.setFeedback(tenderId, verdict, note.trim() || undefined);
+        const fresh = await api.tender(tenderId);
+        setTender(fresh);
+        setNote(fresh.feedback?.note ?? '');
+        onFeedback(result);
+      } catch (err) {
+        setMarkError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        setMarking(false);
+      }
+    },
+    [tenderId, note, onFeedback],
+  );
 
   // Split deliberately into two effects.
   //
@@ -263,7 +310,98 @@ export function DetailPanel({
                 </span>
               ) : null}
               <span className="badge badge--grey">Found {formatDate(tender.first_seen_at)}</span>
+              {tender.hidden ? <span className="badge badge--grey">Hidden</span> : null}
             </div>
+
+            {/* First, because it is why the drawer was opened: the reader is
+                deciding. Both directions are here, unlike the card, and "keep"
+                does more than it appears to - it protects this notice's wording
+                from ever being used to hide anything. */}
+            <section className="dsection">
+              <h3>Is this one relevant?</h3>
+              <p className="muted">
+                {tender.feedback
+                  ? tender.feedback.verdict === 'irrelevant'
+                    ? 'Marked not relevant, so it is hidden from the working views and its wording teaches the system what to hide.'
+                    : 'Marked relevant. Nothing in its wording will be used to hide another notice.'
+                  : 'Nobody has decided yet. Marking it teaches the system, and either mark can be withdrawn.'}
+              </p>
+
+              <div className="verdict__row">
+                <button
+                  type="button"
+                  className={`btn${tender.feedback?.verdict === 'relevant' ? ' btn--primary' : ''}`}
+                  disabled={marking}
+                  aria-pressed={tender.feedback?.verdict === 'relevant'}
+                  onClick={() => void mark('relevant')}
+                >
+                  <Icon name="check" size={13} />
+                  Relevant
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={marking}
+                  aria-pressed={tender.feedback?.verdict === 'irrelevant'}
+                  onClick={() => void mark('irrelevant')}
+                >
+                  <Icon name="block" size={13} />
+                  Not relevant
+                </button>
+                {tender.feedback ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={marking}
+                    onClick={() => void mark(null)}
+                  >
+                    <Icon name="refresh" size={13} />
+                    Withdraw
+                  </button>
+                ) : null}
+              </div>
+
+              <label className="sr" htmlFor="verdictNote">
+                Why, in a few words
+              </label>
+              <input
+                className="input"
+                id="verdictNote"
+                type="text"
+                maxLength={2000}
+                value={note}
+                disabled={marking}
+                placeholder="Why? (optional — saved with the mark)"
+                onChange={(event) => setNote(event.target.value)}
+              />
+
+              {markError ? (
+                <p className="notice notice--bad" role="alert">
+                  <Icon name="warn" size={13} />
+                  {markError}
+                </p>
+              ) : null}
+
+              {/* Only when the machine made the call. Every pattern that hid it
+                  is listed, because a hide nobody can argue with is a hide
+                  nobody will trust. */}
+              {tender.auto_irrelevant && tender.auto_irrelevant_reasons.length ? (
+                <>
+                  <h4 className="subhead">Hidden by what was learned</h4>
+                  <ul className="reasons reasons--flag">
+                    {tender.auto_irrelevant_reasons.map((item) => (
+                      <li key={item}>
+                        <Icon name="block" size={13} />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted">
+                    Marking it relevant overrides this, and stops its wording hiding anything else.
+                  </p>
+                </>
+              ) : null}
+            </section>
 
             <section className="dsection">
               <h3>Why this scores {tender.relevance_score}</h3>

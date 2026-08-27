@@ -1315,3 +1315,160 @@ font, no new colour, no new dependency.
   what credentials do. Rotate it if a non-account path is unwanted.
 * **`REQUIRE_SIGN_IN=false` returns the API to D25's behaviour**, and anyone
   setting it should read this record first.
+
+---
+
+## D27 — A notice can be marked not relevant, and the system learns the pattern
+
+**Decision.** A reviewer can mark any notice `relevant` or `irrelevant`. The
+verdict is stored in a new `tender_feedback` table, and from the accumulated
+verdicts the system derives a token log-odds model that hides *future* notices
+resembling the rejected ones. Carried by `app/models/tender_feedback.py`,
+`app/services/feedback.py`, two additive columns on `tenders`
+(`auto_irrelevant`, `auto_irrelevant_reasons`), three endpoints
+(`POST`/`DELETE /api/tenders/{id}/feedback`, `GET /api/feedback/learned`), a
+tri-state `hidden` filter on `/api/tenders`, and in the dashboard the
+**Not relevant** lens, the card's one-click control, the detail panel's verdict
+section and the Learned-patterns table under Matching rules.
+
+**The scoring engine is untouched, and that is the whole architecture of this
+record.** `relevance.py`, `relevance_profiles.yaml` and every scoring column are
+frozen, so nothing here may move a score. What feedback controls is *visibility*
+only: a notice still scores what the engine says it scores, and the learner
+decides whether anybody is shown it. Two consequences worth stating plainly:
+
+> A verdict cannot make a notice score higher or lower.
+> `test_feedback.py::test_marking_never_moves_a_relevance_score` fails if it does.
+
+This split is why the feature could be added at all. Folding learned weight into
+the score would have meant editing the frozen engine, would have broken
+`test_relevance_baseline.py`'s pinned SHA-256, and would have made the score
+unexplainable — the one property the engine was built to have.
+
+**Verdicts are a table, not columns on `tenders`.** A notice is a record of what
+a buyer published; a verdict is a record of what we thought of it. Every sweep
+rewrites the first. Keeping them apart means a verdict survives a re-score, a
+re-ingest and a content-hash change with nothing having to remember to preserve
+it — proven by `test_a_verdict_survives_the_notice_being_amended`.
+
+**Why log-odds against the whole corpus, and not against the notices marked
+relevant.** The model is
+
+    weight(t) = log P(t | rejected) − log P(t | everything else)
+
+and the second half is the interesting choice. Comparing rejections against the
+*rest of the corpus* rather than against explicit keeps is what makes this work
+from the fifth mark instead of the five-hundredth: nobody marks things relevant
+early on, so a rejected-versus-kept comparison has no denominator for weeks. It
+also removes the need for a stop-word list, which is a real saving in a corpus
+that is part Portuguese and part French — a word common everywhere
+("contract", "services", "the") appears just as often in both halves, so its
+weight lands near zero and it drops out on its own. Measured on the 611 stored
+notices: `contratacao` and `especializada` earn nothing, while `pavimentacao`,
+`drenagem` and `esgotamento sanitario` earn 4.5–5.8.
+
+**No dependency, and no model artefact.** It is `collections.Counter` and
+`math.log` over the stored rows, rebuilt in memory and cached against a
+fingerprint of the verdict table and the corpus — the same rail
+`matching_rules.engine_for` already uses, so a new verdict invalidates it
+without anyone remembering to call a clear function. There is no training job,
+no vector store, no scikit-learn, and nothing on disk to go stale. The runtime
+dependency list is unchanged, backend and frontend both.
+
+**Four floors, and they are the whole safety story.** Every one of them exists
+to stop the feature hiding something a bidder wanted:
+
+| Floor | Value | What it prevents |
+|---|---|---|
+| `MIN_MARKS` | 5 | Acting on an opinion. Under five rejections the learner predicts nothing and only explicit marks hide anything. |
+| `MIN_DOC_FREQ` | 3 | One notice's buyer name or reference number becoming a rule. |
+| `STRONG_AT` | 3.0 | A hide justified by a pile of weak matches with no single defensible phrase behind it. |
+| the protection rule | — | Any token appearing in a notice marked *relevant* is struck out of the model entirely. A phrase present in something the team said yes to can never hide anything. |
+
+`STRONG_AT` was added after measurement, not before. Without it, eight marks
+against the 611 real notices hid 114 — and three of those were hidden purely by
+Brazilian procurement boilerplate (`equipamentos`, `especializada para`) summing
+past the total threshold while no single phrase said anything. The verdicts
+happened to be right; the *reason on the card* was not defensible, which for
+this feature is the same as being wrong. With the floor in place the same eight
+marks hide 37, and because the reason displayed is always the strongest match,
+the explanation is now as strong as the rule that produced it.
+
+**Measured, on real data rather than a fixture.** Twelve marks over the 611
+stored notices hide 41 (7% of the corpus), and **none** of the twelve notices
+scoring 40 or above — the population a bidder actually reads — was hidden by
+any of them.
+
+**Hiding is defined twice, and a test holds the two together.** The filter runs
+in SQL (`_hidden_clause` in `routes.py`) and the response is assembled in Python
+(`TenderListItem.hidden`, a computed field). There is no way to have one
+definition when a query must run in the database and a boolean must reach the
+browser, so `test_hidden_in_sql_and_hidden_in_the_response_select_the_same_rows`
+asserts they select the same rows across the whole corpus.
+
+**`/api/stats` now excludes hidden notices from every count and reports
+`hidden_total` separately.** This follows the rule that a tab's count must equal
+the list the tab opens: the working lenses hide these notices, so a count that
+included them would promise rows the list will not show. The difference between
+`total_tenders` and the true corpus size is never merely missing — it is
+`hidden_total`, which is itself the badge on the Not relevant lens and clickable
+like every other number here.
+
+**The filter is tri-state, and its default is not "off".** `hidden=false` hides
+them, `hidden=true` returns only them, omitting it ignores feedback entirely. A
+two-state flag would leave a mistaken mark unreachable, and an undo that cannot
+find what it is undoing is not an undo. In the dashboard's URL codec an absent
+`hidden` means the shipped default rather than "do not care" — the one place the
+existing `tribool` helper would have been wrong, because a plain link to the
+dashboard must not show back everything somebody rejected.
+
+**Marking is gated but uncapped, and those are two different axes.** All three
+endpoints are private, and none of them had to ask: `enforce_sign_in` is an
+application-level dependency (D26), so a route added afterwards is closed by
+default. `test_marking_is_behind_the_sign_in_gate_like_everything_else` asserts
+that actually held for these three rather than trusting that it did.
+
+Past the door there is no limit at all. D23's rule is that a write is
+constrained by a limit matching its cost. A sweep spends outbound requests
+against eight public services and a re-score rewrites every row, so both carry
+cooldowns. A verdict spends neither: it writes one row and re-runs a local pass
+over the corpus. It is also made in bursts of a dozen while somebody works
+through a page, so a cooldown would be rate-limiting the act of reading a list.
+
+**The Slack digest respects it.** `qualifying_tenders` and
+`announceable_tenders` both exclude hidden notices. A digest is the one place
+this tool interrupts a person, so drawing from a different population than the
+dashboard shows would mean a notice rejected on Monday being pushed into a
+channel on Tuesday — at which point the mark reads as broken. Marks made after a
+digest has gone out are honoured for every later run; nothing is retroactively
+unsent, because the ledger's unique constraint means an announcement never
+repeats anyway.
+
+**Every pattern is readable, and that is the price of being allowed to hide
+anything.** The phrase lists in `relevance_profiles.yaml` can be argued with by
+reading them. A learned pattern cannot, unless it is shown with how many
+rejections it appears in and how many other notices it does not — so
+`GET /api/feedback/learned` returns exactly that and the Learned-patterns table
+renders it. A pattern that looks wrong is a mark that was wrong, and the
+Not relevant lens is where that mark is withdrawn.
+
+**Accepted, and written down rather than solved:**
+
+* **Re-predicting is a linear pass over every stored notice on every mark.**
+  Milliseconds at a few thousand notices, which is the size this tool is built
+  for; the ceiling is named in a `ponytail:` comment in `apply_to_corpus`. If the
+  corpus reaches six figures it belongs in the sweep, re-predicting only what
+  changed.
+* **The four floors are constants, not settings.** They were calibrated against
+  this corpus and exposing them would invite tuning a statistical threshold by
+  feel. The Learned-patterns screen shows the evidence instead, which is the
+  control that actually helps.
+* **No attribution, and D26 makes that a choice rather than a limitation.**
+  Since sign-in is required there is now always a principal to record, so
+  `decided_by` became possible exactly when this landed - and is still absent.
+  It was not asked for, and it would put a named person on a judgement about
+  public data for the first time. The column is a migration away if the team
+  ever wants "who hid this?"; what it is not is an accident.
+* **Descriptions are learned from, but the list endpoint does not return them**,
+  so a card's reason can name a phrase the reader cannot see on that card. The
+  detail panel shows the description, which is where the reason is checkable.

@@ -61,4 +61,49 @@ describe('counts', () => {
   it('gives "new" no count rather than a guess when no sweep has run', () => {
     expect(lensByKey('new')!.count(null, null)).toBeNull();
   });
+
+  it('counts the Not-relevant lens with the same clause the list filters on', () => {
+    const stats = { total_tenders: 300, hidden_total: 42 } as never;
+    expect(lensByKey('notrelevant')!.count(stats, null)).toBe(42);
+  });
+
+  it('adds the hidden back for "All tenders", because /api/stats leaves them out', () => {
+    // total_tenders excludes hidden notices so every other lens badge equals
+    // the list it opens. This lens is the one that shows them, so its badge has
+    // to add them back or it would under-report the corpus it displays.
+    const stats = { total_tenders: 300, hidden_total: 42 } as never;
+    expect(lensByKey('all')!.count(stats, null)).toBe(342);
+  });
+});
+
+describe('the Not-relevant lens', () => {
+  it('is the only lens that asks for hidden notices', () => {
+    const asking = LENSES.filter((lens) => lens.patch(ctx).hidden === true);
+    expect(asking.map((lens) => lens.key)).toEqual(['notrelevant']);
+  });
+
+  it('is distinguishable from "All tenders", which asks for both', () => {
+    // Both drop the score floor and the open-only filter, so `hidden` is the
+    // only thing separating them. Without it in OWNED the first one in the list
+    // would light for both presets.
+    expect(lensByKey('all')!.patch(ctx).hidden).toBeNull();
+    expect(activeLens(withLens('notrelevant'), ctx)).toBe('notrelevant');
+    expect(activeLens(withLens('all'), ctx)).toBe('all');
+  });
+
+  it('hides them from every lens that is a work queue', () => {
+    for (const lens of LENSES) {
+      // 'all' is the audit root and 'new' is a report on one sweep; both must
+      // show everything. Every other lens is somewhere work gets done.
+      if (['notrelevant', 'all', 'new'].includes(lens.key)) continue;
+      expect(lens.patch(ctx).hidden).toBe(false);
+    }
+  });
+
+  it('does not let hiding break the New-lens count', () => {
+    // Its badge is the sweep's own records_created — every row that batch
+    // inserted, hidden or not — so the list it opens has to include them or the
+    // number beside it disagrees with itself.
+    expect(lensByKey('new')!.patch(ctx).hidden).toBeNull();
+  });
 });

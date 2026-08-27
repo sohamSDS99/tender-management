@@ -50,12 +50,24 @@ def test_types_file_exists() -> None:
     assert TYPES_FILE.is_file()
 
 
+def sent_by(model) -> set[str]:
+    """Every name the model actually serialises.
+
+    Computed fields count: they are in the JSON exactly like declared ones, and
+    reading only ``model_fields`` reported ``TenderListItem.hidden`` as a field
+    the API never sends while it was being sent on every row. The test's whole
+    subject is "what arrives in the browser", so it has to ask what is
+    serialised rather than what is stored.
+    """
+    return set(model.model_fields) | set(model.model_computed_fields)
+
+
 @pytest.mark.parametrize(("ts_name", "model"), PAIRS, ids=[p[0] for p in PAIRS])
 def test_frontend_declares_no_field_the_api_does_not_send(ts_name, model) -> None:
     declared = ts_fields(ts_name)
     if ts_name == "TenderDetail":
         declared |= ts_fields("Tender")  # `extends Tender`
-    phantom = declared - set(model.model_fields)
+    phantom = declared - sent_by(model)
     assert not phantom, (
         f"frontend type {ts_name} declares {sorted(phantom)}, which {model.__name__} "
         "never returns - those arrive as undefined at runtime"
