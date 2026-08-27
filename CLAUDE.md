@@ -28,12 +28,12 @@ link points at the wrong port.
 cd backend
 ./.venv/bin/python -m pytest -q          # 528 tests (4 pre-existing failures, see below)
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 7 revisions, head c7e1a4b90f32
+./.venv/bin/alembic upgrade head         # 8 revisions, head e3b7c1d5f204
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 121 tests
+npx vitest run                           # 132 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -278,10 +278,28 @@ would sail past the very thing the suite should exercise — every pre-existing
 test would keep passing even if the gate refused every real human. Tests that
 genuinely need to skip an operator cooldown use `cron_client` and say why.
 
-Registration is invite-only *after the first account*. The first registration on
-an empty deployment needs no invite and becomes an administrator — so between
-first start and first registration, whoever gets there first is the admin.
-Register immediately, or use `python -m app.accounts_cli create-admin`.
+**Three ways in, and only three** (`accounts.register`, checked in this order):
+bootstrap when no account exists yet and it becomes an administrator; a
+single-use invitation (D25) for an outsider; or **the shared join link plus a
+roster entry** (D28), which is the ordinary path for a colleague. Anything else
+is refused.
+
+**The join link is not a bearer token, and that is why it is stored readably.**
+The roster decides — the link only works for an address already on it, so it is
+safe to show again and to paste into a team channel. Hashing it, or making it
+single-use, would break the one thing it is for. If
+`test_a_valid_link_is_refused_for_an_address_nobody_added` ever passes, the link
+*has* become a bearer token and sharing it is now a way in for anybody.
+
+**A roster edit must not reach an existing account.** Changing an entry's role
+sets what a *future* account gets; removing an address withdraws permission to
+register. Neither touches somebody who has already joined — that is
+`PATCH /api/auth/users/{id}`, where the last-administrator guard lives. Wire
+removal to account closure and a roster tidy-up can lock everyone out.
+
+The first registration on an empty deployment needs no permission at all, so
+between first start and first registration whoever gets there first is the
+admin. Register immediately, or use `python -m app.accounts_cli create-admin`.
 
 **A Secure cookie over plain HTTP is never sent, and the symptom looks like a
 backend bug.** Sign-in returns 200, the dashboard says nothing is wrong, and the

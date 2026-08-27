@@ -1315,3 +1315,94 @@ font, no new colour, no new dependency.
   what credentials do. Rotate it if a non-account path is unwanted.
 * **`REQUIRE_SIGN_IN=false` returns the API to D25's behaviour**, and anyone
   setting it should read this record first.
+
+---
+
+## D28 — The address is the permission, not the link
+
+**Decision.** A workspace **roster** lists the email addresses allowed to hold an
+account, and one durable **join link** is shared with everybody on it.
+Registration requires both: a current link *and* an address on the roster.
+Carried by `app/models/roster.py`, `app/services/roster.py`, the `/api/auth/roster`
+endpoints and `components/settings/WorkspaceRoster.tsx`.
+
+**Why, when D25 already had invitations.** Because invitations made every new
+colleague a clerical task. One token per person, shown once, copied before the
+box closed, pasted somewhere, repeated — and if the box closed first, the token
+was unrecoverable and the whole dance started again. For a team joining an
+internal tool that is the wrong shape of work.
+
+The roster inverts which half is secret. An administrator writes down who
+belongs, sends the team one link, and each person lets themselves in.
+
+**That inversion is the entire security argument, so it is worth stating
+plainly.** Because the roster decides, the link is *not* a bearer token:
+
+* it is stored **readably** in `app_settings` and can be shown again next month,
+  where an invite token is hashed and shown once
+* it is **reusable**, where an invite is single-use
+* a leaked one is only useful to somebody already on the roster, and they were
+  welcome anyway
+
+That is what makes it safe to paste into a team channel, which is exactly what
+it is for. `tests/test_roster.py` leads with the three refusals that this rests
+on — right link with an unlisted address, an address removed after the fact, and
+a rotated link killing a stale copy. If the first of those ever passes, the link
+has silently become a bearer token and the roster is decoration.
+
+**Both mechanisms are kept**, because they answer different questions. The
+roster answers "let my team in". A single-use invitation still answers "let this
+one person in" — a contractor, an outsider, somebody with no company address.
+Removing invites would have made the second case impossible.
+
+**Two things a roster edit deliberately does not do**, both because conflating
+them causes harm:
+
+* **Changing an entry's role does not move an existing account.** The roster
+  records the role somebody gets *on joining*. Re-roling a colleague who joined
+  last week as a side effect of tidying a list is a change nobody asked for,
+  happening in the wrong place. The control for that is
+  `PATCH /api/auth/users/{id}`, and the UI disables the roster's role toggle
+  once an entry has joined rather than leaving a control that silently does
+  nothing.
+* **Removing an address does not close the account it became.** Withdrawing
+  permission to *register* is not the same act as ending somebody's access,
+  which kills their sessions and is guarded against stranding the last
+  administrator. If removal also closed accounts, a roster tidy-up could lock
+  everybody out of the deployment.
+
+**Pasting is the input, not a form.** `parse_addresses` accepts commas,
+semicolons, spaces and newlines together, because that is what comes out of a
+mail client's To: field, a spreadsheet column and a Slack message respectively.
+Asking somebody to reformat a list they already have is the friction this
+feature exists to remove. Duplicates are dropped silently; **bad addresses are
+named**, because a typo that vanishes without comment becomes a colleague who
+cannot get in and nobody knowing why. Re-pasting a team list to add one person
+reports the rest as already present rather than erroring, and leaves their roles
+alone.
+
+**Named `roster`, not `members`.** "Member" is already a *role* here, as against
+an administrator, so a `workspace_members` table holding rows whose role is
+`admin` would be a sentence arguing with itself.
+
+**One workspace, not many.** This deployment is the workspace: one set of
+tenders, one relevance config, one team. Multi-tenancy would mean a workspace
+column on every table and scoping on every query, where one missed `WHERE` leaks
+one organisation's data to another — a large, risky change with nothing here
+asking for it. The table is named so a second workspace could be added later
+without renaming anything, and no scoping logic exists until something actually
+needs it.
+
+**Accepted:**
+
+* **Adding somebody to the roster notifies nobody.** It records who is allowed
+  in; delivering the link stays a separate, deliberate act. D27 built an email
+  transport for exactly this and it was rejected as unnecessary for an internal
+  tool — the link goes out over Slack by hand.
+* **The join link is readable by any administrator.** That is the point, and it
+  is not an escalation: an administrator can already add addresses and issue
+  invitations.
+* **A roster entry is not an account and outlives one.** Deleting a user leaves
+  the entry, so the address can register again. That is usually what is wanted
+  when somebody's account is recreated, and it is why `joined_user_id` is a
+  nullable link rather than a boolean.

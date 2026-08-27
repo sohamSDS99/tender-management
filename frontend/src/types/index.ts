@@ -402,3 +402,40 @@ export interface InviteCreated {
 export interface RevokedCount {
   revoked: number;
 }
+
+// --- the workspace roster (D28) ---------------------------------------------
+//
+// The address is the permission, not the link. That is why `join_url` can be
+// read back and shown again, where an invite token cannot: on its own the link
+// opens nothing.
+
+export interface RosterEntry {
+  id: number;
+  email: string;
+  /** The role this address gets *when it joins*. Not a live account's role. */
+  role: UserRole;
+  note: string;
+  created_at: string;
+  /** Null until they register. The list puts these first. */
+  joined_at: string | null;
+}
+
+export interface RosterView {
+  entries: RosterEntry[];
+  total: number;
+  joined: number;
+  waiting: number;
+  /** Null until a link has been created. */
+  join_url: string | null;
+}
+
+export interface RosterAdded {
+  added: RosterEntry[];
+  /** Reported, not an error: re-pasting a team list is a normal thing to do. */
+  already_present: string[];
+}
+
+export interface JoinLink {
+  url: string;
+  token: string;
+}

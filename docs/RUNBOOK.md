@@ -803,9 +803,27 @@ docker compose exec backend python -m app.accounts_cli create-admin \
 The password is prompted for rather than passed as an argument, because an
 argument is visible in `ps` and lands in shell history.
 
-### Invite somebody
+### Add your team (the ordinary way)
 
-Registration is invite-only after that first account. **Settings → Account →
+**Settings → Account → Workspace members.** Paste everyone's addresses — commas,
+spaces or new lines all work — pick the role they should get, and add them.
+Then **Join link → Create join link** and send that one link to all of them.
+
+Each person opens it, enters their own address and a password, and is in. The
+link only works for addresses on the list, so it is safe to post in a team
+channel; anybody else who follows it is told to ask an administrator.
+
+If the link spreads further than you meant, **Replace link**. That kills the old
+one immediately. Anyone who has already joined is unaffected — the link grants
+registration and nothing else.
+
+Removing somebody from the list stops them *registering*. It does not close an
+account they already have; for that, use **People → Deactivate**, which ends
+their sessions too.
+
+### Invite one outsider
+
+For somebody with no company address — a contractor. **Settings → Account →
 Invitations**, or from a shell:
 
 ```bash

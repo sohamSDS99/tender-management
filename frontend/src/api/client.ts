@@ -24,6 +24,10 @@ import type {
   SessionState,
   User,
   UserRole,
+  JoinLink,
+  RosterAdded,
+  RosterEntry,
+  RosterView,
 } from '../types';
 
 // Relative by default: Vite proxies in dev, nginx proxies in the Docker image.
@@ -258,7 +262,10 @@ export const auth = {
     email: string;
     password: string;
     display_name: string;
+    /** A single-use invitation (D25), for somebody not on the roster. */
     invite_token?: string | null;
+    /** The shared workspace link (D28). Only works if the address is listed. */
+    join_token?: string | null;
   }) => request<User>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   login: (email: string, password: string) =>
     request<User>('/api/auth/login', {
@@ -284,6 +291,22 @@ export const auth = {
   createInvite: (body: { email?: string | null; role: UserRole; note?: string }) =>
     request<InviteCreated>('/api/auth/invites', { method: 'POST', body: JSON.stringify(body) }),
   revokeInvite: (id: number) => request<void>(`/api/auth/invites/${id}`, { method: 'DELETE' }),
+
+  /** The roster and the join link in one call — the panel needs both. */
+  roster: () => request<RosterView>('/api/auth/roster'),
+  /** A pasted blob: commas, semicolons, spaces and newlines all work. */
+  addToRoster: (body: { addresses: string; role: UserRole; note?: string }) =>
+    request<RosterAdded>('/api/auth/roster', { method: 'POST', body: JSON.stringify(body) }),
+  /** Changes what a *future* account gets. Does not move an existing one. */
+  setRosterRole: (id: number, role: UserRole) =>
+    request<RosterEntry>(`/api/auth/roster/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+  /** Withdraws permission to register. Does not close an existing account. */
+  removeFromRoster: (id: number) => request<void>(`/api/auth/roster/${id}`, { method: 'DELETE' }),
+  /** Creates the first link, or replaces one that has been shared too widely. */
+  rotateJoinLink: () => request<JoinLink>('/api/auth/roster/join-link', { method: 'POST' }),
 
   users: () => request<User[]>('/api/auth/users'),
   updateUser: (id: number, body: { role?: UserRole; is_active?: boolean }) =>
