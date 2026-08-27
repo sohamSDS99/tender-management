@@ -348,6 +348,51 @@ flagged `is_actionable = false`.
 }
 ```
 
+### 5.1 Marking a notice not relevant, and what the system learns (D27)
+
+The score above is computed from phrases somebody wrote down. This is the other
+half: patterns nobody wrote down, learned from what a reviewer actually rejected.
+
+Mark any notice **Not relevant** — one click on the card, or the detail panel for
+a mark with a note. That hides it, and once there are five rejections the system
+starts hiding *new* notices matching the same patterns.
+
+**How it learns.** For every word and adjacent word-pair it compares how often
+the phrase appears in what you rejected against how often it appears in
+everything else:
+
+```
+weight(phrase) = log P(phrase | rejected) − log P(phrase | everything else)
+```
+
+A phrase common everywhere — "contract", "services" — appears just as often in
+both halves, so its weight lands near zero and it drops out on its own. There is
+no stop-word list, no training job, no model file, and no new dependency: it is
+`Counter` and `math.log` over the rows already stored, rebuilt whenever a verdict
+changes.
+
+**Four floors stop it over-reaching.** Under **5** rejections it predicts nothing
+at all. A phrase must appear in **3** separate rejections to count. At least one
+matched phrase must be strong on its own, so a notice is never hidden by a pile of
+weak matches. And any phrase appearing in a notice you marked **Relevant** is
+struck out of the model entirely — a phrase present in something you said yes to
+can never hide anything.
+
+**It cannot change a score.** A verdict decides only whether a notice is *shown*.
+`relevance_score` stays exactly what the scoring engine computed.
+
+**Nothing is discarded and every mark is reversible.** Hidden notices live in the
+**Not relevant** lens with the reason each was hidden spelled out
+(*"'laboratory furniture' appears in 6 notices you marked not relevant and only 1
+other"*). Withdraw the mark and the patterns are re-derived from what is left.
+`GET /api/feedback/learned` prints the whole model with its evidence, which the
+Learned-patterns table under **Settings → Matching rules** renders.
+
+Measured against the 611 notices stored on the development machine: twelve marks
+hid 41 of them (7%), and none of the twelve notices scoring 40 or above — the
+population a bidder actually reads — was hidden.
+
+
 ## 6. API
 
 Interactive documentation: <http://localhost:8000/docs>.
@@ -359,6 +404,9 @@ Interactive documentation: <http://localhost:8000/docs>.
 | GET | `/api/tenders` | paginated, filtered, sorted list |
 | GET | `/api/tenders/{id}` | full record incl. raw source payload |
 | POST | `/api/tenders/rescore` | reload the profile and re-score every stored row |
+| POST | `/api/tenders/{id}/feedback` | mark it relevant or not relevant, and re-learn from it, D27 |
+| DELETE | `/api/tenders/{id}/feedback` | withdraw that mark, and unlearn what it taught |
+| GET | `/api/feedback/learned` | the patterns learned from the marks, with the evidence for each |
 | GET | `/api/sources` | every source: enabled, key required, prefiltered, tender count, last run/status/error |
 | POST | `/api/sources` | save a user-defined source (refuses a built-in's name) |
 | DELETE | `/api/sources/{name}` | remove a source somebody added |
@@ -393,9 +441,13 @@ This reverses the older "reads stay open" position in D5 and D25 — see section
 
 `GET /api/tenders` query parameters: `query`, `sources`, `countries`, `categories`, `statuses`,
 `fit_statuses`, `deployment_fits`, `minimum_score`, `maximum_score`, `published_from`,
-`published_to`, `deadline_from`, `deadline_to`, `active_only`, `has_deadline`, `sort`
+`published_to`, `deadline_from`, `deadline_to`, `active_only`, `has_deadline`, `hidden`, `sort`
 (`score_desc`, `score_asc`, `deadline_asc`, `deadline_desc`, `published_desc`, `published_asc`,
 `first_seen_desc`), `page`, `page_size`. List parameters repeat: `?sources=ted&sources=sam`.
+
+`hidden` is tri-state: `false` hides notices marked not relevant and those the learner
+matched to them, `true` returns only those (this is the review screen an undo needs), and
+omitting it ignores feedback entirely. The dashboard sends `false` by default.
 
 ```bash
 # highly relevant, cloud-compatible, still open
@@ -431,6 +483,7 @@ the mockup asked for exist at all:
 |---|---|---|
 | `POST /api/fetch` | single-flight (`409`) + a 300 s cooldown (`429`) | spends outbound requests against 8 public services |
 | `POST /api/tenders/rescore` | a 120 s cooldown (`429`) | rewrites every stored row |
+| `POST`/`DELETE /api/tenders/{id}/feedback` | none | one row plus a local re-predict; marks are made in bursts while reading a list (D27) |
 | `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
 | `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
 
@@ -458,6 +511,7 @@ does the whole thing, including the Slack digest, and exits with a meaningful co
 * `raw_payload`, `classification_codes`, `document_urls`, `relevance_reasons`,
   `disqualifiers`, `review_flags` are JSON columns
 * attachment URLs are stored, files are not downloaded
+* `auto_irrelevant` / `auto_irrelevant_reasons` are the learner's conclusion, not a human's: derived, disposable and recomputed on every re-score. A reviewer's own verdict is in `tender_feedback`, never here
 
 `first_seen_at` being immutable is load-bearing, not incidental: it is the only reason "new in
 this run" is computable without touching the frozen ingest path, and it is what both the Slack
@@ -468,13 +522,14 @@ digest and the New lens filter on.
 `records_created`, `records_updated`, `records_skipped`, `error_message`, the window used, and a
 `batch_id` grouping the per-source rows of one sweep.
 
-Three smaller tables carry everything an operator changes:
+Four smaller tables carry everything an operator changes:
 
 | Table | Holds |
 | --- | --- |
 | `sources` | a feed somebody added: its URL, auth style, field mapping and enabled flag |
 | `app_settings` | the sweep times, the on/off decision, the matching-rule overrides, and the stored credentials — each beating its environment variable and applying without a restart |
 | `slack_notifications` | the at-most-once delivery ledger, unique on `(tender_id, channel_label)` |
+| `tender_feedback` | one verdict per notice — `relevant` / `irrelevant`, with an optional note. Keyed on the tender, so re-marking is an update and no notice can hold two verdicts. Nothing in the fetch path writes here, which is what makes a verdict survive a re-score, a re-ingest and a content-hash change (D27) |
 
 ## 8. Automation, scheduling and reliability
 
@@ -621,8 +676,8 @@ owns the visual world; this is what they add up to.
   tender used to begin 541 px down a 950 px viewport. It holds the lenses, the settings categories
   pinned to its bottom, and the two operator actions. One piece of chrome never moves, and that is
   what makes Settings findable at all.
-* **Six lenses instead of tabs and tiles**: New this fetch, Open opportunities, Top scoring,
-  Closing soon, Needs review, All tenders. A lens is a filter *preset*, not separate state, so
+* **Seven lenses instead of tabs and tiles**: New this fetch, Open opportunities, Top scoring,
+  Closing soon, Needs review, All tenders, Not relevant. A lens is a filter *preset*, not separate state, so
   `activeLens` reads the current filters back to decide which item is lit and a hand-edited filter
   set that matches no preset simply lights none. They overlap by construction — one tender is Open
   and Top scoring and Closing soon at once — so the counts do not sum to the total, which is why
@@ -643,6 +698,14 @@ owns the visual world; this is what they add up to.
   Display, Automation, Sources and System take the width. It is not a right drawer and not an
   inline column — both were built and both were rejected. Shut, it goes `visibility: hidden`,
   because a panel merely translated off-screen keeps its tab stops.
+* **A notice can be marked not relevant, and the page says so in four places (D27).** One quiet
+  button per card for the frequent act; both directions plus a note in the detail panel. Because
+  hiding something is the one operation here that removes it from view, the removal is stated by a
+  toolbar chip on the default view, by the **Not relevant** lens and its count in the rail, by a
+  badge naming *which* hid it — a reviewer or the learner, which are different things — and by a
+  sentence after each mark saying how many *other* notices it hid. A machine hide always prints
+  its reason in words on the card, and the whole learned model with its evidence is a table under
+  Matching rules. Nothing is discarded and every mark is reversible.
 * **Sources and rules are editable in place**: paste or rotate a key per source, probe and map a
   candidate feed before saving it, delete one you added; edit capability phrases as a paged table,
   add and remove capabilities, and preview what a rule change would move before it moves.
@@ -746,7 +809,7 @@ tender-monitor/
 ├── config/relevance_profiles.yaml  all keywords, weights, patterns, caps (frozen, and never
 │                                   rewritten — overrides live in app_settings)
 ├── docs/
-│   ├── DECISIONS.md                24 records, D1–D24: every choice and accepted risk
+│   ├── DECISIONS.md                28 records, D1–D28: every choice and accepted risk
 │   ├── RUNBOOK.md                  deploy, rotate a secret, re-run a window, diagnose
 │   ├── DEPLOY-RAILWAY.md           the hosted deployment: services, variables, trigger owner
 │   └── DEMO.md                     repeatable demo with a fallback for every step

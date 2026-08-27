@@ -5,8 +5,14 @@ API behaves exactly as it did before, because registration still accepts a
 single-use invite and still bootstraps the first administrator.
 
 Revision ID: e3b7c1d5f204
-Revises: c7e1a4b90f32
+Revises: d3f7a10c2b58
 Create Date: 2026-08-27 08:10:00.000000
+
+Originally written against c7e1a4b90f32 and re-parented onto d3f7a10c2b58 when
+the reviewer-feedback branch landed first. Both had been authored against the
+same parent, which left alembic with **two heads** - a state git merges without
+complaint and `alembic upgrade head` refuses outright, so it would have surfaced
+as a failed deploy rather than a failed merge.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = 'e3b7c1d5f204'
-down_revision = 'c7e1a4b90f32'
+down_revision = 'd3f7a10c2b58'
 branch_labels = None
 depends_on = None
 

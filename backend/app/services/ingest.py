@@ -22,6 +22,7 @@ from app.connectors.registry import build_connector, enabled_sources
 from app.db import SessionLocal
 from app.logging_config import log_ctx
 from app.models import FetchRun, Tender, utcnow
+from app.services import feedback
 from app.services.credentials import settings_with_stored_credentials
 from app.services.matching_rules import engine_for
 from app.services.relevance import RelevanceEngine
@@ -109,9 +110,11 @@ def upsert_tender(
     tender: NormalizedTender,
     engine: RelevanceEngine | None = None,
     now: datetime | None = None,
+    model: feedback.Model | None = None,
 ) -> str:
     """Insert or update one notice. Returns 'created' | 'updated' | 'unchanged'."""
     engine = engine or engine_for(db)
+    model = model if model is not None else feedback.model_for(db)
     now = now or utcnow()
     existing = db.execute(
         select(Tender).where(
@@ -131,6 +134,7 @@ def upsert_tender(
         )
         _copy_fields(tender, row)
         _apply_score(row, engine, now)
+        feedback.apply_prediction(row, model)
         db.add(row)
         db.commit()
         return "created"
@@ -144,6 +148,9 @@ def upsert_tender(
     existing.content_hash = content_hash
     existing.updated_at = now
     _apply_score(existing, engine, now)
+    # The text changed, so the patterns it matches may have. A reviewer's own
+    # verdict is untouched by this - apply_prediction defers to it.
+    feedback.apply_prediction(existing, model)
     db.commit()
     return "updated"
 
@@ -166,10 +173,13 @@ def store_tenders(
 ) -> UpsertStats:
     """Upsert a batch. A malformed record only loses itself, not the batch."""
     engine = engine or engine_for(db)
+    # Resolved once for the batch rather than per notice: building it reads the
+    # whole corpus, and it cannot change while a batch is being stored.
+    model = feedback.model_for(db)
     stats = UpsertStats()
     for tender in tenders:
         try:
-            outcome = upsert_tender(db, tender, engine)
+            outcome = upsert_tender(db, tender, engine, model=model)
         except Exception:
             db.rollback()
             stats.failed += 1
@@ -188,10 +198,15 @@ def store_tenders(
 def rescore_all(db: Session, engine: RelevanceEngine | None = None) -> int:
     """Re-run the relevance engine over every stored notice."""
     engine = engine or engine_for(db)
+    # Re-learned here too, so one action refreshes both halves of what the
+    # dashboard shows. They are independent: the score comes from the phrase
+    # file, the flag from the verdicts, and neither reads the other's output.
+    model = feedback.model_for(db)
     rows = db.execute(select(Tender)).scalars().all()
     now = utcnow()
     for row in rows:
         _apply_score(row, engine, now)
+        feedback.apply_prediction(row, model)
         row.updated_at = now
     db.commit()
     return len(rows)

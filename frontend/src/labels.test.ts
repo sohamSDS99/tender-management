@@ -3,6 +3,7 @@ import {
   countryLabel,
   deadlineUrgency,
   deploymentLabel,
+  feedbackMessage,
   fitLabel,
   formatValue,
   relativeTime,
@@ -314,5 +315,73 @@ describe('normalisePhrase', () => {
 
   it('has nothing to say about an empty phrase', () => {
     expect(normalisePhrase('   ')).toBe('');
+  });
+});
+
+describe('feedbackMessage', () => {
+  const learned = (over: Record<string, unknown> = {}) =>
+    ({ active: true, marks_needed: 0, ...over }) as never;
+
+  it('names the number of other notices a mark hid', () => {
+    // The learning is otherwise invisible: one click removing twelve rows from
+    // the page has to be announced, or it reads as the list breaking.
+    const text = feedbackMessage({
+      tender_id: 1,
+      verdict: 'irrelevant',
+      reclassified: 12,
+      learned: learned(),
+    });
+    expect(text).toContain('12 other notices');
+    expect(text).toContain('not relevant');
+  });
+
+  it('says one notice in the singular', () => {
+    const text = feedbackMessage({
+      tender_id: 1,
+      verdict: 'irrelevant',
+      reclassified: 1,
+      learned: learned(),
+    });
+    expect(text).toContain('1 other notice');
+    expect(text).not.toContain('1 other notices');
+  });
+
+  it('claims nothing when nothing else matched', () => {
+    expect(
+      feedbackMessage({
+        tender_id: 1,
+        verdict: 'irrelevant',
+        reclassified: 0,
+        learned: learned(),
+      }),
+    ).toContain('Nothing else matched');
+  });
+
+  it('says what is still missing while the learner is below its floor', () => {
+    // "Nothing happened" is the wrong reading: the mark took effect, the
+    // learning has not started yet. Those are different states.
+    const text = feedbackMessage({
+      tender_id: 1,
+      verdict: 'irrelevant',
+      reclassified: 0,
+      learned: learned({ active: false, marks_needed: 4 }),
+    });
+    expect(text).toContain('4 more marks');
+    expect(text).not.toContain('Nothing else matched');
+  });
+
+  it('explains what marking something relevant actually does', () => {
+    expect(
+      feedbackMessage({ tender_id: 1, verdict: 'relevant', reclassified: 0, learned: learned() }),
+    ).toContain('will not be used to hide');
+  });
+
+  it('reports an undo, including what came back', () => {
+    expect(
+      feedbackMessage({ tender_id: 1, verdict: null, reclassified: 3, learned: learned() }),
+    ).toContain('3 other notices');
+    expect(
+      feedbackMessage({ tender_id: 1, verdict: null, reclassified: 0, learned: learned() }),
+    ).toContain('Nothing else changed');
   });
 });

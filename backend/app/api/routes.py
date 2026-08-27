@@ -8,7 +8,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import Select, distinct, func, or_, select
+from sqlalchemy import Select, and_, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.connectors.registry import SOURCE_NAMES, source_catalog
@@ -18,9 +18,12 @@ from app.models import FetchRun, Source, Tender, utcnow
 from app.schemas import (
     AutomationStatus,
     CredentialRequest,
+    FeedbackRequest,
+    FeedbackResponse,
     FetchRequest,
     FetchResponse,
     FetchRunSchema,
+    LearnedModel,
     ProbeRequest,
     RescoreResponse,
     ScheduleResponse,
@@ -35,7 +38,7 @@ from app.schemas import (
     TriggerUpdate,
 )
 from app.security import has_cron_secret
-from app.services import automation, ingest, operator, schedule_settings, scheduler
+from app.services import automation, feedback, ingest, operator, schedule_settings, scheduler
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
     SETTINGS_SECRETS,
@@ -253,6 +256,29 @@ def list_sources(
     return out
 
 
+def _hidden_clause():
+    """A notice a person rejected, or one the learner matched to those (D27).
+
+    The SQL half of ``hidden``; ``TenderListItem.hidden`` is the Python half.
+    Both are needed - a filter runs in the database, a response is built here -
+    and ``test_feedback.py`` asserts they select the same rows.
+    """
+    return or_(
+        Tender.auto_irrelevant.is_(True),
+        Tender.id.in_(feedback.marked_irrelevant_subquery()),
+    )
+
+
+def _visible_clause():
+    """Its exact complement. Written out rather than negated with ``not_()``,
+    because ``NOT (a OR id IN (...))`` on a NULL-free column is clear as two
+    conditions and opaque as one."""
+    return and_(
+        Tender.auto_irrelevant.is_(False),
+        Tender.id.not_in(feedback.marked_irrelevant_subquery()),
+    )
+
+
 def _apply_filters(
     stmt: Select,
     *,
@@ -272,6 +298,7 @@ def _apply_filters(
     first_seen_from: datetime | None,
     active_only: bool,
     has_deadline: bool | None,
+    hidden: bool | None,
 ) -> Select:
     if query:
         like = f"%{query.strip()}%"
@@ -315,6 +342,12 @@ def _apply_filters(
         stmt = stmt.where(Tender.deadline.is_not(None))
     if has_deadline is False:
         stmt = stmt.where(Tender.deadline.is_(None))
+    if hidden is not None:
+        # Tri-state on purpose, the same shape as has_deadline above: false
+        # hides them (the default view), true is the review screen for what was
+        # hidden, and omitting it means "do not consider this at all". A
+        # two-state flag would have no way to *find* a mistaken mark.
+        stmt = stmt.where(_hidden_clause() if hidden else _visible_clause())
     if active_only:
         stmt = stmt.where(
             Tender.is_actionable.is_(True),
@@ -397,6 +430,13 @@ def list_tenders(
     ),
     active_only: bool = False,
     has_deadline: bool | None = None,
+    hidden: bool | None = Query(
+        default=None,
+        description=(
+            "false hides notices marked not relevant and those the learner matched to them; "
+            "true returns only those; omit to ignore feedback entirely"
+        ),
+    ),
     sort: SortOption = "score_desc",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=200),
@@ -418,6 +458,7 @@ def list_tenders(
         first_seen_from=first_seen_from,
         active_only=active_only,
         has_deadline=has_deadline,
+        hidden=hidden,
     )
     total = db.execute(_apply_filters(select(func.count(Tender.id)), **filters)).scalar_one()
     stmt = _apply_filters(select(Tender), **filters).order_by(*_SORTS[sort], Tender.id.desc())
@@ -437,6 +478,80 @@ def get_tender(tender_id: int, db: Session = Depends(get_db)) -> Tender:
     if row is None:
         raise HTTPException(status_code=404, detail="tender not found")
     return row
+
+
+def _feedback_answer(db: Session, tender_id: int, verdict: str | None, reclassified: int) -> FeedbackResponse:
+    return FeedbackResponse(
+        tender_id=tender_id,
+        verdict=verdict,
+        reclassified=reclassified,
+        learned=LearnedModel(**feedback.summary(db)),
+    )
+
+
+@router.post(
+    "/api/tenders/{tender_id}/feedback",
+    response_model=FeedbackResponse,
+    tags=["tenders"],
+    summary="Mark one notice relevant or not relevant, and re-learn from it",
+)
+def set_feedback(
+    tender_id: int,
+    payload: FeedbackRequest,
+    db: Session = Depends(get_db),
+) -> FeedbackResponse:
+    """Record a verdict, then re-apply what it teaches to everything stored.
+
+    Uncapped, and deliberately so. D23's rule is that a write is constrained by
+    a limit matching its cost, and this one spends no outbound request and no
+    human patience: it rewrites a derived flag on the local corpus, the way
+    choosing a schedule time costs nothing (D19). Rate-limiting it would be
+    rate-limiting the act of reading a list, which is when marks actually get
+    made - in bursts of a dozen while someone works through a page.
+
+    The relevance score is untouched. The engine's arithmetic is frozen and this
+    endpoint cannot reach it; what changes is only whether a notice is shown.
+    """
+    if db.get(Tender, tender_id) is None:
+        raise HTTPException(status_code=404, detail="tender not found")
+    try:
+        row = feedback.set_verdict(db, tender_id, payload.verdict, payload.note)
+    except feedback.UnknownVerdict as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    reclassified = feedback.apply_to_corpus(db)
+    return _feedback_answer(db, tender_id, row.verdict, reclassified)
+
+
+@router.delete(
+    "/api/tenders/{tender_id}/feedback",
+    response_model=FeedbackResponse,
+    tags=["tenders"],
+    summary="Forget a verdict, and unlearn what it taught",
+)
+def clear_feedback(tender_id: int, db: Session = Depends(get_db)) -> FeedbackResponse:
+    """Undo a mark. 200 either way: 'there was nothing to forget' is not an error.
+
+    The re-apply runs regardless, because removing a rejection can *un*hide
+    other notices - the patterns it supported may now fall under their floor.
+    """
+    if db.get(Tender, tender_id) is None:
+        raise HTTPException(status_code=404, detail="tender not found")
+    feedback.clear_verdict(db, tender_id)
+    reclassified = feedback.apply_to_corpus(db)
+    return _feedback_answer(db, tender_id, None, reclassified)
+
+
+@router.get(
+    "/api/feedback/learned",
+    response_model=LearnedModel,
+    tags=["tenders"],
+    summary="The patterns learned from reviewer verdicts, and their evidence",
+)
+def learned_patterns(db: Session = Depends(get_db)) -> LearnedModel:
+    """Read out the model. Nothing here is opaque on purpose (D27): every
+    pattern comes with how many rejections it appears in and how many other
+    notices, so a wrong one can be spotted and the mark behind it withdrawn."""
+    return LearnedModel(**feedback.summary(db))
 
 
 @router.post(
@@ -739,43 +854,39 @@ def stats(db: Session = Depends(get_db), settings: Settings = Depends(settings_d
     bands = engine.bands
     now = utcnow()
 
-    def count(*where) -> int:
-        return db.execute(select(func.count(Tender.id)).where(*where)).scalar_one()
+    # Every count here is taken over the visible population, because the lens
+    # counts in the sidebar are read straight off this response and the views
+    # they open hide what a reviewer rejected. A count that included those would
+    # promise rows the list will not show. `hidden_total` carries the remainder,
+    # so the difference is always explainable rather than merely missing.
+    visible = _visible_clause()
 
-    total = db.execute(select(func.count(Tender.id))).scalar_one()
+    def count(*where) -> int:
+        return db.execute(select(func.count(Tender.id)).where(visible, *where)).scalar_one()
+
+    total = count()
+    hidden_total = db.execute(select(func.count(Tender.id)).where(_hidden_clause())).scalar_one()
     actionable_clause = (
         Tender.is_actionable.is_(True),
         or_(Tender.deadline.is_(None), Tender.deadline >= now),
     )
-    by_source = [
-        {"key": src, "count": n}
-        for src, n in db.execute(
-            select(Tender.source, func.count(Tender.id))
-            .group_by(Tender.source)
+
+    def facet(column) -> list[tuple]:
+        return db.execute(
+            select(column, func.count(Tender.id))
+            .where(visible)
+            .group_by(column)
             .order_by(func.count(Tender.id).desc())
         ).all()
-    ]
-    by_fit = [
-        {"key": key or "unknown", "count": n}
-        for key, n in db.execute(
-            select(Tender.fit_status, func.count(Tender.id)).group_by(Tender.fit_status)
-        ).all()
-    ]
+
+    by_source = [{"key": src, "count": n} for src, n in facet(Tender.source)]
+    by_fit = [{"key": key or "unknown", "count": n} for key, n in facet(Tender.fit_status)]
     labels = {p["key"]: p["label"] for p in engine.profile_metadata()}
     by_category = [
         {"key": key or "none", "label": labels.get(key or "", None), "count": n}
-        for key, n in db.execute(
-            select(Tender.relevance_category, func.count(Tender.id))
-            .group_by(Tender.relevance_category)
-            .order_by(func.count(Tender.id).desc())
-        ).all()
+        for key, n in facet(Tender.relevance_category)
     ]
-    by_deployment = [
-        {"key": key or "unknown", "count": n}
-        for key, n in db.execute(
-            select(Tender.deployment_fit, func.count(Tender.id)).group_by(Tender.deployment_fit)
-        ).all()
-    ]
+    by_deployment = [{"key": key or "unknown", "count": n} for key, n in facet(Tender.deployment_fit)]
     countries = [
         c
         for (c,) in db.execute(select(distinct(Tender.buyer_country)).order_by(Tender.buyer_country)).all()
@@ -821,4 +932,5 @@ def stats(db: Session = Depends(get_db), settings: Settings = Depends(settings_d
         statuses=statuses,
         categories=[{"key": p["key"], "label": p["label"], "count": 0} for p in engine.profile_metadata()],
         score_bands=bands,
+        hidden_total=hidden_total,
     )

@@ -85,6 +85,18 @@ class Tender(Base):
     review_flags: Mapped[list | None] = mapped_column(JSON, default=list)
     is_actionable: Mapped[bool] = mapped_column(default=True, index=True)
 
+    # --- learned from reviewer verdicts (D27) --------------------------------
+    #
+    # Additive, and deliberately *beside* the relevance columns above rather
+    # than mixed into them: the engine's score is still only the engine's, and
+    # nothing the learner concludes can move it. These two say "this looks like
+    # the notices you rejected", with the patterns that made it look that way.
+    #
+    # A reviewer's own verdict is not here - it lives in tender_feedback, which
+    # a sweep cannot touch. `Tender.feedback` is added by that model's backref.
+    auto_irrelevant: Mapped[bool] = mapped_column(default=False, index=True)
+    auto_irrelevant_reasons: Mapped[list | None] = mapped_column(JSON, default=list)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

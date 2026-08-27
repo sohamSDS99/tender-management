@@ -71,18 +71,36 @@ Not a keyword alert. Two things a neighbouring tool could not truthfully copy:
 **Confirmed capabilities.** Browse, search, filter and sort stored notices; open
 one and read its full record including the score reasoning, key facts,
 classification codes, description, documents and raw source payload; see which
-sources are healthy and when the next automated run is; share any view by URL.
+sources are healthy and when the next automated run is; share any view by URL;
+mark a notice relevant or not relevant, and have the system learn from it.
 
-**No per-notice editing.** Nothing a user clicks changes a stored notice: there is
-no status to set, no owner to assign, no decision to record. What a user *can*
-trigger are the two whole-system operations — start a sweep, re-score everything —
-and the sweep schedule. Both sweep and re-score are additive or deterministic: a
-sweep upserts on `(source, notice id)`, and a re-score recomputes a pure function
-of data already stored, so neither can destroy anything (D23).
+**Still no per-notice editing — but there is now a decision to record (D27).**
+This supersedes the earlier "no decision to record" and nothing else in this
+section. A reviewer can mark a notice **relevant** or **not relevant**, which
+hides it from the working views and teaches the system to hide notices matching
+the same patterns. The distinction that matters, and which the interface must
+keep visible:
+
+* **The notice itself is still never edited.** A verdict is a separate record
+  about the notice, not a field on it, so every sweep and re-score leaves it
+  untouched. There is still no status to set and no owner to assign.
+* **A verdict cannot change a relevance score.** It decides only whether a
+  notice is *shown*. The score remains the scoring engine's, computed from the
+  phrase file alone.
+* **Nothing is discarded, and every mark is reversible.** Hidden notices live in
+  the **Not relevant** lens with the reason each was hidden, and withdrawing a
+  mark re-derives the patterns from what is left.
+
+What a user can trigger beyond that are the two whole-system operations — start a
+sweep, re-score everything — and the sweep schedule. Both sweep and re-score are
+additive or deterministic: a sweep upserts on `(source, notice id)`, and a
+re-score recomputes a pure function of data already stored, so neither can
+destroy anything (D23).
 
 **Terminology used throughout** (and which the interface should not rename):
 tender / notice, buyer, deadline, relevance score, fit status, deployment fit,
-capability, disqualifier, review flag, source, sweep / fetch run.
+capability, disqualifier, review flag, source, sweep / fetch run, verdict
+(relevant / not relevant), learned pattern, hidden.
 
 **Technical constraints.** React 18 + TypeScript + Vite, plain CSS. Dependencies
 are `react` and `react-dom` only; adding one requires justification in

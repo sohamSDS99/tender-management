@@ -2,7 +2,7 @@ import type { AutomationStatus, Stats, TenderFilters } from '../types';
 import { DEFAULT_FILTERS } from './urlFilters';
 
 /**
- * The six lenses in the sidebar.
+ * The seven lenses in the sidebar.
  *
  * A lens is a filter preset, not separate state, so there is one source of
  * truth: `activeLens` reads the current filters back to decide which item is
@@ -15,7 +15,7 @@ import { DEFAULT_FILTERS } from './urlFilters';
  * This replaces the old split between VIEWS (tabs) and TILES (the stat row),
  * which were two vocabularies for the same operation.
  */
-export type LensKey = 'new' | 'open' | 'topscoring' | 'closing' | 'review' | 'all';
+export type LensKey = 'new' | 'open' | 'topscoring' | 'closing' | 'review' | 'all' | 'notrelevant';
 
 export interface LensContext {
   /** Start of the most recent sweep, from /api/automation. */
@@ -72,12 +72,19 @@ export const LENSES: LensSpec[] = [
     tone: 'brand',
     unavailable: 'no run yet',
     note: () =>
-      'Discovered by the most recent sweep, at any score. Nothing here has been seen before.',
+      'Everything the most recent sweep discovered, at any score — including anything already hidden as not relevant, which is marked as such. Nothing here has been seen before.',
     lockedLabel: () => 'Found by the last sweep',
     patch: (ctx) => ({
       ...DEFAULT_FILTERS,
       minimum_score: 0,
       active_only: false,
+      // The one working lens that does *not* hide rejects, and it has to be.
+      // Its count is the sweep's own `records_created` — every row that batch
+      // inserted, unconditionally — so hiding some of them would put a number
+      // beside a lens that disagrees with itself, which is the failure the
+      // count-equals-list rule exists to prevent. This lens is a report on a
+      // sweep rather than a work queue; the queues are the lenses below it.
+      hidden: null,
       first_seen_from: ctx.lastRunAt ?? '',
       sort: 'score_desc',
     }),
@@ -151,15 +158,41 @@ export const LENSES: LensSpec[] = [
     label: 'All tenders',
     tone: 'none',
     note: () =>
-      'Everything ever ingested, newest discovery first. Nothing is discarded, so a notice that scored badly can still be found and the profile corrected.',
+      'Everything ever ingested, newest discovery first — including what was marked not relevant. Nothing is discarded, so a notice that scored badly can still be found and the profile corrected.',
     lockedLabel: () => null,
     patch: () => ({
       ...DEFAULT_FILTERS,
       minimum_score: 0,
       active_only: false,
+      // The one lens that means *everything*. Leaving the default in place here
+      // would make the label a lie, and this is where someone goes precisely
+      // when a notice they expected is nowhere else to be found.
+      hidden: null,
       sort: 'first_seen_desc',
     }),
-    count: (stats) => stats?.total_tenders ?? null,
+    count: (stats) => (stats === null ? null : stats.total_tenders + stats.hidden_total),
+  },
+  {
+    // Last, because it is the discard pile — but present, because a learning
+    // system that cannot be audited is one nobody will trust. Every mark is
+    // reversible and this is the only screen from which to reverse one.
+    key: 'notrelevant',
+    label: 'Not relevant',
+    tone: 'none',
+    note: () =>
+      'Marked not relevant by a reviewer, or matched to those by the patterns learned from them. Open one to see why, and to put it back.',
+    lockedLabel: () => 'Hidden as not relevant',
+    patch: () => ({
+      ...DEFAULT_FILTERS,
+      minimum_score: 0,
+      active_only: false,
+      hidden: true,
+      sort: 'first_seen_desc',
+    }),
+    // Exactly the population this lens filters on: /api/stats counts it with
+    // the same clause the tender list uses, and excludes it from every other
+    // count for the same reason.
+    count: (stats) => stats?.hidden_total ?? null,
   },
 ];
 
@@ -183,6 +216,10 @@ export const OWNED: (keyof TenderFilters)[] = [
   'deadline_to',
   'fit_statuses',
   'deployment_fits',
+  // Owned, because it is what separates 'All tenders' from 'Not relevant' —
+  // without it here those two lenses are indistinguishable and the first one
+  // in the list wins both.
+  'hidden',
 ];
 
 function sameValue(a: unknown, b: unknown): boolean {

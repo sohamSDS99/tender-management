@@ -64,6 +64,9 @@ export const DEFAULT_FILTERS: TenderFilters = {
   published_to: '',
   active_only: true,
   has_deadline: null,
+  // Hidden by default, which is the entire point of marking something not
+  // relevant: the next person to open the page must not be shown it again.
+  hidden: false,
   sort: 'score_desc',
   page: 1,
   page_size: 25,
@@ -154,6 +157,11 @@ export function filtersFromSearch(search: string): {
       published_to: date(params.get('published_to')),
       active_only: bool(params.get('active_only'), DEFAULT_FILTERS.active_only),
       has_deadline: tribool(params.get('has_deadline')),
+      // `tribool` reads an absent parameter as null, which is right for
+      // has_deadline and wrong here: an absent `hidden` must mean the shipped
+      // default (hide them), not "ignore feedback". Only the literal string
+      // `all` asks for that, so a link can still say "show me everything".
+      hidden: params.get('hidden') === 'all' ? null : bool(params.get('hidden'), false),
       sort: sort && SORT_VALUES.has(sort) ? (sort as SortOption) : DEFAULT_FILTERS.sort,
       page: positiveInt(params.get('page'), 1),
       page_size: PAGE_SIZES.includes(Number(params.get('page_size')))
@@ -186,6 +194,9 @@ export function searchFromFilters(filters: TenderFilters, tenderId: number | nul
   if (filters.active_only !== DEFAULT_FILTERS.active_only)
     params.set('active_only', String(filters.active_only));
   if (filters.has_deadline !== null) params.set('has_deadline', String(filters.has_deadline));
+  // `all` rather than an omission, because omitting it means the default here.
+  if (filters.hidden === null) params.set('hidden', 'all');
+  else if (filters.hidden !== DEFAULT_FILTERS.hidden) params.set('hidden', String(filters.hidden));
   if (filters.sort !== DEFAULT_FILTERS.sort) params.set('sort', filters.sort);
   if (filters.page !== 1) params.set('page', String(filters.page));
   if (filters.page_size !== DEFAULT_FILTERS.page_size)
@@ -208,7 +219,15 @@ export interface FilterChip {
  * as chips or the result count looks unexplained. Chips answer "why am I seeing
  * this many?", so they are measured against an unfiltered baseline.
  */
-const UNCONSTRAINED = { minimum_score: 0, maximum_score: 100, active_only: false } as const;
+const UNCONSTRAINED = {
+  minimum_score: 0,
+  maximum_score: 100,
+  active_only: false,
+  // Null, not false: `false` narrows the list (it drops what was rejected), and
+  // it narrows it by an amount the reader cannot otherwise account for. It gets
+  // a chip for the same reason active_only does, even though both are defaults.
+  hidden: null,
+} as const;
 
 export function activeChips(
   filters: TenderFilters,
@@ -314,6 +333,12 @@ export function activeChips(
       key: 'has_deadline',
       label: filters.has_deadline ? 'Has a deadline' : 'No deadline published',
       clear: { has_deadline: null },
+    });
+  if (filters.hidden !== UNCONSTRAINED.hidden)
+    chips.push({
+      key: 'hidden',
+      label: filters.hidden ? 'Marked not relevant only' : 'Hiding what was marked not relevant',
+      clear: { hidden: UNCONSTRAINED.hidden },
     });
   return chips;
 }
