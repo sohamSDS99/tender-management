@@ -806,20 +806,21 @@ argument is visible in `ps` and lands in shell history.
 ### Add your team (the ordinary way)
 
 **Settings → Account → Workspace members.** Paste everyone's addresses — commas,
-spaces or new lines all work — pick the role they should get, and add them.
-Then **Join link → Create join link** and send that one link to all of them.
+spaces or new lines all work — pick their role, and add them. Every row gets its
+own link straight away.
 
-Each person opens it, enters their own address and a password, and is in. The
-link only works for addresses on the list, so it is safe to post in a team
-channel; anybody else who follows it is told to ask an administrator.
+**Send each person their own link.** They open it, press **Accept invitation**,
+and they are in. No password, now or ever. The same link signs them in again
+later on any device.
 
-If the link spreads further than you meant, **Replace link**. That kills the old
-one immediately. Anyone who has already joined is unaffected — the link grants
-registration and nothing else.
+**Treat every link as a password.** Whoever holds it is that person, so send it
+directly rather than to a channel. If one spreads, press **Revoke** on that row —
+the link stops working immediately.
 
-Removing somebody from the list stops them *registering*. It does not close an
-account they already have; for that, use **People → Deactivate**, which ends
-their sessions too.
+Revoking does **not** sign somebody out of a session they already have. To cut
+access off entirely, deactivate the account under **People**; deactivation
+outranks a live link. Removing an address from the list also kills its link but
+likewise leaves an existing account alone.
 
 ### Invite one outsider
 
@@ -842,9 +843,15 @@ Three things about the link, all deliberate:
 * If you set an address on it, only that address can use it — which makes a
   forwarded link useless. Leave the address blank for "whoever takes the role".
 
-### Somebody is locked out, or forgot their password
+### Somebody has lost their link
 
-There is no self-serve reset, because there is no mailer. From a shell:
+Issue a new one: **Workspace members → New link** on their row. The old one dies
+at the same moment. Nothing is lost — their account, and everything in it, is
+untouched.
+
+### The bootstrap administrator forgot their password
+
+Only that account has a password; everyone else signs in by link. From a shell:
 
 ```bash
 docker compose exec backend python -m app.accounts_cli reset-password \

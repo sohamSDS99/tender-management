@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (28 records, D1–D28).
+`docs/DECISIONS.md` explains why it is built this way (29 records, D1–D29).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 589 tests, all passing
+./.venv/bin/python -m pytest -q          # 594 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 9 revisions, head e3b7c1d5f204
+./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 148 tests
+npx vitest run                           # 152 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -373,24 +373,38 @@ would sail past the very thing the suite should exercise — every pre-existing
 test would keep passing even if the gate refused every real human. Tests that
 genuinely need to skip an operator cooldown use `cron_client` and say why.
 
-**Three ways in, and only three** (`accounts.register`, checked in this order):
-bootstrap when no account exists yet and it becomes an administrator; a
-single-use invitation (D25) for an outsider; or **the shared join link plus a
-roster entry** (D28), which is the ordinary path for a colleague. Anything else
-is refused.
+**There is no password for anybody but the bootstrap admin (D29).** A person
+joins by opening *their own* access link and pressing one button;
+`POST /api/auth/accept` creates the account and signs them in. The same link
+works again for ever until revoked.
 
-**The join link is not a bearer token, and that is why it is stored readably.**
-The roster decides — the link only works for an address already on it, so it is
-safe to show again and to paste into a team channel. Hashing it, or making it
-single-use, would break the one thing it is for. If
-`test_a_valid_link_is_refused_for_an_address_nobody_added` ever passes, the link
-*has* become a bearer token and sharing it is now a way in for anybody.
+**The link IS the credential, so treat every one as a live password.** D28 said
+the opposite one day earlier — "the address is the permission, not the link" —
+and D29 reversed it deliberately. The whole roster response is therefore a list
+of credentials, which is why it is administrators-only. Links are per person and
+never shared; the workspace-wide join link D28 added was removed, not kept
+alongside.
+
+**`password_hash = ""` is the passwordless account, and `verify_password`
+refuses an empty stored hash first and unconditionally.** Remove that guard and
+an empty hash against an empty submitted password becomes a `"" == ""`
+comparison — every link account signable-into by leaving the box blank. Two
+tests pin it; neither is optional.
+
+**Accepting is a POST, never a GET on the link itself.** Slack fetches URLs to
+build previews, and a GET that established an account would let an unfurl
+consume the invitation before the person saw it.
+
+The remaining ways in: bootstrap when no account exists (becomes admin), and a
+single-use invitation (D25) which still sets a password and is the outsider
+door.
 
 **A roster edit must not reach an existing account.** Changing an entry's role
-sets what a *future* account gets; removing an address withdraws permission to
-register. Neither touches somebody who has already joined — that is
-`PATCH /api/auth/users/{id}`, where the last-administrator guard lives. Wire
-removal to account closure and a roster tidy-up can lock everyone out.
+sets what a *future* account gets; removing an address or revoking a link
+withdraws the way in. None of them touches a session somebody already holds —
+that is `PATCH /api/auth/users/{id}`, where the last-administrator guard lives.
+Deactivation outranks a live link, or "deactivate" means nothing for exactly the
+people whose only credential is one.
 
 The first registration on an empty deployment needs no permission at all, so
 between first start and first registration whoever gets there first is the
@@ -425,7 +439,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **589 passing, nothing skipped, nothing failing**. Treat any
+A green run is **594 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

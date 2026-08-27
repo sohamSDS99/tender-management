@@ -490,8 +490,15 @@ export interface RosterEntry {
   role: UserRole;
   note: string;
   created_at: string;
-  /** Null until they register. The list puts these first. */
+  /** Null until they accept. The list puts these first. */
   joined_at: string | null;
+  /**
+   * Their personal link, or null if never issued or revoked.
+   *
+   * This *is* their credential (D29) — opening it signs them in, with no
+   * password. Readable so an administrator can re-send it.
+   */
+  access_url: string | null;
 }
 
 export interface RosterView {
@@ -499,17 +506,10 @@ export interface RosterView {
   total: number;
   joined: number;
   waiting: number;
-  /** Null until a link has been created. */
-  join_url: string | null;
 }
 
 export interface RosterAdded {
   added: RosterEntry[];
   /** Reported, not an error: re-pasting a team list is a normal thing to do. */
   already_present: string[];
-}
-
-export interface JoinLink {
-  url: string;
-  token: string;
 }

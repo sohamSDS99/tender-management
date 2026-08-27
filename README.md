@@ -832,7 +832,7 @@ hiding pages, so `curl` gets the same `401` a browser does.
 | Action | Where |
 | --- | --- |
 | Create the first account | The sign-in page offers **Create account** while no account exists. The first one becomes the administrator and needs no permission at all. |
-| Add your team | **Settings → Account → Workspace members**: paste their addresses, then send everyone the one join link. |
+| Add your team | **Settings → Account → Workspace members**: paste their addresses; each row gets its own link to send. |
 | Sign in | The sign-in page — it is the whole page when signed out, not a dialog over the dashboard. |
 | Sign out | The account control at the foot of the left sidebar. |
 | Profile, password, sessions | **Settings → Account**, or `/?settings=account`. |
@@ -848,9 +848,19 @@ docker compose exec backend python -m app.accounts_cli create-admin \
   --email you@example.com --name "Your Name"
 ```
 
-Registration is invite-only after that first account. There is no email transport here,
-so an invitation is a single-use link that expires in 7 days and that **you** deliver —
-it is shown once, at creation, and cannot be retrieved afterwards.
+After that first account, **people join by opening their own link — there is no password**
+(D29). Add their addresses under **Workspace members** and each row gets a personal link
+immediately. Send each person theirs, however you already talk to them. They open it, press
+**Accept invitation**, and they are in. The same link signs them in again later on any
+device, so there is nothing for them to remember and nothing for you to reset.
+
+**Every link is a live credential.** Whoever holds it is that person, so treat one like a
+password: send it directly rather than to a channel, and press **Revoke** if it spreads.
+Revoking does not end a session the person already holds — to cut somebody off entirely,
+deactivate their account under **People**, which outranks any link.
+
+A **single-use invitation** is still there for somebody not on the list at all, such as a
+contractor. That path does still ask them to set a password.
 
 Other things worth knowing:
 
@@ -861,14 +871,16 @@ Other things worth knowing:
   the way back into a deployment whose gate is misbehaving, and it defaults to `true`.
 * **`X-Cron-Secret` passes the gate**, because it is a machine identity that no browser holds
   (D5). With `CRON_SECRET` unset — the default — that door does not exist.
-* **There is no password reset**, because there is no mailer. Recovery is
-  `docker compose exec backend python -m app.accounts_cli reset-password --email …`,
-  which also ends every session that account had.
-* Changing your password signs out every *other* browser; this one stays in.
+* **Most accounts have no password at all**, so there is nothing to reset — if somebody
+  loses their link, issue them a new one. The bootstrap administrator does have one, and
+  its recovery is `docker compose exec backend python -m app.accounts_cli reset-password
+  --email …`, which also ends every session that account had.
+* Changing a password signs out every *other* browser; this one stays in.
 * The last remaining administrator cannot be demoted or deactivated, and nobody can
   deactivate themselves.
-* Passwords are hashed with `hashlib.scrypt` and session cookies are stored only as a
-  SHA-256, so a database dump lets nobody sign in as anybody.
+* Passwords, where they exist, are hashed with `hashlib.scrypt`, and session cookies are
+  stored only as a SHA-256. Access links are stored readably — they have to be re-sendable
+  — so a database dump does expose those; revoke and reissue if one ever leaks.
 
 ```bash
 python -m app.accounts_cli list             # who has an account

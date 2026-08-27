@@ -574,9 +574,12 @@ class RosterEntryOut(UtcModel):
     role: str
     note: str
     created_at: datetime
-    #: Null until they register. The admin list sorts on this so the people who
-    #: still need the link are at the top.
+    #: Null until they accept their link. The admin list sorts on this so the
+    #: people who still need sending are at the top.
     joined_at: datetime | None
+    #: Their personal link, or null if none has been issued or it was revoked.
+    #: Readable on purpose so an administrator can re-send it (D29).
+    access_url: str | None
 
 
 class RosterView(UtcModel):
@@ -591,10 +594,6 @@ class RosterView(UtcModel):
     total: int
     joined: int
     waiting: int
-    #: Null until a link has been created. Readable on purpose: it is meant to
-    #: be sent to a whole team and shown again later, and it is safe because the
-    #: roster is the permission, not the link (D28).
-    join_url: str | None
 
 
 class RosterAdd(BaseModel):
@@ -627,6 +626,7 @@ class RosterRoleUpdate(BaseModel):
     role: str
 
 
-class JoinLink(UtcModel):
-    url: str
+class AcceptRequest(BaseModel):
+    """The whole of what somebody sends to join. One field, and no password."""
+
     token: str

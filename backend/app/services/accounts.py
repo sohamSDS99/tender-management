@@ -59,6 +59,16 @@ SALT_BYTES = 16
 #: Bytes of entropy in a session cookie or invite token, before base64.
 TOKEN_BYTES = 32
 
+#: What sits in ``password_hash`` for an account that has no password at all
+#: (D29 — the person signs in by opening their access link).
+#:
+#: The empty string, and that is safe for a precise reason worth not breaking:
+#: ``verify_password`` refuses an empty stored hash outright, *before* it parses
+#: anything. Without that guard an empty hash plus an empty submitted password
+#: is the shape of a "" == "" comparison, which would make every passwordless
+#: account signable-into by anybody who left the field blank.
+NO_PASSWORD = ""
+
 
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
@@ -79,7 +89,14 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """Constant-time check against a stored hash. Never raises on a bad hash."""
+    """Constant-time check against a stored hash. Never raises on a bad hash.
+
+    An empty stored hash is refused first and unconditionally. That is the
+    account-has-no-password case (D29), and the one input that could otherwise
+    turn into a "" == "" comparison and let anybody in by leaving the box blank.
+    """
+    if not stored:
+        return False
     try:
         scheme, n, r, p, salt_b64, key_b64 = stored.split("$")
         if scheme != "scrypt":
@@ -371,6 +388,51 @@ def authenticate(db: Session, *, email: str, password: str, settings: Settings) 
     user.failed_logins = 0
     user.locked_until = None
     user.last_login_at = now
+    db.commit()
+    return user
+
+
+def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> User:
+    """Open somebody's personal link: create their account if needed, then sign in.
+
+    This is the whole of D29 in one function. There is no password at any point —
+    the link *is* the credential, so holding it is what proves who you are.
+
+    Idempotent on purpose. The same link opened next month on a different laptop
+    signs the same person in again rather than erroring or creating a second
+    account, which is the only way "nothing else is needed" survives past the
+    first session.
+    """
+    from app.services import roster as roster_service
+
+    entry = roster_service.entry_for_token(db, raw_token)
+    if entry is None:
+        # One message for "never existed", "revoked" and "replaced". Splitting
+        # them would tell a stranger holding a stale link whether it was ever
+        # real, and none of the three changes what the reader should do.
+        raise InvalidInvite("That link is not valid. Ask an administrator for a new one.")
+
+    user = get_by_email(db, entry.email)
+    if user is None:
+        user = User(
+            email=entry.email,
+            display_name=clean_display_name("", entry.email),
+            password_hash=NO_PASSWORD,
+            role=entry.role,
+            is_active=True,
+            last_login_at=utcnow(),
+        )
+        db.add(user)
+        db.flush()
+        roster_service.claim(db, entry, user)
+        log_ctx(logger, logging.INFO, "account created from access link", user_id=user.id)
+    else:
+        if not user.is_active:
+            # Deactivation has to outrank a live link, or "deactivate" means
+            # nothing for exactly the people whose only credential is the link.
+            raise InvalidCredentials("That account has been deactivated.")
+        user.last_login_at = utcnow()
+
     db.commit()
     return user
 

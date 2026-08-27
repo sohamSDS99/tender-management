@@ -1563,3 +1563,77 @@ needs it.
   the entry, so the address can register again. That is usually what is wanted
   when somebody's account is recreated, and it is why `joined_user_id` is a
   nullable link rather than a boolean.
+
+---
+
+## D29 — There is no password. The link is the credential
+
+**Decision.** Every roster entry carries its own durable access link. Opening it
+and pressing **Accept** creates the account if it does not exist and signs the
+person in. No password is set, then or ever. The same link works again next
+month on a different device until an administrator revokes it. Carried by
+`roster.access_token`, `accounts.accept_access_link`, `POST /api/auth/accept`
+and the accept screen in `components/auth/AuthPage.tsx`.
+
+**This reverses D28, one day later, and the reversal is the point.** D28's rule
+was *"the address is the permission, not the link"* — which is exactly what made
+a single shared link safe to post in a team channel. The requirement changed to
+"the link getters only have to just accept the invitation, nothing else is
+needed", and once clicking is sufficient, the link **is** the credential. Both
+records are kept because the earlier reasoning is still correct about the design
+it describes; it simply is not the design any more.
+
+**What that costs, stated plainly.** Whoever holds somebody's link is that
+person. A link forwarded, screenshotted, or left in Slack history is a way in
+until it is revoked. That was accepted knowingly for an internal tool, against
+the alternative: no password *and* no email transport (D27, rejected) means a
+one-shot link leaves somebody with no way back the moment their session lapses.
+A permanent link is the only shape where "nothing else is needed" stays true
+past the first fortnight.
+
+**Therefore links are per person, never shared.** A shared one under these rules
+would let anybody who saw it become somebody. The workspace-wide join link from
+D28 is removed rather than left alongside — two doors where one is wanted is
+worse than either, and that one also let a stranger self-register *with* a
+password, which is the thing this record deletes.
+
+**The empty password hash is the one place this could open a hole.** An account
+created from a link stores `password_hash = ""`. `verify_password` refuses an
+empty stored hash **first and unconditionally**, before parsing anything —
+without that, an empty hash against an empty submitted password is the shape of
+a `"" == ""` comparison, and every passwordless account would be signable-into
+by anybody who left the box blank. Asserted twice: directly against
+`verify_password`, and through `POST /api/auth/login` with blank, whitespace and
+ordinary passwords.
+
+**Accepting is a POST, not a GET on the link.** Slack and every other chat
+client fetches a URL to build a preview. If opening the link were a GET that
+established an account, an unfurl would consume the invitation before the person
+ever saw it. The button also gives them a moment to see what they are joining,
+which a silent redirect does not.
+
+**Revoking is setting the token to null**, which is why there is no separate
+revoked flag to disagree with it. Revoking does **not** end a session the person
+already holds: the link grants sign-in, and a live session stands on its own.
+Cutting somebody off entirely is revoke *plus* deactivating the account — and
+deactivation outranks a live link, or "deactivate" would mean nothing for
+precisely the people whose only credential is one.
+
+**Tokens are stored readably**, like D28's join link and unlike an invite token.
+An administrator has to be able to re-send one, and "I lost the link" must not
+mean "you are locked out until I mint another". The security delta is smaller
+than it looks: an administrator can already mint a link for any address, so
+reading the column grants nothing they lack, and against a database leak this is
+a bearer token for one application with no reuse value elsewhere — unlike a
+password hash, whose value is that people reuse passwords.
+
+**Accepted:**
+
+* **Single-use invitations (D25) are unchanged and still set a password.** They
+  are the outsider door — somebody with no company address — and were left alone
+  rather than converted, so that path is inconsistent with this one on purpose.
+* **`sent`-style delivery is still manual.** Adding somebody mints their link;
+  an administrator sends it over Slack. D27 built email for this and it was
+  rejected as unnecessary.
+* **A link in Slack history outlives the conversation.** Revocation is the only
+  answer, and it is one click per person in the roster panel.

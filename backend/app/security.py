@@ -179,6 +179,8 @@ PUBLIC_PATHS = frozenset(
         "/api/auth/session",
         "/api/auth/login",
         "/api/auth/register",
+        # The passwordless door (D29). The caller has no session by definition.
+        "/api/auth/accept",
         "/api/auth/logout",
     }
 )

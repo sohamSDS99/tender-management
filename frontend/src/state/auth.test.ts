@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { describeAgent, initials, inviteFromSearch, joinFromSearch, withoutInvite } from './auth';
+import {
+  acceptFromSearch,
+  describeAgent,
+  initials,
+  inviteFromSearch,
+  joinFromSearch,
+  withoutInvite,
+} from './auth';
 
 describe('inviteFromSearch', () => {
   it('reads the token an invitation link carries', () => {
@@ -42,6 +49,28 @@ describe('joinFromSearch', () => {
   });
 });
 
+describe('acceptFromSearch', () => {
+  it('reads a personal access token', () => {
+    expect(acceptFromSearch('?accept=abc123')).toBe('abc123');
+  });
+
+  it('is kept distinct from the other two kinds of token', () => {
+    // These mean very different things. An accept token IS the credential —
+    // reading an invite or join token as one would send the wrong field to the
+    // API, and reading an accept token as an invite would put a live credential
+    // through a form that asks for a password.
+    expect(acceptFromSearch('?invite=abc')).toBeNull();
+    expect(acceptFromSearch('?join=abc')).toBeNull();
+    expect(inviteFromSearch('?accept=abc')).toBeNull();
+    expect(joinFromSearch('?accept=abc')).toBeNull();
+  });
+
+  it('treats an empty token as no token', () => {
+    expect(acceptFromSearch('?accept=')).toBeNull();
+    expect(acceptFromSearch('?accept=%20')).toBeNull();
+  });
+});
+
 describe('withoutInvite', () => {
   it('takes the token out and leaves every filter alone', () => {
     const out = withoutInvite('minimum_score=70&invite=secret&sort=score_desc');
@@ -57,6 +86,14 @@ describe('withoutInvite', () => {
 
   it('leaves a URL that never had one untouched', () => {
     expect(withoutInvite('minimum_score=70')).toBe('minimum_score=70');
+  });
+
+  it('strips an access token, which matters most of the three', () => {
+    // Leaving this one in the address bar leaves somebody's entire account in
+    // their browser history and in any screenshot of the page.
+    const out = withoutInvite('accept=live-credential&tender=4821');
+    expect(new URLSearchParams(out).has('accept')).toBe(false);
+    expect(new URLSearchParams(out).get('tender')).toBe('4821');
   });
 
   it('strips the join token too, not just the invitation', () => {

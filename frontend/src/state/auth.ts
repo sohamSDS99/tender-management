@@ -34,6 +34,19 @@ export function joinFromSearch(search: string): string | null {
   return tokenFromSearch(search, 'join');
 }
 
+/**
+ * A personal access token in `?accept=…` (D29).
+ *
+ * This one *is* the credential: opening the link and confirming signs the
+ * holder in, with no password at any point. It is stripped from the address bar
+ * as soon as it is read — for this token that matters far more than for the
+ * others, because leaving it in a URL leaves somebody's whole account in their
+ * browser history and in any screenshot of the page.
+ */
+export function acceptFromSearch(search: string): string | null {
+  return tokenFromSearch(search, 'accept');
+}
+
 function tokenFromSearch(search: string, key: string): string | null {
   const raw = new URLSearchParams(search).get(key);
   return raw && raw.trim() ? raw.trim() : null;
@@ -51,6 +64,7 @@ export function withoutInvite(search: string): string {
   const params = new URLSearchParams(search);
   params.delete('invite');
   params.delete('join');
+  params.delete('accept');
   return params.toString();
 }
 
@@ -119,6 +133,10 @@ export interface Auth {
   inviteToken: string | null;
   /** Present when the reader arrived on the shared workspace join link. */
   joinToken: string | null;
+  /** Present when the reader arrived on their own access link (D29). */
+  acceptToken: string | null;
+  /** Open an access link: no password, straight in. */
+  acceptInvitation: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   register: (body: { email: string; password: string; displayName: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -138,6 +156,9 @@ export function useAuth(): Auth {
   );
   const [joinToken, setJoinToken] = useState<string | null>(() =>
     joinFromSearch(window.location.search),
+  );
+  const [acceptToken, setAcceptToken] = useState<string | null>(() =>
+    acceptFromSearch(window.location.search),
   );
 
   const refresh = useCallback(async () => {
@@ -169,14 +190,14 @@ export function useAuth(): Auth {
 
   // Take the tokens out of the URL as soon as they have been read into state.
   useEffect(() => {
-    if (!inviteToken && !joinToken) return;
+    if (!inviteToken && !joinToken && !acceptToken) return;
     const next = withoutInvite(window.location.search);
     window.history.replaceState(
       null,
       '',
       next ? `${window.location.pathname}?${next}` : window.location.pathname,
     );
-  }, [inviteToken, joinToken]);
+  }, [inviteToken, joinToken, acceptToken]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await authApi.login(email, password);
@@ -204,6 +225,17 @@ export function useAuth(): Auth {
     [inviteToken, joinToken],
   );
 
+  const acceptInvitation = useCallback(async () => {
+    if (!acceptToken) return;
+    const user = await authApi.accept(acceptToken);
+    // The token stays valid — it is durable by design — but this reader has
+    // used it, and holding it would keep offering them a button they no longer
+    // need.
+    setAcceptToken(null);
+    setState({ user, bootstrap: false, invite_required: true });
+    setStatus('ready');
+  }, [acceptToken]);
+
   const signOut = useCallback(async () => {
     try {
       await authApi.logout();
@@ -227,6 +259,8 @@ export function useAuth(): Auth {
     inviteRequired: state.invite_required,
     inviteToken,
     joinToken,
+    acceptToken,
+    acceptInvitation,
     signIn,
     register,
     signOut,
