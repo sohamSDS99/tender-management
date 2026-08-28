@@ -180,6 +180,23 @@ class Settings(BaseSettings):
     # tool that manages the accounts. Default true - a security control that
     # defaults to off is not a control.
     require_sign_in: bool = True
+
+    #: One address that cannot be demoted, deactivated, or moved off itself.
+    #:
+    #: Empty by default, which is the current behaviour exactly: without it the
+    #: only protection is the last-administrator guard, so with three admins any
+    #: of them can deactivate any other. Naming an address here makes that one
+    #: account a fixed point.
+    #:
+    #: Deliberately a deployment variable rather than a column or a constant.
+    #: An account nobody can remove is also an account nobody can revoke if it
+    #: is ever compromised, so the protection has to be liftable faster than a
+    #: deploy - the same reasoning that makes `require_sign_in` a switch. Change
+    #: it on the platform and the guard is gone on the next request.
+    #:
+    #: It protects a role, it does not grant one: naming a member here does not
+    #: make them an administrator, it only stops them being changed.
+    platform_admin_email: str = ""
     # --- accounts (D25) ---
     # Accounts gate nothing: reads were open before them and still are. These
     # values decide how long a signed-in browser stays signed in and how hard it

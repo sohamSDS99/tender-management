@@ -301,10 +301,15 @@ def update_me(
     payload: ProfileUpdate,
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
 ) -> UserOut:
     try:
         user = accounts.update_profile(
-            db, principal.user, display_name=payload.display_name, email=payload.email
+            db,
+            principal.user,
+            display_name=payload.display_name,
+            email=payload.email,
+            settings=settings,
         )
     except accounts.AccountError as exc:
         raise _fail(exc) from None
@@ -499,6 +504,7 @@ def update_user(
     payload: UserAdminUpdate,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
 ) -> UserOut:
     """The two administrative changes, both refusing to strand the deployment.
 
@@ -512,9 +518,9 @@ def update_user(
         raise HTTPException(status_code=404, detail="No such account.")
     try:
         if payload.role is not None:
-            target = accounts.set_role(db, principal.user, target, payload.role)
+            target = accounts.set_role(db, principal.user, target, payload.role, settings)
         if payload.is_active is not None:
-            target = accounts.set_active(db, principal.user, target, payload.is_active)
+            target = accounts.set_active(db, principal.user, target, payload.is_active, settings)
     except accounts.AccountError as exc:
         raise _fail(exc) from None
     return _user_out(target)
@@ -617,6 +623,7 @@ def remove_from_roster(
     entry_id: int,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
 ) -> Response:
     """Withdraws permission to register. Does **not** close an existing account.
 
@@ -629,7 +636,7 @@ def remove_from_roster(
     if entry is None:
         raise HTTPException(status_code=404, detail="No such roster entry.")
     try:
-        roster.remove_entry(db, principal.user, entry)
+        roster.remove_entry(db, principal.user, entry, settings)
     except accounts.AccountError as exc:
         raise _fail(exc) from None
     return Response(status_code=204)

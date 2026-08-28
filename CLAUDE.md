@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (31 records, D1–D31).
+`docs/DECISIONS.md` explains why it is built this way (32 records, D1–D32).
 
 ## What this is
 
@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 622 tests, all passing
+./.venv/bin/python -m pytest -q          # 657 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
@@ -363,6 +363,25 @@ putting it in the page so no browser holds one, and with `CRON_SECRET` unset —
 the default — the door does not exist. Nothing uses it over HTTP today; the
 scheduled fetch runs `python -m app.jobs.scheduled_fetch` against the database.
 
+**`PLATFORM_ADMIN_EMAIL` protects one account, and that is a different axis
+from the last-administrator guard (D32).** The old rule protects the
+*deployment* - it refuses to remove the final way back in, and says nothing
+about which administrator survives. With three admins any of them can demote or
+deactivate any other. This names one address that cannot be demoted,
+deactivated, moved off itself, or taken off the roster. Empty by default, which
+is the pre-D32 behaviour exactly.
+
+The fourth refusal is the one people miss: the protected account may not change
+its **own** email. The guard is keyed on the address, so a self-service edit at
+`PATCH /api/auth/me` would silently switch it off - and it is the change least
+likely to be noticed, because nothing about that session would look different.
+
+It is a platform variable rather than a column because **an account nobody can
+remove is also an account nobody can revoke if it is compromised**; the
+protection has to be liftable faster than a deploy. A malformed value protects
+nobody rather than everybody, so a typo cannot produce a workspace no one can
+administer.
+
 **`REQUIRE_SIGN_IN=false` is the way back in**, not a hedge. If the gate
 misbehaves, one platform variable restores an open API without a deploy, which
 beats being locked out of the tool that manages accounts. Defaults to true.
@@ -527,7 +546,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **594 passing, nothing skipped, nothing failing**. Treat any
+A green run is **657 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

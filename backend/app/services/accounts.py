@@ -514,13 +514,31 @@ def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> Us
     return user
 
 
-def update_profile(db: Session, user: User, *, display_name: str | None, email: str | None) -> User:
+def update_profile(
+    db: Session,
+    user: User,
+    *,
+    display_name: str | None,
+    email: str | None,
+    settings: Settings | None = None,
+) -> User:
     """Change the two fields a person owns about themselves."""
     if display_name is not None:
         user.display_name = clean_display_name(display_name, user.email)
     if email is not None:
         new_email = normalise_email(email)
         if new_email != user.email:
+            # The protection is keyed on the address, so letting the protected
+            # account change its own address would silently switch the guard off
+            # - and it is the one account whose owner is least likely to notice,
+            # because nothing about their session would change. Refused rather
+            # than followed: the platform administrator is a deployment
+            # decision, and moving it is a deployment change.
+            if is_platform_admin(user, settings):
+                raise NotPermitted(
+                    "The platform administrator's address is fixed by the deployment. "
+                    "Change PLATFORM_ADMIN_EMAIL first."
+                )
             existing = get_by_email(db, new_email)
             if existing is not None and existing.id != user.id:
                 raise EmailTaken("An account already exists for that email address.")
@@ -666,12 +684,33 @@ def set_password(db: Session, actor: User, target: User, new_password: str, sett
     return revoked
 
 
-def set_role(db: Session, actor: User, target: User, role: str) -> User:
+def is_platform_admin(user: User, settings: Settings | None) -> bool:
+    """Whether this account is the one `PLATFORM_ADMIN_EMAIL` names.
+
+    Compared through `normalise_email` on both sides rather than by raw string,
+    so a variable set with different case or a stray space still matches the
+    account it is meant to protect. An unset variable protects nobody, which is
+    what keeps the default behaviour identical to before this existed.
+    """
+    configured = getattr(settings, "platform_admin_email", "") or ""
+    if not configured.strip():
+        return False
+    try:
+        return normalise_email(configured) == normalise_email(user.email)
+    except InvalidEmail:
+        # A malformed variable protects nobody rather than everybody. The
+        # opposite would turn one typo into a workspace nobody can administer.
+        return False
+
+
+def set_role(db: Session, actor: User, target: User, role: str, settings: Settings | None = None) -> User:
     """Promote or demote, refusing to remove the last way back in."""
     if role not in ROLES:
         raise AccountError(f"Unknown role {role!r}.")
     if target.role == role:
         return target
+    if role != ROLE_ADMIN and is_platform_admin(target, settings):
+        raise NotPermitted("The platform administrator cannot be demoted.")
     if target.role == ROLE_ADMIN and role != ROLE_ADMIN and admin_count(db) <= 1:
         raise NotPermitted("This is the only administrator. Promote someone else first.")
     target.role = role
@@ -680,16 +719,22 @@ def set_role(db: Session, actor: User, target: User, role: str) -> User:
     return target
 
 
-def set_active(db: Session, actor: User, target: User, active: bool) -> User:
+def set_active(
+    db: Session, actor: User, target: User, active: bool, settings: Settings | None = None
+) -> User:
     """Deactivate or restore an account, ending its sessions when it goes.
 
-    Two refusals, and they are different: you cannot deactivate yourself
-    (locking yourself out with one click is not a feature), and you cannot
-    deactivate the only remaining administrator.
+    Three refusals, and they are different: you cannot deactivate yourself
+    (locking yourself out with one click is not a feature), you cannot
+    deactivate the only remaining administrator, and you cannot deactivate the
+    platform administrator at all - that one is a fixed point regardless of how
+    many other administrators exist.
     """
     if target.is_active == active:
         return target
     if not active:
+        if is_platform_admin(target, settings):
+            raise NotPermitted("The platform administrator cannot be deactivated.")
         if target.id == actor.id:
             raise NotPermitted("You cannot deactivate your own account.")
         if target.role == ROLE_ADMIN and admin_count(db) <= 1:
