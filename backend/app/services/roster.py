@@ -205,7 +205,7 @@ def set_entry_role(db: Session, entry: RosterEntry, role: str) -> RosterEntry:
     return entry
 
 
-def remove_entry(db: Session, actor: User, entry: RosterEntry) -> None:
+def remove_entry(db: Session, actor: User, entry: RosterEntry, settings: Settings | None = None) -> None:
     """Take an address off the roster.
 
     **This does not close an account they already have**, and that is not an
@@ -215,6 +215,13 @@ def remove_entry(db: Session, actor: User, entry: RosterEntry) -> None:
     ``PATCH /api/auth/users/{id}`` where the last-administrator guard applies.
     Conflating the two would let a roster tidy-up lock out the only admin.
     """
+    configured = (getattr(settings, "platform_admin_email", "") or "").strip()
+    if configured and normalise_email(configured) == entry.email:
+        # Not the account - this row is only permission to *hold* one - but
+        # taking it away leaves the protected address unable to re-register if
+        # its account were ever lost, which quietly undoes half the point of
+        # protecting it.
+        raise NotPermitted("The platform administrator cannot be removed from the roster.")
     if entry.email == actor.email:
         # Nothing breaks, but it reliably confuses: the administrator remains
         # signed in with an account that the roster no longer explains.

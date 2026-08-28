@@ -1553,9 +1553,9 @@ needs it.
 **Accepted:**
 
 * **Adding somebody to the roster notifies nobody.** It records who is allowed
-  in; delivering the link stays a separate, deliberate act. D27 built an email
-  transport for exactly this and it was rejected as unnecessary for an internal
-  tool — the link goes out over Slack by hand.
+  in; delivering the link stays a separate, deliberate act. D25 declined an email
+  transport for exactly this and nothing since has added one — the link goes out
+  over Slack by hand.
 * **The join link is readable by any administrator.** That is the point, and it
   is not an escalation: an administrator can already add addresses and issue
   invitations.
@@ -1563,3 +1563,69 @@ needs it.
   the entry, so the address can register again. That is usually what is wanted
   when somebody's account is recreated, and it is why `joined_user_id` is a
   nullable link rather than a boolean.
+
+---
+
+## D29 — One account is a fixed point, and it is named by the deployment
+
+**Decision.** `PLATFORM_ADMIN_EMAIL` names one address that cannot be demoted,
+cannot be deactivated, cannot change its own email, and cannot be taken off the
+roster. Empty by default. Enforced in `accounts.is_platform_admin` and the four
+guards that call it (`set_role`, `set_active`, `update_profile`,
+`roster.remove_entry`), and pinned by `tests/test_platform_admin.py`.
+
+**This is a different axis from the last-administrator guard, and conflating
+them is the easy mistake.** That guard protects the *deployment*: it refuses to
+remove the final way back in, so nobody can strand the workspace with one click.
+It says nothing about *which* administrator survives. With three admins,
+`admin_count > 1` holds and any of them may demote or deactivate any other —
+including the person who set the deployment up. D29 protects a person; the
+existing rule protects the installation. `test_the_guard_holds_even_with_other_administrators_present`
+is that distinction written as an assertion.
+
+**A deployment variable, not a database column.** This was the whole decision,
+and the reasoning is the same one that makes `require_sign_in` a switch:
+
+> An account nobody can remove is also an account nobody can revoke if it is
+> ever compromised.
+
+A protection that can only be lifted with database access, or worse a code
+change, turns a stolen password into an incident that outlasts the deploy queue.
+As a platform variable it is removable in seconds by whoever controls the
+deployment, without a migration and without a release — and the people who
+control the deployment are already the people who could edit the database
+anyway, so nothing is weakened by making it fast.
+
+A column was the alternative and was rejected on that ground alone; it is
+stronger against an attacker holding only a dashboard session, and worse in the
+case that actually matters.
+
+**The email guard is the one that is easy to miss.** Three of the four refusals
+are obvious. The fourth is that the protected account may not change *its own*
+address: the guard is keyed on the address, so a self-service edit at
+`PATCH /api/auth/me` would silently switch it off. It is also the change least
+likely to be noticed, because nothing about that person's session would look
+different afterwards. Refused rather than followed — moving the platform
+administrator is a deployment change, so it happens in the deployment.
+
+**Refusals are one-directional.** The guard blocks removal, never repair: the
+protected account can still be promoted, reactivated, and renamed. A rule that
+also blocked restoring the account would turn a mistake into a permanent one.
+
+**A malformed variable protects nobody, not everybody.** `is_platform_admin`
+returns False when the value will not normalise, so one typo cannot produce a
+workspace in which no account can be administered at all. Matching runs through
+`normalise_email` on both sides, so case and stray whitespace in the variable
+still protect the account they were meant to.
+
+**Accepted:**
+
+* **It protects a role, it does not grant one.** Naming a member here does not
+  make them an administrator; it only stops them being changed. Granting is
+  still `PATCH /api/auth/users/{id}`, and doing both automatically would mean a
+  variable that silently escalates an account on the next restart.
+* **There is exactly one.** A list would need an ordering story for what happens
+  when they disagree, and nothing here is asking for two.
+* **Nothing in the dashboard says an account is protected.** The refusal arrives
+  as a 403 with a sentence when somebody tries, which is the moment it matters.
+  A badge in the team list would be a nicety; it is not what stops the click.
