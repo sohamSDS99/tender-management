@@ -33,9 +33,11 @@ import base64
 import hashlib
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
@@ -59,6 +61,16 @@ SALT_BYTES = 16
 #: Bytes of entropy in a session cookie or invite token, before base64.
 TOKEN_BYTES = 32
 
+#: What sits in ``password_hash`` for an account that has no password at all
+#: (D29 — the person signs in by opening their access link).
+#:
+#: The empty string, and that is safe for a precise reason worth not breaking:
+#: ``verify_password`` refuses an empty stored hash outright, *before* it parses
+#: anything. Without that guard an empty hash plus an empty submitted password
+#: is the shape of a "" == "" comparison, which would make every passwordless
+#: account signable-into by anybody who left the field blank.
+NO_PASSWORD = ""
+
 
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
@@ -79,7 +91,14 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """Constant-time check against a stored hash. Never raises on a bad hash."""
+    """Constant-time check against a stored hash. Never raises on a bad hash.
+
+    An empty stored hash is refused first and unconditionally. That is the
+    account-has-no-password case (D29), and the one input that could otherwise
+    turn into a "" == "" comparison and let anybody in by leaving the box blank.
+    """
+    if not stored:
+        return False
     try:
         scheme, n, r, p, salt_b64, key_b64 = stored.split("$")
         if scheme != "scrypt":
@@ -375,6 +394,126 @@ def authenticate(db: Session, *, email: str, password: str, settings: Settings) 
     return user
 
 
+@dataclass(frozen=True)
+class Invitation:
+    """What an access link says about its owner, without spending it.
+
+    Read-only by construction: a frozen dataclass built from two selects, so
+    there is no path from a lookup to a write. That matters because this is the
+    one part of the join flow a *stranger* can call — the caller has no session,
+    only a token.
+    """
+
+    email: str
+    #: What this person will be when they are in. The **account's** role when
+    #: they already have one, the roster's promise when they do not — because a
+    #: colleague promoted last week must not be treated as a member merely
+    #: because the entry that let them in still says so.
+    role: str
+    #: True once this address has an account. Lets the page say "welcome back"
+    #: rather than offering to create something that exists.
+    joined: bool
+
+
+def describe_access_link(db: Session, raw_token: str) -> Invitation:
+    """Who a link belongs to and what it will make them. Consumes nothing.
+
+    Exists so the page can decide *where to land somebody* before it acts (D30):
+    an administrator goes straight to the dashboard, a member is shown the
+    accept screen. Without this the page would have to accept first and ask
+    afterwards, which is the wrong order — accepting is the irreversible half.
+
+    Safe to leave unauthenticated. It tells the holder of a link their own
+    address and their own role, and holding the link already *is* being that
+    person (D29), so there is nothing here they do not already have. It reveals
+    nothing at all to somebody without a valid token, and 32 bytes of `secrets`
+    entropy is not guessable by enumeration.
+    """
+    from app.services import roster as roster_service
+
+    entry = roster_service.entry_for_token(db, raw_token)
+    if entry is None:
+        # The same one message accept_access_link gives, for the same reason:
+        # splitting "never existed" from "revoked" would tell a stranger holding
+        # a stale link whether it was ever real.
+        raise InvalidInvite("That link is not valid. Ask an administrator for a new one.")
+
+    user = get_by_email(db, entry.email)
+    return Invitation(
+        email=entry.email,
+        role=user.role if user is not None else entry.role,
+        joined=user is not None,
+    )
+
+
+def accept_access_link(db: Session, raw_token: str, *, settings: Settings) -> User:
+    """Open somebody's personal link: create their account if needed, then sign in.
+
+    This is the whole of D29 in one function. There is no password at any point —
+    the link *is* the credential, so holding it is what proves who you are.
+
+    Idempotent on purpose. The same link opened next month on a different laptop
+    signs the same person in again rather than erroring or creating a second
+    account, which is the only way "nothing else is needed" survives past the
+    first session.
+    """
+    from app.services import roster as roster_service
+
+    entry = roster_service.entry_for_token(db, raw_token)
+    if entry is None:
+        # One message for "never existed", "revoked" and "replaced". Splitting
+        # them would tell a stranger holding a stale link whether it was ever
+        # real, and none of the three changes what the reader should do.
+        raise InvalidInvite("That link is not valid. Ask an administrator for a new one.")
+
+    created = False
+    user = get_by_email(db, entry.email)
+    if user is None:
+        candidate = User(
+            email=entry.email,
+            display_name=clean_display_name("", entry.email),
+            password_hash=NO_PASSWORD,
+            role=entry.role,
+            is_active=True,
+            last_login_at=utcnow(),
+        )
+        db.add(candidate)
+        try:
+            db.flush()
+        except IntegrityError:
+            # Two arrivals on one never-used link, at the same moment. Both read
+            # no account and both inserted, and `users.email` is UNIQUE, so one
+            # of them lost.
+            #
+            # Reachable without anybody double-clicking anything since D30: an
+            # administrator's link is spent by the page on load, so two tabs — or
+            # a browser that *prerenders* the URL from the address bar and runs
+            # its JavaScript — are two accepts with no press between them. The
+            # loser recovers by reading the row the winner wrote, because the
+            # request it is serving asked for something that is now true.
+            db.rollback()
+            user = get_by_email(db, entry.email)
+            if user is None:
+                # Not the race, then. Something else about this row is invalid
+                # and swallowing it would hide a real fault.
+                raise
+        else:
+            user, created = candidate, True
+
+    if created:
+        roster_service.claim(db, entry, user)
+        log_ctx(logger, logging.INFO, "account created from access link", user_id=user.id)
+    else:
+        if not user.is_active:
+            # Deactivation has to outrank a live link, or "deactivate" means
+            # nothing for exactly the people whose only credential is the link.
+            raise InvalidCredentials("That account has been deactivated.")
+        user.last_login_at = utcnow()
+
+    db.commit()
+    return user
+
+
 def update_profile(
     db: Session,
     user: User,
@@ -412,24 +551,136 @@ def change_password(
     db: Session,
     user: User,
     *,
-    current_password: str,
+    current_password: str | None,
     new_password: str,
     keep_session_id: int | None,
     settings: Settings,
 ) -> int:
-    """Rotate a password and end every other session. Returns how many ended.
+    """Set or rotate a password and end every other session. Returns how many ended.
 
     Ending the others is the point, not a nicety: the reason to change a
     password is usually that somebody else may know the old one, and leaving
     their session alive makes the change cosmetic.
+
+    **An account that has no password yet may set a first one without proving an
+    old one (D31), because there is no old one to prove.** Somebody who joined by
+    access link has ``password_hash == ""``, and requiring a current password
+    would leave the one group who most needs a password unable to give themselves
+    one. They are not unauthenticated: they are holding a live session, which is
+    the same thing the ordinary change relies on.
+
+    The empty-hash guard in ``verify_password`` is what makes this safe to write
+    this way. It refuses an empty *stored* hash outright, so "no password yet"
+    can never be satisfied by submitting an empty one.
     """
-    if not verify_password(current_password, user.password_hash):
-        raise InvalidCredentials("That is not your current password.")
+    if user.has_password:
+        if not verify_password(current_password or "", user.password_hash):
+            raise InvalidCredentials("That is not your current password.")
+    elif current_password:
+        # They sent one for an account that has none. Refusing beats ignoring:
+        # somebody typing a password into "current" is describing a belief about
+        # their own account, and silently accepting it teaches them the wrong
+        # thing about what just happened.
+        raise InvalidCredentials("This account has no password yet. Leave that field blank.")
+
     check_password(new_password, user.email, settings)
+    first = not user.has_password
     user.password_hash = hash_password(new_password)
     revoked = revoke_sessions(db, user, except_id=keep_session_id, commit=False)
     db.commit()
-    log_ctx(logger, logging.INFO, "password changed", user_id=user.id, sessions_ended=revoked)
+    log_ctx(
+        logger,
+        logging.INFO,
+        "password set" if first else "password changed",
+        user_id=user.id,
+        sessions_ended=revoked,
+    )
+    return revoked
+
+
+def create_account(
+    db: Session,
+    actor: User,
+    *,
+    email: str,
+    display_name: str,
+    role: str,
+    password: str,
+    settings: Settings,
+) -> User:
+    """An administrator makes somebody an account outright, password and all (D31).
+
+    The fourth way an account can come into existence, and the only one an
+    administrator drives end to end: bootstrap (first ever), a single-use
+    invitation (D25), an access link (D29), and this.
+
+    It exists because the other three all hand the *password* decision to
+    somebody else — bootstrap and invitation ask the new person to choose one,
+    and an access link never involves one at all. None of them answers "put these
+    five people in, with passwords, now", which is the request this serves.
+
+    Their sessions are not started here; they sign in themselves. So the
+    administrator has to deliver the password, exactly as they already deliver
+    an access link.
+    """
+    if role not in ROLES:
+        raise AccountError(f"Unknown role {role!r}.")
+    email = normalise_email(email)
+    check_password(password, email, settings)
+    display_name = clean_display_name(display_name, email)
+
+    if get_by_email(db, email) is not None:
+        # Named plainly rather than folded into a vague failure. This endpoint is
+        # administrators-only, so there is no directory to leak: they can already
+        # read the whole account list.
+        raise EmailTaken("An account already exists for that email address.")
+
+    user = User(
+        email=email,
+        display_name=display_name,
+        password_hash=hash_password(password),
+        role=role,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    log_ctx(logger, logging.INFO, "account created by administrator", actor=actor.id, user_id=user.id)
+    return user
+
+
+def set_password(db: Session, actor: User, target: User, new_password: str, settings: Settings) -> int:
+    """An administrator sets somebody's password. Returns sessions ended.
+
+    The answer to the trap D31 exists to close: somebody who joined by access
+    link, signed out, and no longer has the link. Before this the only remedy was
+    a shell on the host (``python -m app.accounts_cli reset-password``), which is
+    not a remedy an administrator has at 9pm.
+
+    **Every session of theirs ends**, including the one they may be reading on.
+    That is the same rule the self-service change follows and for the same
+    reason: if the password needed changing because somebody else may know it,
+    leaving a live session behind makes the change cosmetic. The difference is
+    that here even the target's own current browser goes, because the
+    administrator doing this cannot know which of those sessions is the problem.
+
+    No exemption for the last administrator. Setting a password does not remove
+    anybody's access, so there is nothing to strand.
+    """
+    check_password(new_password, target.email, settings)
+    first = not target.has_password
+    target.password_hash = hash_password(new_password)
+    revoked = revoke_sessions(db, target, except_id=None, commit=False)
+    target.failed_logins = 0
+    target.locked_until = None
+    db.commit()
+    log_ctx(
+        logger,
+        logging.INFO,
+        "password set by administrator" if first else "password reset by administrator",
+        actor=actor.id,
+        user_id=target.id,
+        sessions_ended=revoked,
+    )
     return revoked
 
 

@@ -419,6 +419,14 @@ export interface User {
   display_name: string;
   role: UserRole;
   is_active: boolean;
+  /**
+   * Whether they can sign in with a password at all (D31).
+   *
+   * False for somebody who joined by access link and has never set one — which
+   * is the difference between "signing out logs me out" and "signing out locks
+   * me out". The page could not warn about a state it could not read.
+   */
+  has_password: boolean;
   created_at: string;
   last_login_at: string | null;
 }
@@ -477,6 +485,26 @@ export interface RevokedCount {
   revoked: number;
 }
 
+/**
+ * What an access link says about its owner, read before it is spent (D30).
+ *
+ * The page needs this to decide *where to land somebody*: an administrator goes
+ * straight to the dashboard, a member is shown the accept screen. Asking after
+ * accepting would be the wrong order — accepting is the half that cannot be
+ * undone.
+ */
+export interface Invitation {
+  email: string;
+  /**
+   * The account's role when there is one, the roster's promise when there is
+   * not. A colleague promoted last week is an administrator here even though
+   * the entry that let them in still says `member`.
+   */
+  role: UserRole;
+  /** True once this address has an account: "welcome back" rather than "join". */
+  joined: boolean;
+}
+
 // --- the workspace roster (D28) ---------------------------------------------
 //
 // The address is the permission, not the link. That is why `join_url` can be
@@ -490,8 +518,15 @@ export interface RosterEntry {
   role: UserRole;
   note: string;
   created_at: string;
-  /** Null until they register. The list puts these first. */
+  /** Null until they accept. The list puts these first. */
   joined_at: string | null;
+  /**
+   * Their personal link, or null if never issued or revoked.
+   *
+   * This *is* their credential (D29) — opening it signs them in, with no
+   * password. Readable so an administrator can re-send it.
+   */
+  access_url: string | null;
 }
 
 export interface RosterView {
@@ -499,17 +534,10 @@ export interface RosterView {
   total: number;
   joined: number;
   waiting: number;
-  /** Null until a link has been created. */
-  join_url: string | null;
 }
 
 export interface RosterAdded {
   added: RosterEntry[];
   /** Reported, not an error: re-pasting a team list is a normal thing to do. */
   already_present: string[];
-}
-
-export interface JoinLink {
-  url: string;
-  token: string;
 }

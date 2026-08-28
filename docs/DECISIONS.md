@@ -1566,7 +1566,335 @@ needs it.
 
 ---
 
-## D29 — One account is a fixed point, and it is named by the deployment
+## D29 — There is no password. The link is the credential
+
+**Decision.** Every roster entry carries its own durable access link. Opening it
+and pressing **Accept** creates the account if it does not exist and signs the
+person in. No password is set, then or ever. The same link works again next
+month on a different device until an administrator revokes it. Carried by
+`roster.access_token`, `accounts.accept_access_link`, `POST /api/auth/accept`
+and the accept screen in `components/auth/AuthPage.tsx`.
+
+**This reverses D28, one day later, and the reversal is the point.** D28's rule
+was *"the address is the permission, not the link"* — which is exactly what made
+a single shared link safe to post in a team channel. The requirement changed to
+"the link getters only have to just accept the invitation, nothing else is
+needed", and once clicking is sufficient, the link **is** the credential. Both
+records are kept because the earlier reasoning is still correct about the design
+it describes; it simply is not the design any more.
+
+**What that costs, stated plainly.** Whoever holds somebody's link is that
+person. A link forwarded, screenshotted, or left in Slack history is a way in
+until it is revoked. That was accepted knowingly for an internal tool, against
+the alternative: no password *and* no email transport (D27, rejected) means a
+one-shot link leaves somebody with no way back the moment their session lapses.
+A permanent link is the only shape where "nothing else is needed" stays true
+past the first fortnight.
+
+**Therefore links are per person, never shared.** A shared one under these rules
+would let anybody who saw it become somebody. The workspace-wide join link from
+D28 is removed rather than left alongside — two doors where one is wanted is
+worse than either, and that one also let a stranger self-register *with* a
+password, which is the thing this record deletes.
+
+**The empty password hash is the one place this could open a hole.** An account
+created from a link stores `password_hash = ""`. `verify_password` refuses an
+empty stored hash **first and unconditionally**, before parsing anything —
+without that, an empty hash against an empty submitted password is the shape of
+a `"" == ""` comparison, and every passwordless account would be signable-into
+by anybody who left the box blank. Asserted twice: directly against
+`verify_password`, and through `POST /api/auth/login` with blank, whitespace and
+ordinary passwords.
+
+**Accepting is a POST, not a GET on the link.** Slack and every other chat
+client fetches a URL to build a preview. If opening the link were a GET that
+established an account, an unfurl would consume the invitation before the person
+ever saw it. The button also gives them a moment to see what they are joining,
+which a silent redirect does not.
+
+**Revoking is setting the token to null**, which is why there is no separate
+revoked flag to disagree with it. Revoking does **not** end a session the person
+already holds: the link grants sign-in, and a live session stands on its own.
+Cutting somebody off entirely is revoke *plus* deactivating the account — and
+deactivation outranks a live link, or "deactivate" would mean nothing for
+precisely the people whose only credential is one.
+
+**Tokens are stored readably**, like D28's join link and unlike an invite token.
+An administrator has to be able to re-send one, and "I lost the link" must not
+mean "you are locked out until I mint another". The security delta is smaller
+than it looks: an administrator can already mint a link for any address, so
+reading the column grants nothing they lack, and against a database leak this is
+a bearer token for one application with no reuse value elsewhere — unlike a
+password hash, whose value is that people reuse passwords.
+
+**Accepted:**
+
+* **Single-use invitations (D25) are unchanged and still set a password.** They
+  are the outsider door — somebody with no company address — and were left alone
+  rather than converted, so that path is inconsistent with this one on purpose.
+* **`sent`-style delivery is still manual.** Adding somebody mints their link;
+  an administrator sends it over Slack. D27 built email for this and it was
+  rejected as unnecessary.
+* **A link in Slack history outlives the conversation.** Revocation is the only
+  answer, and it is one click per person in the roster panel.
+
+---
+
+## D30 — An administrator's link lands in the dashboard; a member's asks first
+
+**Decision.** Opening an access link no longer does one thing. The page reads the
+link before spending it, and then either enters or asks:
+
+* **an administrator** goes straight into the dashboard, with nothing to press
+* **a member** sees the accept screen — their address, the role they are joining
+  as, and one button
+
+Carried by `POST /api/auth/invitation` (read-only) and
+`accounts.describe_access_link`, the `landsStraightInDashboard` rule in
+`state/auth.ts`, the `checking` / `entering` / `ready` / `dead` branches in
+`App.tsx`, and the two screens in `components/auth/AuthPage.tsx`.
+
+**Why the two differ at all.** An administrator is the person who *hands out*
+links and sets the workspace up; asking them to confirm an invitation of a shape
+they authored is a step with nothing behind it. A member is joining something for
+the first time, and the accept screen is where they are told what — by whose
+address, as what role — before anything is created in their name. The asymmetry is
+the feature, not an optimisation of it.
+
+**This does not reverse "accepting is a POST, never a GET" (D29).** That rule
+exists because a chat client fetches a URL to build a preview, and a GET that
+established an account would let an unfurl consume the invitation. An unfurl
+fetches this page's *HTML* and executes none of its JavaScript, so no preview
+reaches `/invitation` or `/accept`. The click that is skipped for an
+administrator is skipped by a real browser running the application — which is a
+person opening their own link, and nothing else.
+
+**The read in front of the write.** `POST /api/auth/invitation` answers who a
+link belongs to, what role it grants, and whether they already have an account.
+It writes nothing: no account, no claim on the roster entry, no session. That
+property is what makes it safe to call on page load, and it is asserted directly
+— two lookups, then a check that no user exists, the entry still reads as
+waiting, and the link still works.
+
+It is unauthenticated, like `/accept` and for the same reason: the caller has no
+session, and the token is what stands in for one. It tells the holder of a link
+their own address and their own role, and holding the link already *is* being
+that person (D29) — so it discloses nothing they do not have. To anybody without
+a valid token it discloses nothing at all, with one message for never-existed,
+revoked and replaced.
+
+**A POST for a read**, which is worth naming because it looks wrong. The token is
+a live credential; a GET would write it into the query string of every access log
+between the browser and the application. The body keeps it out of them.
+
+**The effective role, not the roster's promise.** The lookup reports the
+*account's* role when there is an account, and the entry's only when there is
+not. A colleague promoted last week under People must not be sent back to an
+accept screen because the entry that let them in still says `member`. Re-opening
+a link never *writes* a role either way — that hole is pinned by a test, because
+"roster edits do not touch existing accounts" would otherwise be true only until
+the person next opened their own link.
+
+**Entering is for a browser with no session.** If somebody is already signed in,
+nothing is spent on their behalf: their own link would take them where they
+already are, and somebody else's must never silently swap one live session for
+another. An administrator holding a colleague's link is shown the accept screen
+with both addresses on it — because rendering the dashboard would be *correct*
+and would also swallow the link, leaving them to conclude the feature works when
+they have not seen it.
+
+### Only an administrator can change a role, and that is now tested
+
+The rule was already true of every endpoint that writes a role. It had no test of
+its own, which is the same gap the sign-in gate shipped with: dropping
+`require_admin` from one decorator would have gone through green, and the failure
+mode is not a broken page, it is a member promoting themselves.
+`tests/test_roles.py` enumerates every way a role can be written —
+`PATCH /users/{id}`, `PATCH /roster/{id}`, `POST /roster`, the link endpoints,
+and the three doors that have no `require_admin` to lose (`PATCH /me`,
+`POST /register`, `POST /accept`, none of which read a role from the caller).
+Each refusal is checked against the database rather than the response body: a 403
+with a silently applied write behind it is exactly the bug worth catching.
+
+A member sees a sentence where an administrator sees the workspace panels, rather
+than empty space. Somebody told to "change so-and-so's role" who finds nothing
+cannot tell whether the feature is missing, broken, or not theirs.
+
+### The role is settled before a link exists
+
+**`role` is required on `POST /api/auth/roster`, with no default.** It used to
+fall back to `member`, which was harmless while the role only decided what an
+account would be. Now it decides where the link *lands* its holder, so a request
+that does not name one is asking for a link whose behaviour nobody chose. The
+panel matches: the segmented control starts unset and the button stays disabled
+until it is pressed.
+
+**Re-roling somebody who has not joined revokes their link.** A link already
+delivered would otherwise start behaving differently from the one the
+administrator described when they sent it — same URL, different landing. Revoking
+makes that visible: the row shows no link, says why, and issuing a new one is the
+deliberate act that says "this is now an administrator's link". It is also the
+mechanical form of the ordering this record asks for — addresses and roles first,
+links second.
+
+Left alone once they have joined, in both directions: a roster role never moves
+an existing account, so revoking there would be a lockout in exchange for
+nothing, and their link is their only credential. Setting the role it already has
+is not a change and does not cost the link, or a panel that re-sent the current
+value on any edit would quietly invalidate everybody's.
+
+**What this costs.** An administrator who flips a role after sending a link has
+to send a new one. That is the intended cost: the alternative is a link whose
+meaning changed under its holder.
+
+### What the review of this record changed
+
+Written down because each of these was a real hole, not a tidy-up:
+
+* **Spending a link on load makes a concurrent first accept reachable without
+  anybody clicking twice** — two tabs, or a browser prerendering the URL from the
+  address bar and running its JavaScript. Both requests read no account, both
+  insert, and `users.email` is UNIQUE. `accept_access_link` now catches
+  `IntegrityError`, rolls back and re-reads the winner's row. Note what this says
+  about D29's unfurl argument: it covers link *previews*, which execute no
+  JavaScript, and it does **not** cover prerendering, which does. The consequence
+  is bounded — a prerender can only sign in whoever already holds the link — but
+  the collision was not hypothetical.
+* **The screen for somebody else's link had one button and it was the wrong
+  one.** An administrator checking a colleague's link could only sign themselves
+  out of their own account and into it. There is now a way to put the link down.
+* **`/accept` and `/invitation` are the only endpoints reachable with no
+  session**, and both took a string of any length. Capped at
+  `MAX_TOKEN_LENGTH`: a real token is 43 characters in a `String(64)` column, so
+  anything longer cannot match a row.
+* **The lookup ran after the session call rather than beside it**, which put the
+  invited person behind two round trips of blank frame on the one journey this
+  whole record is about. Split into a read and a decide, in parallel.
+* **`authApi.invitation` had no test of the request it makes.** Every test of the
+  landing behaviour mocks that method, so a wrong path or a GET would have left
+  the suite green and broken the feature for exactly the people who cannot report
+  it — because they cannot get in.
+* **The roster panel had no test at all**, and it is where the "roles before
+  links" sequence is enforced. `WorkspaceRoster.test.tsx` covers it, and both
+  halves were mutation-checked: restoring the `member` default and disabling the
+  revoke-on-re-role each turn tests red.
+
+---
+
+## D31 — Every account can have a password, because signing out was a lockout
+
+**Decision.** An account may hold a password *and* an access link, and three
+things can now put one there: an administrator creates the account with one
+(`POST /api/auth/users`), an administrator sets one on an existing account
+(`POST /api/auth/users/{id}/password`), or the owner sets a first one themselves
+(`POST /api/auth/me/password` with no `current_password`). `UserOut.has_password`
+reports whether an account has one, and the account page warns the accounts that
+do not.
+
+**This does not delete D29. It removes the word "only" from it.** The access link
+is still the frictionless first entry, still durable, still the whole of what a
+new colleague needs. What changes is that it is no longer the *sole* credential,
+because being the sole credential is what made the failure below possible.
+
+### The defect, as reported
+
+Four steps, nothing exotic in any of them:
+
+1. somebody opens their access link and lands in the dashboard (D29)
+2. they press **Sign out**
+3. the sign-in page asks for an email and a password
+4. they have never had a password, so there is no answer they can give
+
+Everything that could be done about it was outside the product: find the original
+link in a chat history, or find somebody with a shell on the deployment host to
+run `python -m app.accounts_cli reset-password`. The page did not say that, and
+nothing anywhere showed that this account was one press away from that state.
+
+**D29 said a permanent link was "the only shape where nothing else is needed
+stays true past the first fortnight".** That was right about the link and wrong
+about the sentence: it stayed true right up until somebody signed out, and
+signing out is not an exotic act. The record reasoned carefully about a link
+being *lost* and not at all about a session being *ended on purpose*.
+
+### Why a password rather than something cleverer
+
+Three alternatives were considered and rejected:
+
+* **Remember the link on the device.** A long-lived cookie, or `localStorage`,
+  so the sign-in page could offer "continue as you". It works, and it makes
+  **Sign out** a lie on a shared machine — the one place the button matters most.
+  Splitting it into "sign out" and "sign out and forget this device" is a
+  distinction nobody reads before clicking.
+* **Never sign them out.** Hiding the button for passwordless accounts. Removes
+  the one control somebody needs when they are on somebody else's laptop.
+* **Email them their link.** D27 rejected mail transport, and reviving it to fix
+  a lockout would make signing back in depend on a mail relay being up.
+
+A password is the boring answer, and it is the one the person asking for this
+asked for: *"whenever they log out, they can log in through this password and
+mail ID."*
+
+### The three doors, and what each one refuses
+
+**`POST /api/auth/users`** — administrators only. The fourth way an account can
+come into existence, and the only one an administrator drives end to end; the
+other three all hand the password decision to somebody else. It starts **no
+session** and returns no cookie, because the administrator is creating somebody
+*else's* account and a cookie here would sign them in as that person. A duplicate
+address is `409`, not an overwrite — otherwise "add this person" silently becomes
+"reset their password".
+
+**`POST /api/auth/users/{id}/password`** — administrators only, and the remedy
+for anybody already stranded. **Every session of theirs ends, including the one
+they may be reading on**, which differs from the self-service change on purpose:
+the administrator cannot know which of somebody's sessions is the one that needed
+the reset, and sparing the target's own browser would make a reset performed
+because of a suspected compromise decorative. The count comes back so the panel
+can say what it did to them.
+
+**`POST /api/auth/me/password`** — `current_password` is now optional, and
+**which case this is comes from the stored hash, never from what the caller
+sends.** That ordering is the whole of the security argument. Written the other
+way round — "no current password sent means none is needed" — anybody holding a
+stolen session could rotate the password and own the account outright.
+`test_an_account_with_a_password_still_has_to_prove_it` pins it, and the
+mutation that inverts the condition turns it red.
+
+Sending a `current_password` for an account that has none is refused rather than
+ignored: somebody typing into that box is describing a belief about their own
+account, and quietly accepting it teaches them the wrong thing.
+
+**The empty-hash guard from D29 is what makes all of this safe to write.**
+`verify_password` refuses an empty *stored* hash first and unconditionally, so
+"this account has no password" can never be satisfied by submitting an empty one.
+D31 adds a password form to exactly the accounts with an empty hash, which puts
+the reflex to loosen that check closer to hand than it has ever been. Do not.
+
+### What the pages say now
+
+`has_password` exists so the interface can stop being silent about the state that
+caused this. A passwordless account sees an amber panel saying that signing out
+would lock it out and a form with no impossible field in it; the administrator's
+**People** list marks those accounts **No password** and offers **Set password**
+beside each; and the sign-in page's footer names the two ways back for somebody
+who has already signed out.
+
+The new-account form shows the password **in the clear as it is typed**. This is
+an administrator dictating a credential to a colleague, and a masked field they
+cannot read back is how a typo becomes a support request. Nothing is emailed;
+delivery stays a deliberate act, as it is for an access link.
+
+### What this costs
+
+An administrator now hands out a password as well as, or instead of, a link — one
+more thing to deliver. And a password that an administrator chose is a password
+somebody else knows, until the owner changes it. Both were accepted against the
+alternative, which is a colleague who cannot get back into the tool because they
+pressed the button that says **Sign out**.
+
+---
+
+## D32 — One account is a fixed point, and it is named by the deployment
 
 **Decision.** `PLATFORM_ADMIN_EMAIL` names one address that cannot be demoted,
 cannot be deactivated, cannot change its own email, and cannot be taken off the
@@ -1579,7 +1907,7 @@ them is the easy mistake.** That guard protects the *deployment*: it refuses to
 remove the final way back in, so nobody can strand the workspace with one click.
 It says nothing about *which* administrator survives. With three admins,
 `admin_count > 1` holds and any of them may demote or deactivate any other —
-including the person who set the deployment up. D29 protects a person; the
+including the person who set the deployment up. D32 protects a person; the
 existing rule protects the installation. `test_the_guard_holds_even_with_other_administrators_present`
 is that distinction written as an assertion.
 

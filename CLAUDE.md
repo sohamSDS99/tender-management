@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (29 records, D1–D29).
+`docs/DECISIONS.md` explains why it is built this way (32 records, D1–D32).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 603 tests, all passing
+./.venv/bin/python -m pytest -q          # 657 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 9 revisions, head e3b7c1d5f204
+./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 148 tests
+npx vitest run                           # 183 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -364,12 +364,12 @@ the default — the door does not exist. Nothing uses it over HTTP today; the
 scheduled fetch runs `python -m app.jobs.scheduled_fetch` against the database.
 
 **`PLATFORM_ADMIN_EMAIL` protects one account, and that is a different axis
-from the last-administrator guard (D29).** The old rule protects the
+from the last-administrator guard (D32).** The old rule protects the
 *deployment* - it refuses to remove the final way back in, and says nothing
 about which administrator survives. With three admins any of them can demote or
 deactivate any other. This names one address that cannot be demoted,
 deactivated, moved off itself, or taken off the roster. Empty by default, which
-is the pre-D29 behaviour exactly.
+is the pre-D32 behaviour exactly.
 
 The fourth refusal is the one people miss: the protected account may not change
 its **own** email. The guard is keyed on the address, so a self-service edit at
@@ -392,24 +392,126 @@ would sail past the very thing the suite should exercise — every pre-existing
 test would keep passing even if the gate refused every real human. Tests that
 genuinely need to skip an operator cooldown use `cron_client` and say why.
 
-**Three ways in, and only three** (`accounts.register`, checked in this order):
-bootstrap when no account exists yet and it becomes an administrator; a
-single-use invitation (D25) for an outsider; or **the shared join link plus a
-roster entry** (D28), which is the ordinary path for a colleague. Anything else
-is refused.
+**A person joins by opening *their own* access link and pressing one button
+(D29)** — `POST /api/auth/accept` creates the account and signs them in, with no
+password. The same link works again for ever until revoked.
 
-**The join link is not a bearer token, and that is why it is stored readably.**
-The roster decides — the link only works for an address already on it, so it is
-safe to show again and to paste into a team channel. Hashing it, or making it
-single-use, would break the one thing it is for. If
-`test_a_valid_link_is_refused_for_an_address_nobody_added` ever passes, the link
-*has* become a bearer token and sharing it is now a way in for anybody.
+**But the link is no longer the *only* credential, because being the only one was
+a lockout (D31).** A colleague who joined by link, pressed **Sign out**, and no
+longer had the link could not get back in by any route inside the product. Three
+doors now put a password on an account: `POST /api/auth/users` (an administrator
+creates the account with one), `POST /api/auth/users/{id}/password` (an
+administrator sets one — the rescue for anybody already stranded), and
+`POST /api/auth/me/password` with **no** `current_password` (the owner sets a
+first one). `UserOut.has_password` is what lets the pages stop being silent about
+this: an amber warning on the account page, a **No password** mark in the
+administrator's People list.
+
+**Which case `/me/password` is comes from the stored hash, never from what the
+caller sent.** Written the other way round — "no current password sent means none
+is needed" — anybody holding a stolen session could rotate the password and own
+the account. `test_an_account_with_a_password_still_has_to_prove_it` pins it and
+the inverted condition turns it red.
+
+**`POST /api/auth/users` starts no session and sets no cookie.** The
+administrator is creating somebody else's account; a cookie would sign them in as
+that person. A duplicate address is 409, never an overwrite, or "add this person"
+silently becomes "reset their password".
+
+**An administrator's password reset ends *every* session the target has**,
+including the one they are reading on — unlike the self-service change, which
+spares the current browser. The administrator cannot know which session needed
+the reset.
+
+**The link IS the credential, so treat every one as a live password.** D28 said
+the opposite one day earlier — "the address is the permission, not the link" —
+and D29 reversed it deliberately. The whole roster response is therefore a list
+of credentials, which is why it is administrators-only. Links are per person and
+never shared; the workspace-wide join link D28 added was removed, not kept
+alongside.
+
+**`password_hash = ""` is the passwordless account, and `verify_password`
+refuses an empty stored hash first and unconditionally.** Remove that guard and
+an empty hash against an empty submitted password becomes a `"" == ""`
+comparison — every link account signable-into by leaving the box blank. Three
+tests pin it now; none is optional. **D31 put a password form on exactly those
+accounts**, so the reflex to loosen this check is closer to hand than it has ever
+been — `test_a_blank_password_never_becomes_a_way_in` re-checks it from that side.
+
+**Accepting is a POST, never a GET on the link itself.** Slack fetches URLs to
+build previews, and a GET that established an account would let an unfurl
+consume the invitation before the person saw it.
+
+**An administrator's link enters the dashboard with no click; a member's shows
+the accept screen (D30).** The page reads the link first —
+`POST /api/auth/invitation`, which writes *nothing* — and branches on the role.
+That is not a hole in the rule above: an unfurl fetches the page's HTML and runs
+none of its JavaScript, so no preview reaches either endpoint. If you are about
+to "fix" the auto-enter as an unfurl risk, read D30 first.
+
+**The lookup reports the *account's* role when there is an account**, and the
+roster entry's only when there is not. A colleague promoted under People would
+otherwise be sent back to an accept screen because the entry that admitted them
+still says `member`. Re-opening a link never *writes* a role —
+`test_re_opening_a_link_never_re_roles_an_existing_account` pins it, and without
+that guarantee "roster edits do not touch existing accounts" would hold only
+until the person next opened their own link.
+
+**Auto-entering is only for a browser with no session.** Somebody already signed
+in gets nothing spent on their behalf: their own link leads where they already
+are, and somebody else's must never silently swap one live session for another.
+An administrator holding a colleague's link sees the accept screen with both
+addresses on it **and a way out** — without that, the only button on the page
+signs them out of their own account and into the colleague's, and the only escape
+is a reload they have to think of.
+
+**Two accepts of a never-used link can arrive at once, and `users.email` is
+UNIQUE.** Before D30 that took two tabs and two clicks; now the page spends an
+administrator's link on load, so two tabs — or a browser that *prerenders* the
+URL out of the address bar and runs its JavaScript — are two accepts with no
+press between them. `accept_access_link` catches `IntegrityError`, rolls back,
+and re-reads the row the winner wrote. Note the shape of the argument: D29's
+unfurl reasoning covers link *previews*, which execute no JavaScript, and does
+**not** cover prerendering, which does. The consequence is bounded — a prerender
+can only sign in the person already holding the link — but the collision was
+real.
+
+**Both public doors cap the token at `MAX_TOKEN_LENGTH`.** `/accept` and
+`/invitation` are the only endpoints reachable with no session; a real token is
+43 characters in a `String(64)` column, so anything longer cannot match a row and
+is only a way to make an unauthenticated caller's nonsense expensive.
+
+**The link is read in parallel with the session, not after it.** Two sequential
+round trips would put the invited person behind twice as much blank frame on the
+one journey the feature exists for. Effect one reads the link, effect two decides
+once both answers are in — and the deciding effect has *no* cancellation on
+purpose, because it sets `entering` itself and a cleanup flipping `cancelled`
+would discard the result of the request it had just started.
+
+**`role` is required on `POST /api/auth/roster`** — no default, because the role
+now decides where the link lands its holder. **Re-roling somebody who has not
+joined revokes their link**, so a link already sent cannot start behaving
+differently from the one that was described when it was sent. Setting the role it
+already has is not a change and keeps the link; a joined entry keeps its link
+either way, because that link is the person's only credential.
+
+**Only an administrator can change a role, and `tests/test_roles.py` is where
+that is proved.** It covers the two endpoints that say `role` out loud *and* the
+three doors that have no `require_admin` to lose — `PATCH /me`, `POST /register`
+and `POST /accept` are safe because they never read a role from the caller, which
+is a property of their shape and exactly the kind of thing a refactor removes by
+accident. Every refusal is checked against the database, not the response body.
+
+The remaining ways in: bootstrap when no account exists (becomes admin), and a
+single-use invitation (D25) which still sets a password and is the outsider
+door.
 
 **A roster edit must not reach an existing account.** Changing an entry's role
-sets what a *future* account gets; removing an address withdraws permission to
-register. Neither touches somebody who has already joined — that is
-`PATCH /api/auth/users/{id}`, where the last-administrator guard lives. Wire
-removal to account closure and a roster tidy-up can lock everyone out.
+sets what a *future* account gets; removing an address or revoking a link
+withdraws the way in. None of them touches a session somebody already holds —
+that is `PATCH /api/auth/users/{id}`, where the last-administrator guard lives.
+Deactivation outranks a live link, or "deactivate" means nothing for exactly the
+people whose only credential is one.
 
 The first registration on an empty deployment needs no permission at all, so
 between first start and first registration whoever gets there first is the
@@ -444,7 +546,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **603 passing, nothing skipped, nothing failing**. Treat any
+A green run is **657 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

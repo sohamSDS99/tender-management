@@ -21,13 +21,13 @@ import type {
   RulesPreview,
   SettingsSecrets,
   AuthSession,
+  Invitation,
   Invite,
   InviteCreated,
   RevokedCount,
   SessionState,
   User,
   UserRole,
-  JoinLink,
   RosterAdded,
   RosterEntry,
   RosterView,
@@ -299,14 +299,49 @@ export const auth = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  /**
+   * Open an access link: creates the account if needed and signs in (D29).
+   *
+   * A POST rather than following the URL, so a chat client building a link
+   * preview cannot consume the invitation before the person sees it.
+   */
+  accept: (token: string) =>
+    request<User>('/api/auth/accept', { method: 'POST', body: JSON.stringify({ token }) }),
+  /**
+   * What an access link is, without spending it (D30).
+   *
+   * Called before `accept`, because the two roles land in different places and
+   * that has to be known before the irreversible half runs: an administrator
+   * enters the dashboard with no click, a member is shown the accept screen.
+   *
+   * A POST for a read, deliberately. The token is a live credential, and a GET
+   * would write it into the query string of every access log on the way.
+   */
+  invitation: (token: string) =>
+    request<Invitation>('/api/auth/invitation', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
 
   updateProfile: (body: { display_name?: string; email?: string }) =>
     request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(body) }),
-  /** Returns how many *other* sessions the change ended. This one survives. */
-  changePassword: (currentPassword: string, newPassword: string) =>
+  /**
+   * Set a first password, or change an existing one (D31).
+   *
+   * `currentPassword` is null for an account that has never had one — somebody
+   * who joined by access link. The server decides which case it is from the
+   * stored hash, never from what is sent, so this cannot be used to skip the
+   * check on an account that does have a password.
+   *
+   * Returns how many *other* sessions the change ended. This one survives.
+   */
+  changePassword: (currentPassword: string | null, newPassword: string) =>
     request<RevokedCount>('/api/auth/me/password', {
       method: 'POST',
-      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      body: JSON.stringify({
+        current_password: currentPassword || null,
+        new_password: newPassword,
+      }),
     }),
   sessions: () => request<AuthSession[]>('/api/auth/sessions'),
   /** Ends every session but this one, so success is not a sign-in screen. */
@@ -331,10 +366,29 @@ export const auth = {
     }),
   /** Withdraws permission to register. Does not close an existing account. */
   removeFromRoster: (id: number) => request<void>(`/api/auth/roster/${id}`, { method: 'DELETE' }),
-  /** Creates the first link, or replaces one that has been shared too widely. */
-  rotateJoinLink: () => request<JoinLink>('/api/auth/roster/join-link', { method: 'POST' }),
+  /** Mint this person's link, replacing any previous one. */
+  issueAccessLink: (id: number) =>
+    request<RosterEntry>(`/api/auth/roster/${id}/link`, { method: 'POST' }),
+  /** Withdraw their link. Does not end a session they already hold. */
+  revokeAccessLink: (id: number) =>
+    request<void>(`/api/auth/roster/${id}/link`, { method: 'DELETE' }),
 
   users: () => request<User[]>('/api/auth/users'),
+  /** Make somebody an account outright, password and all (D31). Signs nobody in. */
+  createUser: (body: { email: string; display_name: string; role: UserRole; password: string }) =>
+    request<User>('/api/auth/users', { method: 'POST', body: JSON.stringify(body) }),
+  /**
+   * Give somebody a password, or replace theirs (D31).
+   *
+   * Ends **every** session they have, including the one they may be reading on —
+   * an administrator cannot know which of those needed the reset. The count comes
+   * back so the panel can say what happened.
+   */
+  setUserPassword: (id: number, password: string) =>
+    request<RevokedCount>(`/api/auth/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
   updateUser: (id: number, body: { role?: UserRole; is_active?: boolean }) =>
     request<User>(`/api/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };

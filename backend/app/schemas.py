@@ -457,6 +457,11 @@ class UserOut(UtcModel):
     display_name: str
     role: str
     is_active: bool
+    #: Whether they can sign in with a password at all (D31). Not the password,
+    #: not a hint at it — the one bit that decides whether signing out is
+    #: reversible for this person. Drives the warning on the account page and the
+    #: "No password" mark in the administrator's list.
+    has_password: bool
     created_at: datetime
     last_login_at: datetime | None
 
@@ -504,8 +509,31 @@ class ProfileUpdate(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    current_password: str
+    """Change a password, or set a first one.
+
+    ``current_password`` is optional because an account that joined by access
+    link has none to give (D31), and requiring it would leave exactly the people
+    who most need a password unable to set one. The server decides which case
+    this is from the stored hash, never from what the caller sends.
+    """
+
+    current_password: str | None = None
     new_password: str
+
+
+class UserCreate(BaseModel):
+    """An administrator making somebody an account outright (D31)."""
+
+    email: str
+    display_name: str = ""
+    role: str
+    password: str
+
+
+class PasswordSet(BaseModel):
+    """An administrator setting somebody else's password (D31)."""
+
+    password: str
 
 
 class SessionOut(UtcModel):
@@ -574,9 +602,12 @@ class RosterEntryOut(UtcModel):
     role: str
     note: str
     created_at: datetime
-    #: Null until they register. The admin list sorts on this so the people who
-    #: still need the link are at the top.
+    #: Null until they accept their link. The admin list sorts on this so the
+    #: people who still need sending are at the top.
     joined_at: datetime | None
+    #: Their personal link, or null if none has been issued or it was revoked.
+    #: Readable on purpose so an administrator can re-send it (D29).
+    access_url: str | None
 
 
 class RosterView(UtcModel):
@@ -591,10 +622,6 @@ class RosterView(UtcModel):
     total: int
     joined: int
     waiting: int
-    #: Null until a link has been created. Readable on purpose: it is meant to
-    #: be sent to a whole team and shown again later, and it is safe because the
-    #: roster is the permission, not the link (D28).
-    join_url: str | None
 
 
 class RosterAdd(BaseModel):
@@ -607,7 +634,11 @@ class RosterAdd(BaseModel):
     """
 
     addresses: str
-    role: str = "member"
+    #: Required, with no default (D30). It used to default to ``member``, which
+    #: meant a caller that said nothing about the role still got a working link
+    #: — and now that the role decides where that link *lands* somebody, an
+    #: unstated role is a decision made by omission. Naming it is the point.
+    role: str
     note: str = ""
 
 
@@ -627,6 +658,46 @@ class RosterRoleUpdate(BaseModel):
     role: str
 
 
-class JoinLink(UtcModel):
-    url: str
-    token: str
+#: Longest token either public door will look at. A real one is
+#: ``secrets.token_urlsafe(32)`` — 43 characters — and the column holding it is
+#: ``String(64)``, so anything past this cannot match a row and is only a way to
+#: make an unauthenticated caller's nonsense expensive. These are the two
+#: endpoints reachable with no session at all, which is why the cap is here and
+#: not left to the database comparison.
+MAX_TOKEN_LENGTH = 256
+
+
+class AcceptRequest(BaseModel):
+    """The whole of what somebody sends to join. One field, and no password."""
+
+    token: str = Field(max_length=MAX_TOKEN_LENGTH)
+
+
+class InvitationLookup(BaseModel):
+    """Ask what a link is before spending it.
+
+    A POST for a read, which is unusual enough to say why: the token is a live
+    credential (D29), and a GET would put it in the query string of every access
+    log between the browser and the application. The body keeps it out of them.
+    """
+
+    token: str = Field(max_length=MAX_TOKEN_LENGTH)
+
+
+class InvitationOut(UtcModel):
+    """What an access link says about its owner, without consuming it.
+
+    The page needs this before it acts, because the two roles land in different
+    places (D30): an administrator goes straight to the dashboard, a member is
+    shown the accept screen. Deciding that after accepting would be the wrong
+    order — accepting is the half that cannot be undone.
+    """
+
+    email: str
+    #: The account's role when there is one, the roster's promise when there is
+    #: not. A colleague promoted last week must not be treated as a member
+    #: because the entry that let them in still says so.
+    role: str
+    #: True once this address has an account, so the screen can say "welcome
+    #: back" instead of offering to create something that already exists.
+    joined: bool

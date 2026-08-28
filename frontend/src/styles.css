@@ -3314,6 +3314,40 @@ html[data-density='compact'] .score {
 .gate__note--quiet {
   color: var(--ink-muted);
 }
+/* Who this link belongs to, and what it makes them (D30).
+   The plate's specimen list, brought across to the light column: same
+   label-and-value shape, same wide micro-label against a plain value, so the two
+   halves of the page read as one system. A hairline above and below rather than a
+   card — it is a fact to check on the way past, not a panel with a job. */
+.gate__ident {
+  margin: 0 0 24px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+.gate__ident > div {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.gate__ident dt {
+  font-size: 0.66rem;
+  font-weight: 550;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.gate__ident dd {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--ink);
+  /* An address is long and must not push the column open. */
+  overflow-wrap: anywhere;
+}
 .gate__fields {
   display: flex;
   flex-direction: column;
@@ -3376,6 +3410,15 @@ html[data-density='compact'] .score {
 }
 .gate__formInner > *:nth-child(5) {
   animation-delay: 160ms;
+}
+/* The accept screen is the longest of these columns — eyebrow, title, the
+   identity rows, a note, the button and the footer — so the sequence runs to
+   seven rather than stopping at five and letting the tail arrive all at once. */
+.gate__formInner > *:nth-child(6) {
+  animation-delay: 200ms;
+}
+.gate__formInner > *:nth-child(7) {
+  animation-delay: 240ms;
 }
 
 /* Desktop-only is the standing rule, but a narrow window must degrade rather
@@ -3468,6 +3511,23 @@ html[data-density='compact'] .score {
   font-size: 0.82rem;
   line-height: 1.5;
   color: var(--ink-muted);
+}
+/* An account that can be locked out by its own Sign out button (D31).
+   Amber, and never colour alone — the sentence beside it says what the state is,
+   per DESIGN.md rule 3. A panel rather than a line because it is a consequence
+   the reader has to act on, not a field label. */
+.acct__warn {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--amber-ink);
+  border-radius: var(--radius-sm);
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.acct__warn b {
+  font-weight: 600;
 }
 .acct__sessions {
   list-style: none;
@@ -3594,6 +3654,31 @@ html[data-density='compact'] .score {
 .people__who b {
   font-weight: 600;
 }
+/* The badge sits under the address rather than beside the name: the column is
+   already narrow at 170px, and pushing it onto the name line is what makes a
+   long address wrap mid-word. */
+.people__who .badge {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+/* Setting somebody's password (D31). Takes the whole row width on its own line —
+   it is a deliberate act aimed at one person, and squeezing a password field in
+   beside the role control is how the right password lands on the wrong row. */
+.people__pw {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.people__pw .input {
+  flex: 1;
+  min-width: 14rem;
+}
+.people__pwopen {
+  flex: none;
+}
 .people__when {
   flex: none;
   font-size: 0.74rem;
@@ -3602,15 +3687,59 @@ html[data-density='compact'] .score {
   flex: none;
 }
 
-/* The workspace roster (D28). Reuses the People list, with one addition: an
-   address that has not joined yet is the row an administrator is looking for,
-   so it keeps full contrast while joined rows recede. */
-.people li.is-waiting .people__who b {
-  font-weight: 650;
+/* The workspace roster (D29). Two lines per person: who they are, then their
+   personal link — which is a live credential, so it gets the width and the
+   monospace treatment rather than being tucked into a row of controls.
+
+   Somebody who has not joined yet is who an administrator is looking for, so
+   those rows keep full contrast and joined ones recede. */
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
-.people li:not(.is-waiting):not(.is-off) .people__who b {
+.roster li {
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.roster li:first-child {
+  border-top: 0;
+}
+.roster li.is-joined .roster__who b {
   color: var(--ink-soft);
   font-weight: 550;
+}
+.roster__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.79rem;
+}
+.roster__who {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.roster__who b {
+  font-weight: 650;
+}
+.roster__role {
+  flex: none;
+}
+.roster__link {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+/* Where this person's link lands them, said in words (D30). Sits directly under
+   the link it describes, at the size of a caption rather than a status — it
+   answers a question about the row above it, it is not news. */
+.roster__lands {
+  margin: 6px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
 }
 .roster__counts {
   margin: 0 0 12px;

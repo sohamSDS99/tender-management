@@ -1,4 +1,4 @@
-"""One address that cannot be demoted, deactivated, or moved off itself (D29).
+"""One address that cannot be demoted, deactivated, or moved off itself (D32).
 
 The last-administrator guard protects the *deployment* — it stops anyone
 removing the final way back in. It does not protect a *person*: with three

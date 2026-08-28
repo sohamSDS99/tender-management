@@ -1,19 +1,27 @@
-"""The workspace roster, and the join link that goes with it.
+"""The workspace roster: who belongs, and the personal link that lets them in.
 
-Two pieces, and the relationship between them is the whole design:
+Each entry carries **its own durable access link**, and that link is the whole
+credential. Opening it and pressing Accept creates the account if it does not
+exist yet and signs the person in. There is no password at any point, now or
+later (D29).
 
-* the **roster** is a list of addresses permitted to hold an account
-* the **join link** is a durable token that everybody shares
+This reverses what D28 said one day earlier, and the reversal is worth naming
+because the code still has to be read in that light. D28's rule was "the address
+is the permission, not the link", which is what made *one* link safe to share
+with a whole team. D29 asked for the opposite: nothing to type, nothing to
+remember, just accept. Once clicking is enough, the link necessarily **is** the
+credential — whoever holds it is that person.
 
-Neither works alone. The link without a roster entry is refused; a roster entry
-without the link cannot register. That is what lets the link be stored readably,
-handed out to a whole team, and shown again next month — on its own it opens
-nothing, and the only people it helps are people already welcome.
+Everything that follows from that is deliberate:
 
-Contrast with the single-use invites in ``accounts.py``, which are still here for
-the occasional outsider: there the *token* is the permission, so it is hashed,
-single-use, expiring, and unrecoverable once shown. Both mechanisms exist because
-they answer different questions — "let my team in" and "let this one person in".
+* links are **per person**, never shared, because a shared one would let anybody
+  who saw it become somebody
+* they are **durable**, so the same link works next month on a new laptop, which
+  is the only way "nothing else is needed" survives past the first session
+* they are stored **readably**, so an administrator can re-send one
+* they are **revocable** by setting the token to null, which is the answer to a
+  link that has leaked and the reason there is no separate revoked flag to
+  disagree with the token
 """
 
 from __future__ import annotations
@@ -25,7 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
-from app.models import KEY_JOIN_TOKEN, ROLES, AppSetting, RosterEntry, User, utcnow
+from app.models import ROLES, RosterEntry, User, utcnow
 from app.services.accounts import AccountError, NotPermitted, normalise_email
 from app.settings import Settings
 
@@ -42,52 +50,6 @@ MAX_BULK_ADDRESSES = 200
 
 class RosterError(AccountError):
     status = 422
-
-
-# --- the join token ---------------------------------------------------------
-
-
-def get_join_token(db: Session) -> str | None:
-    """The current token, or None if no link has ever been created."""
-    row = db.get(AppSetting, KEY_JOIN_TOKEN)
-    return row.value if row and row.value else None
-
-
-def rotate_join_token(db: Session) -> str:
-    """Mint a new token, invalidating the previous one.
-
-    The only way to withdraw a link that has been shared too widely. Everyone
-    who has not joined yet needs the new link; everyone who already has an
-    account is unaffected, because the token grants registration and nothing
-    else.
-    """
-    token = secrets.token_urlsafe(TOKEN_BYTES)
-    row = db.get(AppSetting, KEY_JOIN_TOKEN)
-    if row is None:
-        db.add(AppSetting(key=KEY_JOIN_TOKEN, value=token))
-    else:
-        row.value = token
-    db.commit()
-    log_ctx(logger, logging.INFO, "workspace join link rotated")
-    return token
-
-
-def join_url(token: str, settings: Settings) -> str:
-    """Where to send the team. Read by AuthPage exactly like ``?invite=``."""
-    return f"{settings.app_base_url}/?join={token}"
-
-
-def token_matches(db: Session, candidate: str) -> bool:
-    """Constant-time comparison against the stored token.
-
-    Compared in constant time even though the roster is the real gate: a timing
-    oracle on this value would let somebody discover the link, and the link plus
-    a guess at a colleague's address is a worse position than either alone.
-    """
-    current = get_join_token(db)
-    if not current or not candidate:
-        return False
-    return secrets.compare_digest(candidate, current)
 
 
 # --- the roster -------------------------------------------------------------
@@ -131,6 +93,47 @@ def parse_addresses(raw: str) -> list[str]:
     if not out:
         raise RosterError("Enter at least one email address.")
     return out
+
+
+def issue_access_token(db: Session, entry: RosterEntry) -> str:
+    """Mint this person's link, replacing any previous one.
+
+    The same call creates the first link and replaces a leaked one, because they
+    are the same operation. Replacing does **not** sign the person out — the
+    token grants sign-in, and a session already established stands on its own.
+    Cutting somebody off entirely is revoke *plus* deactivating the account.
+    """
+    entry.access_token = secrets.token_urlsafe(TOKEN_BYTES)
+    db.commit()
+    log_ctx(logger, logging.INFO, "access link issued", entry=entry.id)
+    return entry.access_token
+
+
+def revoke_access_token(db: Session, entry: RosterEntry) -> None:
+    """Withdraw the link. Null token means no link — never issued, or revoked."""
+    entry.access_token = None
+    db.commit()
+    log_ctx(logger, logging.INFO, "access link revoked", entry=entry.id)
+
+
+def access_url(token: str, settings: Settings) -> str:
+    """The link an administrator sends. Read by AuthPage as ``?accept=``."""
+    return f"{settings.app_base_url}/?accept={token}"
+
+
+def entry_for_token(db: Session, token: str) -> RosterEntry | None:
+    """Find whose link this is, or None.
+
+    A plain indexed lookup rather than a constant-time scan. The token is 32
+    bytes of `secrets` entropy in a unique index, so there is no useful timing
+    signal to leak — and a comparison that walked every row to be "constant
+    time" would be a denial-of-service surface of its own.
+    """
+    if not token or not token.strip():
+        return None
+    return db.execute(
+        select(RosterEntry).where(RosterEntry.access_token == token.strip())
+    ).scalar_one_or_none()
 
 
 def get_entry(db: Session, email: str) -> RosterEntry | None:
@@ -191,15 +194,31 @@ def add_addresses(
 
 
 def set_entry_role(db: Session, entry: RosterEntry, role: str) -> RosterEntry:
-    """Change the role a *future* account will get.
+    """Change the role a *future* account will get, and withdraw the old link.
 
     Deliberately does not touch an account that already exists. Somebody who
     joined last week keeps the role they were given; moving them is what
     PATCH /api/auth/users is for, and doing it as a side effect of a roster edit
     would be a change nobody asked for happening in the wrong place.
+
+    **Re-roling somebody who has not joined revokes their link (D30).** Since the
+    role decides where the link *lands* them — an administrator goes straight to
+    the dashboard, a member is shown the accept screen — a link already sent
+    would quietly start behaving differently from the one the administrator
+    described when they sent it. Revoking makes that visible: the row shows no
+    link, and issuing a new one is the deliberate act that says "this is now an
+    administrator's link". It is also the mechanical form of the rule that the
+    role is set *before* a link exists.
+
+    Left alone once they have joined, because then the link is their only
+    credential and revoking it on a roster edit that changes nothing about their
+    account would lock them out for no reason.
     """
     if role not in ROLES:
         raise RosterError(f"Unknown role {role!r}.")
+    if role != entry.role and not entry.has_joined and entry.has_link:
+        entry.access_token = None
+        log_ctx(logger, logging.INFO, "access link revoked by role change", entry=entry.id)
     entry.role = role
     db.commit()
     return entry
@@ -235,6 +254,15 @@ def claim(db: Session, entry: RosterEntry, user: User) -> None:
     """Record that this address has become an account. Caller commits."""
     entry.joined_user_id = user.id
     entry.joined_at = utcnow()
+
+
+def with_links(db: Session) -> int:
+    """How many entries currently have a usable link."""
+    return int(
+        db.execute(
+            select(func.count(RosterEntry.id)).where(RosterEntry.access_token.isnot(None))
+        ).scalar_one()
+    )
 
 
 def counts(db: Session) -> dict[str, int]:

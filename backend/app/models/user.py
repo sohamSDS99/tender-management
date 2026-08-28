@@ -69,6 +69,16 @@ class User(Base):
     def is_admin(self) -> bool:
         return self.role == ROLE_ADMIN
 
+    @property
+    def has_password(self) -> bool:
+        """False for an account that can only get in with its access link (D29).
+
+        Reported to the owner and to administrators (D31) because it is the
+        difference between "signing out logs me out" and "signing out locks me
+        out", and nobody could see which of those they were in.
+        """
+        return bool(self.password_hash)
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User {self.email} role={self.role} active={self.is_active}>"
 

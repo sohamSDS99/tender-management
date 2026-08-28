@@ -23,12 +23,15 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Invite, RosterEntry, User, UserSession, utcnow
 from app.schemas import (
+    AcceptRequest,
+    InvitationLookup,
+    InvitationOut,
     InviteCreate,
     InviteCreated,
     InviteOut,
-    JoinLink,
     LoginRequest,
     PasswordChange,
+    PasswordSet,
     ProfileUpdate,
     RegisterRequest,
     RevokedCount,
@@ -40,6 +43,7 @@ from app.schemas import (
     SessionOut,
     SessionState,
     UserAdminUpdate,
+    UserCreate,
     UserOut,
 )
 from app.security import Principal, current_principal, require_admin, require_principal, settings_dep
@@ -183,6 +187,67 @@ def register(
     return _user_out(user)
 
 
+@router.post("/invitation", response_model=InvitationOut, summary="What an access link is")
+def read_invitation(
+    payload: InvitationLookup,
+    db: Session = Depends(get_db),
+) -> InvitationOut:
+    """Who a link belongs to and what it will make them. Spends nothing.
+
+    Public, like ``/accept`` and for the same reason: the caller has no session,
+    the token is what stands in for one. It answers the holder of a link with
+    their own address and their own role, and holding the link already *is*
+    being that person (D29) — so this discloses nothing they do not have. To
+    anybody without a valid token it discloses nothing at all.
+
+    The page calls this first because the two roles land in different places
+    (D30). An administrator's link enters the dashboard with no click; a
+    member's shows the accept screen. Both need to be known *before* accepting,
+    which is the irreversible half.
+
+    **This does not weaken "accepting is a POST, never a GET".** A chat client
+    unfurling the link fetches the page's HTML and runs none of its JavaScript,
+    so no unfurl reaches this endpoint or ``/accept``. The click that is skipped
+    for an administrator is skipped by a real browser executing the app, which
+    is a person opening their link and nothing else.
+    """
+    try:
+        invitation = accounts.describe_access_link(db, payload.token)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return InvitationOut(email=invitation.email, role=invitation.role, joined=invitation.joined)
+
+
+@router.post("/accept", response_model=UserOut, summary="Open an access link")
+def accept(
+    payload: AcceptRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> UserOut:
+    """Accept an invitation: create the account if needed, and sign in. No password.
+
+    Public, necessarily - the caller has no session, which is the point of being
+    here. What stands in for one is the token, which *is* the credential (D29).
+
+    A POST rather than a GET on the link itself, deliberately. Slack and every
+    other chat client fetches a URL to build a preview; if opening the link were
+    a GET that established an account, an unfurl would consume the invitation
+    before the person ever saw it.
+    """
+    try:
+        user = accounts.accept_access_link(db, payload.token, settings=settings)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+
+    token, _session = accounts.start_session(
+        db, user, user_agent=request.headers.get("user-agent", ""), settings=settings
+    )
+    _set_cookie(response, token, settings)
+    return _user_out(user)
+
+
 @router.post("/login", response_model=UserOut, summary="Sign in")
 def login(
     payload: LoginRequest,
@@ -251,14 +316,20 @@ def update_me(
     return _user_out(user)
 
 
-@router.post("/me/password", response_model=RevokedCount, summary="Change your password")
+@router.post("/me/password", response_model=RevokedCount, summary="Set or change your password")
 def change_password(
     payload: PasswordChange,
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
     settings: Settings = Depends(settings_dep),
 ) -> RevokedCount:
-    """Rotates the password and ends every *other* session.
+    """Sets a first password, or rotates an existing one, and ends every *other* session.
+
+    ``current_password`` is optional, and which case this is comes from the
+    stored hash rather than from what the caller sent (D31). An account that
+    joined by access link has no password to prove, and requiring one would leave
+    precisely the people who most need a password unable to give themselves one —
+    they are the ones for whom signing out is a lockout.
 
     The count comes back so the dashboard can say what happened. "Password
     changed" alone leaves a person wondering whether the laptop they are worried
@@ -360,6 +431,73 @@ def list_users(_: Principal = Depends(require_admin), db: Session = Depends(get_
     return [_user_out(user) for user in accounts.list_users(db)]
 
 
+@router.post("/users", response_model=UserOut, status_code=201, summary="Create an account")
+def create_user(
+    payload: UserCreate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> UserOut:
+    """An administrator makes somebody an account, password and all (D31).
+
+    The fourth door, and the only one an administrator drives end to end. The
+    other three each hand the password decision to somebody else: bootstrap and a
+    single-use invitation ask the new person to choose one, and an access link
+    never involves a password at all — which is how somebody ends up able to get
+    in exactly once and then not again.
+
+    No session is started. They sign in themselves, so the administrator has to
+    deliver the password the same way they already deliver an access link.
+    """
+    try:
+        user = accounts.create_account(
+            db,
+            principal.user,
+            email=payload.email,
+            display_name=payload.display_name,
+            role=payload.role,
+            password=payload.password,
+            settings=settings,
+        )
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return _user_out(user)
+
+
+@router.post(
+    "/users/{user_id}/password",
+    response_model=RevokedCount,
+    summary="Set somebody's password",
+)
+def set_user_password(
+    user_id: int,
+    payload: PasswordSet,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> RevokedCount:
+    """Give somebody a password, or replace the one they have (D31).
+
+    The remedy for the trap this record exists to close: somebody joined by
+    access link, signed out, and no longer has the link. Until now the only fix
+    was a shell on the deployment host, which is not a fix an administrator has
+    at nine in the evening.
+
+    **Every session of theirs ends, including the one they are reading on.** The
+    administrator cannot know which of those sessions is the one that needed
+    changing, so all of them go, and the count comes back so the panel can say
+    what happened.
+    """
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="No such account.")
+    try:
+        revoked = accounts.set_password(db, principal.user, target, payload.password, settings)
+    except accounts.AccountError as exc:
+        raise _fail(exc) from None
+    return RevokedCount(revoked=revoked)
+
+
 @router.patch("/users/{user_id}", response_model=UserOut, summary="Change a role, or deactivate")
 def update_user(
     user_id: int,
@@ -391,7 +529,7 @@ def update_user(
 # --- the workspace roster (D28) ---------------------------------------------
 
 
-def _roster_out(entry: RosterEntry) -> RosterEntryOut:
+def _roster_out(entry: RosterEntry, settings: Settings) -> RosterEntryOut:
     return RosterEntryOut(
         id=entry.id,
         email=entry.email,
@@ -399,15 +537,14 @@ def _roster_out(entry: RosterEntry) -> RosterEntryOut:
         note=entry.note,
         created_at=entry.created_at,
         joined_at=entry.joined_at,
+        access_url=roster.access_url(entry.access_token, settings) if entry.access_token else None,
     )
 
 
 def _roster_view(db: Session, settings: Settings) -> RosterView:
-    token = roster.get_join_token(db)
     return RosterView(
-        entries=[_roster_out(e) for e in roster.list_entries(db)],
+        entries=[_roster_out(e, settings) for e in roster.list_entries(db)],
         **roster.counts(db),
-        join_url=roster.join_url(token, settings) if token else None,
     )
 
 
@@ -431,20 +568,30 @@ def add_to_roster(
     payload: RosterAdd,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
 ) -> RosterAdded:
-    """Add a pasted list of addresses. Adding is not sending.
+    """Add a pasted list of addresses, each with its own link ready to send.
 
-    Nobody is notified — this records who is *allowed* in. Delivering the join
-    link stays a separate, deliberate act, which is why the link is shown
-    alongside rather than fired off automatically.
+    A link is minted for every new entry immediately, because an entry without
+    one is a row that can do nothing — the administrator would have to click
+    again on each person before any of them could join.
+
+    Nobody is notified. Delivering the link stays a deliberate act, which is the
+    whole workflow: the administrator sends each person theirs.
+
+    ``role`` is required rather than defaulted (D30). The role now decides where
+    the link lands its holder, so a request that does not name one is asking for
+    a link whose behaviour nobody chose.
     """
     try:
         added, existing = roster.add_addresses(
             db, principal.user, raw=payload.addresses, role=payload.role, note=payload.note
         )
+        for entry in added:
+            roster.issue_access_token(db, entry)
     except accounts.AccountError as exc:
         raise _fail(exc) from None
-    return RosterAdded(added=[_roster_out(e) for e in added], already_present=existing)
+    return RosterAdded(added=[_roster_out(e, settings) for e in added], already_present=existing)
 
 
 @router.patch("/roster/{entry_id}", response_model=RosterEntryOut, summary="Change the role on joining")
@@ -453,6 +600,7 @@ def update_roster_entry(
     payload: RosterRoleUpdate,
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
 ) -> RosterEntryOut:
     """Changes what a *future* account gets, not an existing one.
 
@@ -467,7 +615,7 @@ def update_roster_entry(
         entry = roster.set_entry_role(db, entry, payload.role)
     except accounts.AccountError as exc:
         raise _fail(exc) from None
-    return _roster_out(entry)
+    return _roster_out(entry, settings)
 
 
 @router.delete("/roster/{entry_id}", status_code=204, summary="Remove an address")
@@ -494,18 +642,42 @@ def remove_from_roster(
     return Response(status_code=204)
 
 
-@router.post("/roster/join-link", response_model=JoinLink, summary="Create or replace the join link")
-def rotate_join_link(
+@router.post("/roster/{entry_id}/link", response_model=RosterEntryOut, summary="Issue or replace their link")
+def issue_access_link(
+    entry_id: int,
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
     settings: Settings = Depends(settings_dep),
-) -> JoinLink:
-    """Mints a new link and kills the previous one.
+) -> RosterEntryOut:
+    """Mint this person's link, replacing any previous one.
 
-    The same endpoint creates the first link and replaces a leaked one, because
-    they are the same operation and a separate "create" would be a second door
-    to keep in step. Anyone who has already registered is unaffected: the token
-    grants registration and nothing else.
+    The same endpoint creates the first and replaces a leaked one, because they
+    are the same operation. Replacing does **not** sign them out: the link grants
+    sign-in, and a session already established stands on its own. Cutting
+    somebody off entirely is this plus deactivating the account.
     """
-    token = roster.rotate_join_token(db)
-    return JoinLink(url=roster.join_url(token, settings), token=token)
+    entry = db.get(RosterEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No such roster entry.")
+    roster.issue_access_token(db, entry)
+    return _roster_out(entry, settings)
+
+
+@router.delete("/roster/{entry_id}/link", status_code=204, summary="Revoke their link")
+def revoke_access_link(
+    entry_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Withdraw the link. They can no longer sign in with it.
+
+    Does not end a session they already hold - that is
+    `PATCH /api/auth/users/{id}` with `is_active: false`, which also stops them
+    coming back. Revoking alone is the right move for a link that leaked, where
+    the person is still welcome.
+    """
+    entry = db.get(RosterEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No such roster entry.")
+    roster.revoke_access_token(db, entry)
+    return Response(status_code=204)

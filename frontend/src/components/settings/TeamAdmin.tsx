@@ -42,15 +42,151 @@ export function TeamAdmin({ auth }: { auth: Auth }) {
   return (
     <>
       {/*
-        Order follows how the work actually happens: the workspace list and its
-        shared link first, because that is the ordinary way somebody joins;
-        single-use invitations second, kept for the outsider who is not on the
-        list at all; then everyone who already has an account.
+        Order follows how the work actually happens. Adding somebody with a
+        password comes first because it is now the answer to "put these people
+        in" and the only one that leaves them able to sign back in after a sign
+        out (D31); the workspace list and its links second, because a link is
+        still the frictionless first entry; single-use invitations third, kept for
+        the outsider who is not on the list at all; then everyone who already has
+        an account.
       */}
+      <AddPersonSection onChanged={load} />
       <WorkspaceRoster />
       <InviteSection invites={invites} onChanged={load} />
       <PeopleSection users={users} auth={auth} onChanged={load} error={error} />
     </>
+  );
+}
+
+/**
+ * Add somebody with a password, so signing out is never a lockout (D31).
+ *
+ * The fourth way an account can exist, and the only one an administrator drives
+ * end to end. The other three each hand the password decision to somebody else:
+ * bootstrap and a single-use invitation ask the new person to choose one, and an
+ * access link never involves a password at all — which is exactly how a colleague
+ * ends up able to get in once and then, after pressing Sign out, not again.
+ *
+ * The password is typed here and delivered by the administrator, like every other
+ * credential in this product. It is shown in the clear while being typed on
+ * purpose: this is somebody dictating a password to a colleague, and a masked
+ * field they cannot read back is how a typo becomes a support request.
+ */
+function AddPersonSection({ onChanged }: { onChanged: () => void }) {
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!role) return;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const created = await authApi.createUser({
+        email: email.trim(),
+        display_name: name.trim(),
+        role,
+        password,
+      });
+      setEmail('');
+      setName('');
+      setPassword('');
+      setStatus(
+        `${created.email} can now sign in with that password. Send it to them — nothing was emailed.`,
+      );
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not create that account.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      title="Add a person"
+      note="Creates the account and sets its password, so they can sign in with their email address from the start — and again after they sign out. Nobody is emailed; send them the password yourself."
+    >
+      <form onSubmit={submit}>
+        <SettingsRow label="Email">
+          <input
+            className="input"
+            type="email"
+            required
+            value={email}
+            placeholder="colleague@sdsmanager.com"
+            autoComplete="off"
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </SettingsRow>
+        <SettingsRow label="Name" hint="Optional. Their address is used if you leave it blank.">
+          <input
+            className="input"
+            type="text"
+            value={name}
+            placeholder="How their name should appear"
+            autoComplete="off"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Role"
+          hint="Required. An administrator can add people and change roles; a member reads tenders and keeps a profile."
+        >
+          <div className="seg" role="group" aria-label="Role for the new account">
+            {(['member', 'admin'] as UserRole[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={role === value ? 'is-on' : undefined}
+                aria-pressed={role === value}
+                onClick={() => setRole(value)}
+              >
+                {value === 'admin' ? 'Administrator' : 'Member'}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          label="Password"
+          hint="Shown as you type, because you have to read it back to them. They can change it themselves once they are in."
+        >
+          <input
+            className="input"
+            type="text"
+            required
+            value={password}
+            autoComplete="new-password"
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </SettingsRow>
+        <div className="acct__actions">
+          <button
+            type="submit"
+            className="btn btn--primary btn--sm"
+            disabled={busy || !email.trim() || !password || role === null}
+            title={role === null ? 'Choose a role first' : undefined}
+          >
+            {busy ? 'Creating…' : 'Create the account'}
+          </button>
+          {role === null && email.trim() ? (
+            <span className="muted">Choose Member or Administrator.</span>
+          ) : null}
+          {status ? <span className="acct__ok">{status}</span> : null}
+          {error ? (
+            <span className="acct__err" role="alert">
+              {error}
+            </span>
+          ) : null}
+        </div>
+      </form>
+    </SettingsSection>
   );
 }
 
@@ -265,8 +401,39 @@ function PeopleSection({
 }) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // Which row's password form is open, and what is in it. One at a time: this is
+  // a deliberate act aimed at one person, and a grid of open password boxes
+  // invites putting the right password on the wrong row.
+  const [settingId, setSettingId] = useState<number | null>(null);
+  const [password, setPassword] = useState('');
+  const [done, setDone] = useState<string | null>(null);
 
   const activeAdmins = users.filter((user) => user.role === 'admin' && user.is_active).length;
+
+  const givePassword = async (user: User, event: FormEvent) => {
+    event.preventDefault();
+    setBusyId(user.id);
+    setFailure(null);
+    setDone(null);
+    try {
+      const { revoked } = await authApi.setUserPassword(user.id, password);
+      setSettingId(null);
+      setPassword('');
+      // Says what it did to them, not just that it worked. An administrator who
+      // does not know they have just signed somebody out will hear about it from
+      // that person instead.
+      setDone(
+        revoked === 0
+          ? `${user.email} can now sign in with that password. Send it to them.`
+          : `${user.email} can now sign in with that password, and ${revoked} ${revoked === 1 ? 'session was' : 'sessions were'} signed out. Send it to them.`,
+      );
+      onChanged();
+    } catch (caught) {
+      setFailure(caught instanceof ApiError ? caught.message : 'Could not set that password.');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const change = async (user: User, body: { role?: UserRole; is_active?: boolean }) => {
     setBusyId(user.id);
@@ -284,7 +451,10 @@ function PeopleSection({
   };
 
   return (
-    <SettingsSection title="People" note="Everyone who has an account on this dashboard.">
+    <SettingsSection
+      title="People"
+      note="Everyone who has an account on this dashboard. Anybody marked no password can only get in with their access link — set one for them and signing out stops being a lockout."
+    >
       {error ? (
         <p className="acct__err" role="alert">
           {error}
@@ -299,6 +469,11 @@ function PeopleSection({
               <span className="people__who">
                 <b>{user.display_name}</b>
                 <span className="muted">{user.email}</span>
+                {user.has_password ? null : (
+                  // Never colour alone (DESIGN.md rule 3): the words are the
+                  // status and the tint only draws the eye to them.
+                  <span className="badge badge--amber">No password</span>
+                )}
               </span>
               <span className="people__when muted">
                 {user.last_login_at
@@ -343,10 +518,63 @@ function PeopleSection({
               >
                 {user.is_active ? 'Deactivate' : 'Reactivate'}
               </button>
+              {settingId === user.id ? (
+                <form className="people__pw" onSubmit={(event) => void givePassword(user, event)}>
+                  <input
+                    className="input"
+                    type="text"
+                    required
+                    autoFocus
+                    value={password}
+                    placeholder={`New password for ${user.email}`}
+                    autoComplete="new-password"
+                    aria-label={`New password for ${user.email}`}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn--sm btn--primary"
+                    disabled={busyId === user.id || !password}
+                  >
+                    {busyId === user.id ? 'Setting…' : 'Set it'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => {
+                      setSettingId(null);
+                      setPassword('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <span className="muted">
+                    Ends every session they have, including one they are reading on.
+                  </span>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--sm btn--ghost people__pwopen"
+                  onClick={() => {
+                    setSettingId(user.id);
+                    setPassword('');
+                    setDone(null);
+                  }}
+                  title={
+                    user.has_password
+                      ? 'Replace their password. Ends every session they have.'
+                      : 'Give them a password so signing out is not a lockout'
+                  }
+                >
+                  {user.has_password ? 'Reset password' : 'Set password'}
+                </button>
+              )}
             </li>
           );
         })}
       </ul>
+      {done ? <p className="acct__ok">{done}</p> : null}
       {failure ? (
         <p className="acct__err" role="alert">
           {failure}
