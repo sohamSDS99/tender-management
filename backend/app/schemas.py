@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer, field_validator
 
 from app.models.tender_feedback import IRRELEVANT
+from app.services import translator
 
 Verdict = Literal["relevant", "irrelevant"]
 
@@ -146,6 +147,36 @@ class TenderDetail(TenderListItem):
     @classmethod
     def _null_detail_list_is_empty(cls, value: Any) -> Any:
         return [] if value is None else value
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def needs_translation(self) -> bool:
+        """Whether the dashboard should offer a Translate button for this notice.
+
+        Decided here rather than in the browser because `language` is stored
+        inconsistently - `en`, `eng`, `English`, `pt` and `French` are all real
+        values in production - so a second normaliser in TypeScript would drift
+        from `translator.normalise_language` the first time a feed changed. The
+        browser receives a boolean and renders a button.
+        """
+        return translator.needs_translation(self.language, self.description)
+
+
+class TranslationOut(UtcModel):
+    """One notice's description in English.
+
+    ``cached`` is reported rather than hidden so the dashboard can say where the
+    text came from, and so a test can prove the second call did not hit the
+    provider - which is the only externally visible difference between a cache
+    that works and one that does not.
+    """
+
+    tender_id: int
+    source_language: str
+    target_language: str
+    text: str
+    cached: bool
+    provider: str
 
 
 class TenderPage(BaseModel):

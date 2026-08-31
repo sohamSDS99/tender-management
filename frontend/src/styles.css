@@ -1933,6 +1933,19 @@ html[data-density='compact'] .score {
   color: var(--ink-soft);
   white-space: pre-wrap;
 }
+/* The Translate control sits under the description it acts on, not in a toolbar:
+   it is about this one block of text, and only appears when the notice is not in
+   English. */
+.translate {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-top: 10px;
+}
+.translate__note {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
 .linklist {
   display: grid;
   gap: 6px;

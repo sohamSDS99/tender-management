@@ -9,12 +9,13 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import Select, and_, distinct, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.connectors.registry import SOURCE_NAMES, source_catalog
 from app.db import get_db
 from app.jobs.schedule import next_run_local, utc_cron_expressions
-from app.models import FetchRun, Source, Tender, utcnow
+from app.models import FetchRun, Source, Tender, TenderTranslation, utcnow
 from app.schemas import (
     AutomationStatus,
     CredentialRequest,
@@ -34,11 +35,12 @@ from app.schemas import (
     StatsResponse,
     TenderDetail,
     TenderPage,
+    TranslationOut,
     TriggerResponse,
     TriggerUpdate,
 )
 from app.security import has_cron_secret
-from app.services import automation, feedback, ingest, operator, schedule_settings, scheduler
+from app.services import automation, feedback, ingest, operator, schedule_settings, scheduler, translator
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
     SETTINGS_SECRETS,
@@ -478,6 +480,110 @@ def get_tender(tender_id: int, db: Session = Depends(get_db)) -> Tender:
     if row is None:
         raise HTTPException(status_code=404, detail="tender not found")
     return row
+
+
+@router.post(
+    "/api/tenders/{tender_id}/translate",
+    response_model=TranslationOut,
+    tags=["tenders"],
+    summary="Translate one notice's description into English",
+)
+def translate_tender(
+    tender_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(settings_dep),
+) -> TranslationOut:
+    """Translate on demand, once per notice, and remember the answer.
+
+    Deliberately **not** rate-limited, for the same reason marking a notice is
+    not (D27): this is something a person does while reading, in bursts, and the
+    cache means the provider is called once per notice for all time rather than
+    once per click. The cost control here is the cache, not a cooldown.
+
+    Not part of ingest either. A notice is never edited (D1) and translating 470
+    Portuguese descriptions on the chance somebody opens one would spend far more
+    than it saves - the button is the signal that a human wants this one.
+    """
+    row = db.get(Tender, tender_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="tender not found")
+
+    if not translator.needs_translation(row.language, row.description):
+        # 409 rather than 400: the request is well-formed, the notice is simply
+        # not a thing that can be translated - already English, no description,
+        # or a language the feed never recorded.
+        raise HTTPException(
+            status_code=409,
+            detail="This notice has nothing to translate into English.",
+        )
+
+    cached = (
+        db.query(TenderTranslation)
+        .filter(
+            TenderTranslation.tender_id == tender_id,
+            TenderTranslation.target_language == translator.TARGET_LANGUAGE,
+        )
+        .one_or_none()
+    )
+    if cached is not None:
+        return TranslationOut(
+            tender_id=tender_id,
+            source_language=cached.source_language,
+            target_language=cached.target_language,
+            text=cached.text,
+            cached=True,
+            provider=cached.provider,
+        )
+
+    try:
+        result = translator.translate(row.description or "", row.language, settings)
+    except translator.TranslationUnavailable as exc:
+        # 502, because the failure is upstream and retrying is reasonable. The
+        # message is the one the exception carries - written for a reader.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    db.add(
+        TenderTranslation(
+            tender_id=tender_id,
+            source_language=result.source_language,
+            target_language=result.target_language,
+            provider=result.provider,
+            text=result.text,
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two people pressed Translate on the same notice at the same moment.
+        # The unique constraint decided which write won; re-read it rather than
+        # failing a request whose answer now exists. Same shape as
+        # accounts.accept_access_link.
+        db.rollback()
+        winner = (
+            db.query(TenderTranslation)
+            .filter(
+                TenderTranslation.tender_id == tender_id,
+                TenderTranslation.target_language == translator.TARGET_LANGUAGE,
+            )
+            .one()
+        )
+        return TranslationOut(
+            tender_id=tender_id,
+            source_language=winner.source_language,
+            target_language=winner.target_language,
+            text=winner.text,
+            cached=True,
+            provider=winner.provider,
+        )
+
+    return TranslationOut(
+        tender_id=tender_id,
+        source_language=result.source_language,
+        target_language=result.target_language,
+        text=result.text,
+        cached=False,
+        provider=result.provider,
+    )
 
 
 def _feedback_answer(db: Session, tender_id: int, verdict: str | None, reclassified: int) -> FeedbackResponse:

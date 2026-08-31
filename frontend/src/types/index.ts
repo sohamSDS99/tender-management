@@ -87,6 +87,24 @@ export interface TenderDetail extends Tender {
   created_at: string;
   updated_at: string;
   raw_payload: Record<string, unknown> | null;
+  /**
+   * Whether to offer a Translate button. Computed by the API, never here: the
+   * `language` column stores `en`, `eng`, `English`, `pt` and `French` in
+   * production, and a second normaliser in TypeScript would drift from
+   * `translator.normalise_language` the first time a feed changed.
+   */
+  needs_translation: boolean;
+}
+
+/** One notice's description in English, from POST /api/tenders/{id}/translate. */
+export interface Translation {
+  tender_id: number;
+  source_language: string;
+  target_language: string;
+  text: string;
+  /** True when it came from the stored cache rather than the provider. */
+  cached: boolean;
+  provider: string;
 }
 
 export interface TenderPage {

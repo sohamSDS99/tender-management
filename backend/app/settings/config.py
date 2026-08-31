@@ -216,6 +216,18 @@ class Settings(BaseSettings):
     login_max_failures: int = 8
     login_lockout_minutes: int = 15
 
+    # --- translation ---
+    # Which implementation in app/services/translator.py performs a translation.
+    # "google_free" is the keyless endpoint: no account, no key, and no support
+    # path if it changes shape. A keyed provider is a new _PROVIDERS entry and a
+    # change here, never a change at a call site.
+    translation_provider: str = "google_free"
+    # Per request, not per notice: a description longer than this is split on
+    # sentence boundaries and reassembled. The endpoint took 8,000 characters in
+    # testing, so this leaves generous headroom.
+    translation_max_chunk_chars: int = 4000
+    translation_timeout_seconds: int = 20
+
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to
     # {public_app_url}/?tender={id}, which Dashboard.tsx already reads.

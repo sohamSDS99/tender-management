@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '../api/client';
-import type { FeedbackResponse, TenderDetail, Verdict } from '../types';
+import type { FeedbackResponse, TenderDetail, Translation, Verdict } from '../types';
 import type { ScoreBands } from '../labels';
 import {
   countryLabel,
@@ -12,6 +12,7 @@ import {
   formatDate,
   formatDateTime,
   formatValue,
+  languageLabel,
   linkLabel,
   safeHref,
   scoreTone,
@@ -69,16 +70,38 @@ export function DetailPanel({
   // Kept separate from `error`: a failed mark must not replace the notice the
   // reader is looking at with an error page.
   const [markError, setMarkError] = useState<string | null>(null);
+  // Translation state, all three reset per notice below. j/k steps through the
+  // list without closing the panel, so state left behind would show one
+  // notice's English under the next notice's Portuguese.
+  const [translation, setTranslation] = useState<Translation | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const open = tenderId !== null;
+
+  // Which notice is on screen right now, readable from inside an awaited
+  // callback. `tenderId` closed over in `translate` is the notice the request
+  // was *for*; this is the one the answer would land on.
+  const shownId = useRef<number | null>(tenderId);
+  shownId.current = tenderId;
+
+  const resetTranslation = useCallback(() => {
+    setTranslation(null);
+    setTranslating(false);
+    setTranslateError(null);
+    setShowOriginal(false);
+  }, []);
 
   useEffect(() => {
     if (tenderId === null) {
       setTender(null);
       setError(null);
+      resetTranslation();
       return;
     }
     let cancelled = false;
     setMarkError(null);
+    resetTranslation();
     api
       .tender(tenderId)
       .then(
@@ -97,7 +120,7 @@ export function DetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [tenderId]);
+  }, [tenderId, resetTranslation]);
 
   const flash = useCallback((what: string) => {
     setCopied(what);
@@ -134,6 +157,40 @@ export function DetailPanel({
     },
     [tenderId, note, onFeedback],
   );
+
+  /**
+   * Fetch the English text for this notice, once.
+   *
+   * Guarded on `shownId` rather than a `cancelled` flag, and the difference is
+   * the reason: this is a callback, not an effect, so there is no cleanup to
+   * flip. j/k moves to the next notice without closing the panel, so a reply
+   * arriving after the move would drop one notice's English onto another's.
+   *
+   * No optimistic state and no retry loop. The button says what it is doing, and
+   * a failure leaves the original text on screen with the reason underneath -
+   * the reader can press it again.
+   */
+  const translate = useCallback(async () => {
+    if (tenderId === null) return;
+    const requestedFor = tenderId;
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const result = await api.translate(requestedFor);
+      // The notice moved on while this was in flight. Dropping the answer is
+      // right: the loader effect has already cleared this state for the notice
+      // now on screen, and writing to it would put this Portuguese notice's
+      // English under a different one.
+      if (shownId.current !== requestedFor) return;
+      setTranslation(result);
+      setShowOriginal(false);
+    } catch (err) {
+      if (shownId.current !== requestedFor) return;
+      setTranslateError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      if (shownId.current === requestedFor) setTranslating(false);
+    }
+  }, [tenderId]);
 
   // Split deliberately into two effects.
   //
@@ -556,7 +613,43 @@ export function DetailPanel({
             {tender.description ? (
               <section className="dsection">
                 <h3>Description</h3>
-                <p className="desc">{tender.description}</p>
+                <p className="desc">
+                  {translation && !showOriginal ? translation.text : tender.description}
+                </p>
+                {tender.needs_translation ? (
+                  <div className="translate">
+                    {translation ? (
+                      <>
+                        <p className="translate__note">
+                          {showOriginal
+                            ? `Original text, in ${languageLabel(translation.source_language)}.`
+                            : `Translated from ${languageLabel(translation.source_language)} by machine — read the original notice before relying on it.`}
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => setShowOriginal((shown) => !shown)}
+                        >
+                          {showOriginal ? 'Show English' : 'Show original'}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={translate}
+                        disabled={translating}
+                      >
+                        {translating ? 'Translating…' : 'Translate'}
+                      </button>
+                    )}
+                    {translateError ? (
+                      <p className="notice notice--bad" role="alert">
+                        {translateError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             ) : null}
 

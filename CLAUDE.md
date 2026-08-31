@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (32 records, D1–D32).
+`docs/DECISIONS.md` explains why it is built this way (33 records, D1–D33).
 
 ## What this is
 

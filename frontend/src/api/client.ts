@@ -13,6 +13,7 @@ import type {
   TenderDetail,
   TenderFilters,
   TenderPage,
+  Translation,
   TriggerResponse,
   MatchingRules,
   MatchingRulesPatch,
@@ -197,6 +198,19 @@ export const api = {
     }),
   /** Reload the relevance config and re-score every stored notice. */
   rescore: () => request<RescoreResponse>('/api/tenders/rescore', { method: 'POST' }),
+
+  /**
+   * Translate one notice's description into English.
+   *
+   * POST because it writes: the answer is cached per notice for all time, which
+   * is this feature's cost control - there is no cooldown, the same way marking
+   * a notice has none (D27). A 409 means the notice has nothing translatable
+   * (already English, no description, or no recorded language) and a 502 means
+   * the provider could not be reached; both carry a sentence written for the
+   * reader, which `request` surfaces as `ApiError.message`.
+   */
+  translate: (id: number) =>
+    request<Translation>(`/api/tenders/${id}/translate`, { method: 'POST' }),
 
   /**
    * Mark one notice relevant or not relevant (D27).
