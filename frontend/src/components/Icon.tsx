@@ -32,10 +32,21 @@ export type IconName =
   | 'grid'
   | 'user'
   | 'users'
-  | 'signout';
+  | 'signout'
+  | 'translate';
 
 const PATHS: Record<IconName, string[]> = {
   check: ['M4.5 12.5l4.5 4.5L19.5 6.5'],
+  // Two scripts side by side rather than a globe: a globe reads as
+  // "language of the site", and this button changes one block of text.
+  translate: [
+    'M3.5 5.5h8',
+    'M7 3.5v2',
+    'M9.5 5.5c0 3.9-2.4 7-6 8.5',
+    'M4.5 10c0 1.9 2.1 3.5 4.7 3.5',
+    'M12.5 20.5l4-9 4 9',
+    'M13.9 17.5h5.2',
+  ],
   warn: ['M12 9.5v4.5', 'M12 17.5h.01', 'M12 3.5 2.8 19.5h18.4L12 3.5z'],
   block: ['M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z', 'M9 15l6-6'],
   clock: ['M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z', 'M12 7.5V12l3 2'],

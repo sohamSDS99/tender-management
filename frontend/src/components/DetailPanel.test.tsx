@@ -204,6 +204,48 @@ describe('the Translate button appears only where it can work', () => {
   });
 });
 
+describe("it looks like the panel's other primary action", () => {
+  // Pinned because the first version shipped as a ghost button and read as a
+  // caption rather than something to press. The reference is "Open notice" in
+  // the same panel: filled, with a trailing icon.
+  // An anchor, not a button — it opens a URL. Querying only `button` made an
+  // earlier version of this test silently vacuous.
+  const notice = () =>
+    [...container.querySelectorAll('.btn')].find((el) => el.textContent?.trim() === 'Open notice');
+
+  it('is a filled primary button, not a ghost one', async () => {
+    await render();
+    const translate = button('Translate')!;
+    expect([...translate.classList]).toContain('btn--primary');
+    expect([...translate.classList]).not.toContain('btn--ghost');
+    expect([...translate.classList]).not.toContain('btn--sm');
+  });
+
+  it('carries a trailing icon, like Open notice does', async () => {
+    await render();
+    const svg = button('Translate')!.querySelector('svg');
+    expect(svg).toBeTruthy();
+    // Decorative: the meaning is in the label, so it must not be announced.
+    expect(svg!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('wears exactly the classes the Open notice control does', async () => {
+    // A weaker assertion than it looks: this is what stops the two drifting
+    // apart the next time either is restyled.
+    await render();
+    const link = notice();
+    expect(link, 'Open notice control not rendered - this test would be vacuous').toBeTruthy();
+    expect([...button('Translate')!.classList].sort()).toEqual([...link!.classList].sort());
+  });
+
+  it('keeps the filled treatment on the Show original toggle', async () => {
+    translateMock.mockResolvedValue(translation());
+    await render();
+    await click(button('Translate')!);
+    expect([...button('Show original')!.classList]).toContain('btn--primary');
+  });
+});
+
 describe('pressing it', () => {
   it('replaces the description with the English text', async () => {
     translateMock.mockResolvedValue(translation());

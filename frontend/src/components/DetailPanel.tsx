@@ -627,20 +627,22 @@ export function DetailPanel({
                         </p>
                         <button
                           type="button"
-                          className="btn btn--ghost btn--sm"
+                          className="btn btn--primary"
                           onClick={() => setShowOriginal((shown) => !shown)}
                         >
                           {showOriginal ? 'Show English' : 'Show original'}
+                          <Icon name="translate" size={13} />
                         </button>
                       </>
                     ) : (
                       <button
                         type="button"
-                        className="btn btn--ghost btn--sm"
+                        className="btn btn--primary"
                         onClick={translate}
                         disabled={translating}
                       >
                         {translating ? 'Translating…' : 'Translate'}
+                        <Icon name="translate" size={13} />
                       </button>
                     )}
                     {translateError ? (
