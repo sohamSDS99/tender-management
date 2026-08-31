@@ -15,13 +15,22 @@ are deliberately separate:
    provider is configuration rather than code - the same shape
    `app/services/mailer.py` uses for SMTP.
 
-**On the provider.** The default is Google's keyless `translate_a/single`
-endpoint, chosen by the operator knowing what it is: undocumented, unversioned,
-rate-limited by IP, and with no support path if it changes shape. It needs no
-key and no account, which is the whole reason it is here. Every translation is
-cached in `tender_translations`, so a notice is fetched from it once and never
-again - that is what keeps the request count proportional to *new* foreign
-notices a human actually opens, rather than to page views.
+**On the providers, and why there are two keyless ones.** Both are
+undocumented, unversioned and rate-limited by IP, chosen by the operator knowing
+that. The difference is measured, not theoretical:
+
+- ``mymemory`` is the **default**, because it is the only one that answers from a
+  datacenter. It caps a request at 500 characters and reports failure as a body
+  field inside an HTTP 200.
+- ``google_free`` gives better English on concatenated legal prose and takes
+  8,000 characters at a time, but answers **429 to Railway's egress IP** whatever
+  headers are sent - so it is the right choice from a laptop or the LAN
+  deployment, and useless in production.
+
+Every translation is cached in `tender_translations`, so a notice is fetched once
+and never again - that is what keeps the request count proportional to *new*
+foreign notices a human actually opens, rather than to page views, and it is
+what makes a keyless service with a daily character allowance workable at all.
 
 If it ever stops working, the fix is a new ``_PROVIDERS`` entry and a changed
 ``TRANSLATION_PROVIDER``, not a rewrite: `translate` is the only function that
@@ -296,9 +305,87 @@ def _google_free(chunks: list[str], source: str, settings: Settings, client: htt
     return out
 
 
+def _mymemory(chunks: list[str], source: str, settings: Settings, client: httpx.Client) -> list[str]:
+    """MyMemory's keyless endpoint. Works from a datacenter IP, unlike Google's.
+
+    **It answers HTTP 200 when it fails**, exactly like Slack's Web API (D22), so
+    the body's ``responseStatus`` is the answer and the status code is not. The
+    503-shaped case that matters is ``403 QUERY LENGTH LIMIT EXCEEDED``, which is
+    why ``MAX_CHUNK_CHARS`` per provider exists rather than one global setting -
+    500 characters is a hard cap here and a needless 8x more requests on Google.
+
+    ``de`` is an ordinary contact address, not a credential: supplying one raises
+    the anonymous daily allowance from 5,000 characters to 50,000. Omitted when
+    unset rather than sent empty, because an empty ``de`` is treated as invalid.
+    """
+    out: list[str] = []
+    for chunk in chunks:
+        params: dict[str, str] = {"q": chunk, "langpair": f"{source}|{TARGET_LANGUAGE}"}
+        contact = (settings.translation_contact_email or "").strip()
+        if contact:
+            params["de"] = contact
+        response = client.get(
+            "https://api.mymemory.translated.net/get",
+            params=params,
+            timeout=settings.translation_timeout_seconds,
+        )
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise TranslationUnavailable(
+                "The translation service answered in a shape this app does not understand."
+            ) from exc
+
+        # The status that matters is in the body. `responseStatus` arrives as an
+        # int or a string depending on the failure, so it is compared as a string.
+        status = str(payload.get("responseStatus", ""))
+        if status != "200":
+            detail = str(payload.get("responseDetails") or "")
+            log_ctx(
+                logger,
+                logging.WARNING,
+                "translation refused",
+                provider="mymemory",
+                status=status,
+                detail=detail[:200],
+            )
+            # Two different exhaustion messages, both real and neither containing
+            # the same word: "QUERY LENGTH LIMIT EXCEEDED..." for an over-long
+            # request and "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE
+            # TRANSLATIONS FOR TODAY..." for the daily allowance. Matching only
+            # "LIMIT" told a reader who had run out of quota to try again in a
+            # minute, which would never work.
+            loud = detail.upper()
+            if "USED ALL AVAILABLE" in loud or "AVAILABLE FREE TRANSLATIONS" in loud:
+                raise TranslationUnavailable(
+                    "The free translation service has used its daily allowance. "
+                    "Try again tomorrow, or configure a provider with a key."
+                )
+            if "LIMIT" in loud:
+                raise TranslationUnavailable(
+                    "The translation service refused this text as too long. "
+                    "This is a configuration problem, not a temporary one."
+                )
+            raise TranslationUnavailable(
+                "The translation service refused the request. Try again in a minute."
+            )
+
+        translated = str((payload.get("responseData") or {}).get("translatedText") or "")
+        if not translated.strip():
+            raise TranslationUnavailable("The translation service returned nothing.")
+        out.append(translated)
+    return out
+
+
+#: Longest text each provider accepts in one request. Enforced as a ceiling on
+#: TRANSLATION_MAX_CHUNK_CHARS so an operator cannot configure a value the
+#: provider will reject - MyMemory's 500 is a hard limit that answers 403 in a
+#: 200 response, which is a confusing failure to debug from the outside.
+MAX_CHUNK_CHARS_BY_PROVIDER = {"google_free": 4000, "mymemory": 500}
+
 #: Provider name -> implementation. Adding a keyed provider is an entry here and
 #: a changed TRANSLATION_PROVIDER; no caller changes.
-_PROVIDERS = {"google_free": _google_free}
+_PROVIDERS = {"google_free": _google_free, "mymemory": _mymemory}
 
 
 def translate(
@@ -330,7 +417,13 @@ def translate(
             f"TRANSLATION_PROVIDER is set to '{provider_name}', which this build does not know."
         )
 
-    chunks = chunk_text(body, settings.translation_max_chunk_chars)
+    # The provider's own cap wins over the setting: a chunk it will refuse is a
+    # 403 inside a 200, which reads as "the service is broken" from the outside.
+    limit = min(
+        settings.translation_max_chunk_chars,
+        MAX_CHUNK_CHARS_BY_PROVIDER.get(provider_name, settings.translation_max_chunk_chars),
+    )
+    chunks = chunk_text(body, limit)
     owned = client is None
     http = client or httpx.Client(follow_redirects=True)
     try:

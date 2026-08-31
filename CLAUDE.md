@@ -167,6 +167,23 @@ logged at all — the app worked, so nothing looked wrong. `env.py` passes
 `disable_existing_loggers=False` and `init_db()` re-applies `configure_logging()`.
 Guarded by `tests/test_startup_logging.py`.
 
+**A keyless dependency screens on the caller's IP, so it must be tried from the
+deployment's own network.** The Translate button (D33) shipped on Google's
+keyless `translate_a/single`, which answered **429 from Railway's egress** on the
+first real call — a browser `User-Agent` changed nothing, because the block is on
+the address. It had passed the suite, a local end-to-end run against real
+PostgreSQL, and a genuine 5,135-character translation, all from a laptop whose IP
+is not blocked. The provider default is `mymemory` for exactly this reason. When
+something is chosen *because* it needs no account, prod egress is a property of
+it, not a detail.
+
+**MyMemory answers HTTP 200 when it fails**, the same trap as Slack's Web API
+below — `responseStatus: 403` in the body. Trusting the status code stores
+`QUERY LENGTH LIMIT EXCEEDED...` as a notice's English description and the cache
+keeps it for ever. Its two exhaustion messages also share no keyword, so match
+both: `QUERY LENGTH LIMIT EXCEEDED` (text too long, a config problem) and
+`YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY` (quota, wait a day).
+
 **Every stored datetime is naive UTC.** Dhaka is presentation and scheduling only.
 Never write an aware datetime to the database.
 
