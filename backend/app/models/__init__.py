@@ -14,6 +14,7 @@ from app.models.tender import FetchRun, Tender, utcnow
 # is what puts `feedback` on Tender, so a mapper configured without it would
 # leave every read of tender.feedback raising AttributeError.
 from app.models.tender_feedback import IRRELEVANT, RELEVANT, VERDICTS, TenderFeedback
+from app.models.translation import TenderTranslation
 from app.models.user import ROLE_ADMIN, ROLE_MEMBER, ROLES, Invite, User, UserSession
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "FetchRun",
     "SlackNotification",
     "TenderFeedback",
+    "TenderTranslation",
     "RELEVANT",
     "IRRELEVANT",
     "VERDICTS",

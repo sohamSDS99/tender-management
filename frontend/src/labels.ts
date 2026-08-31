@@ -363,6 +363,36 @@ function regions(): Intl.DisplayNames | null {
   return regionNames;
 }
 
+let languageNames: Intl.DisplayNames | null | undefined;
+
+function languages(): Intl.DisplayNames | null {
+  if (languageNames === undefined) {
+    try {
+      languageNames = new Intl.DisplayNames(['en'], { type: 'language' });
+    } catch {
+      languageNames = null;
+    }
+  }
+  return languageNames;
+}
+
+/**
+ * "pt" becomes "Portuguese", for the sentence under a translated description.
+ *
+ * Only ever given a code the API has already normalised, so there is no second
+ * normaliser here — an unrecognised value is shown as it arrived rather than
+ * guessed at, which is the same rule the server applies.
+ */
+export function languageLabel(code: string | null | undefined): string {
+  const raw = (code ?? '').trim();
+  if (!raw) return 'another language';
+  try {
+    return languages()?.of(raw) ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
 /** "DEU" and "DE" both become "Germany"; "Indonesia" stays as it is. */
 export function countryLabel(value: string | null | undefined): string {
   if (!value) return '—';

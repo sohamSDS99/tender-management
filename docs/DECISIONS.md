@@ -1957,3 +1957,57 @@ still protect the account they were meant to.
 * **Nothing in the dashboard says an account is protected.** The refusal arrives
   as a 403 with a sentence when somebody tries, which is the moment it matters.
   A badge in the team list would be a nicety; it is not what stops the click.
+
+## D33 — A foreign notice is translated on request, by a keyless third party
+
+Two thirds of the corpus is English. The other third is mostly Brazilian
+Portuguese from PNCP — 470 notices with a description — and a reader who opens
+one gets a wall of text they cannot judge. Scoring already worked on it
+(`relevance.py` matches keywords in the original), so the gap was never
+relevance; it was that a human could not read what the engine had ranked.
+
+**Translation happens when somebody asks, not at ingest.** A notice is never
+edited (D1), so the English text lives in its own table rather than in a column
+on `tenders`, and it is written the first time a reader presses **Translate**.
+Translating all 470 on the chance somebody opens one would spend far more than
+it saves; the button is the signal that this notice, now, is worth it.
+
+**The provider is Google's keyless `translate_a/single` endpoint, chosen
+knowingly.** It is undocumented, unversioned, rate-limited by IP and has no
+support path. The alternatives were a keyed service — Anthropic or DeepL, both
+better on this kind of concatenated legal prose — and both need an account and a
+key this deployment does not have. The keyless endpoint was accepted because it
+works today with no setup, and because the cost of it breaking is one button
+reporting a 502, not a broken sweep or a lost notice.
+
+So the shape matters more than the choice: `translator.translate` is the only
+function that knows a provider exists, `_PROVIDERS` maps a name to an
+implementation, and `TRANSLATION_PROVIDER` selects one. Swapping to a keyed
+service is an entry in that dict and a changed variable — no call site moves.
+
+**The cache is the cost control, and there is deliberately no cooldown.** Unlike
+`POST /api/fetch` (D23), a translation is something a person does while reading,
+in bursts, and the same notice is only ever fetched from the provider once — the
+unique constraint on `(tender_id, target_language)` enforces that in the
+database rather than by checking first and hoping, so two people pressing the
+button at the same instant produce one row and one outbound request.
+
+**The server decides whether to offer the button; the browser only renders it.**
+`language` is stored inconsistently — `en`, `eng`, `English`, `pt` and `French`
+are all real production values, because each connector normalises differently
+and the connectors are frozen. `TenderDetail.needs_translation` resolves that
+once, next to `normalise_language`. A second normaliser in TypeScript would
+have drifted the first time a feed changed what it emits, and the symptom would
+be a missing button rather than an error.
+
+**An unrecorded or unrecognised language is left alone, not guessed at.** A
+button that sends English to a translator, or picks Portuguese for a notice that
+is actually Spanish, produces confident nonsense — worse than no button, because
+the reader cannot tell.
+
+**The original is always one click away, and the copy says a machine wrote it.**
+The English replaces the description in place rather than sitting beside it —
+two columns of the same text is how a panel becomes unreadable — but **Show
+original** restores it without another request, and the caption says
+"Translated … by machine — read the original notice before relying on it". A bid
+decision must not rest on an unattributed machine translation.
