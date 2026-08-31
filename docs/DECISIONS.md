@@ -2011,3 +2011,48 @@ two columns of the same text is how a panel becomes unreadable — but **Show
 original** restores it without another request, and the caption says
 "Translated … by machine — read the original notice before relying on it". A bid
 decision must not rest on an unattributed machine translation.
+
+### D33 amended, same day — the chosen provider does not work in production
+
+Shipped with `google_free` and it answered **HTTP 429 from Railway's egress IP**
+on the first real call, with Google's datacenter abuse page as the body. A
+browser `User-Agent` changed nothing, which is the tell: the block is on the
+address, not the request. It works perfectly from a laptop, which is exactly why
+the local suite, the local end-to-end run against PostgreSQL and a real 5,135
+character translation all passed before deploying. **Nothing was wrong with the
+code; the environment it now runs in is not the one it was proved in.**
+
+The lesson is narrower than "test in production" and worth keeping: when a
+dependency is chosen *because* it needs no account, the thing it screens on is
+the caller's IP, so it must be exercised **from the deployment's own network**
+before the feature is called done. Prod egress is not a detail of the provider,
+it is a property of it.
+
+`mymemory` is now the default. It answers from Railway, and it brings two
+properties the shape had to absorb rather than hide:
+
+1. **It reports failure inside an HTTP 200**, exactly like Slack's Web API (D22)
+   — `responseStatus: 403` in the body with a 200 on the wire. Trusting the
+   status code would have stored the string `QUERY LENGTH LIMIT EXCEEDED. MAX
+   ALLOWED QUERY : 500 CHARS` as a notice's English description, and the cache
+   would have kept it for ever. This is the second time this exact trap has
+   appeared in this codebase, from an unrelated vendor.
+2. **500 characters a request, hard.** So the per-request limit is now a
+   property of the *provider* (`MAX_CHUNK_CHARS_BY_PROVIDER`) and caps the
+   operator's setting rather than trusting it — `TRANSLATION_MAX_CHUNK_CHARS`
+   above 500 with this provider would 403 every notice over 500 characters and
+   read as "the service is broken".
+
+Its two exhaustion messages share no keyword — `QUERY LENGTH LIMIT EXCEEDED` for
+an over-long request and `YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY` for
+the daily allowance — and matching only `LIMIT` told somebody out of quota to
+"try again in a minute", which would never work. They are now distinct messages
+because they call for different actions: wait a day, or configure a key.
+
+**The remaining constraint is honest and small:** 5,000 characters a day per IP
+keyless, 50,000 with `TRANSLATION_CONTACT_EMAIL` set (an ordinary address, not a
+credential). At an average description of 838 characters that is roughly six
+notices a day, or sixty with the address. The per-notice cache is what makes
+that workable at all — a notice is translated once for all time, not once per
+view. If it becomes limiting, the fix is the path this was built for: a keyed
+`_PROVIDERS` entry, no call site moved.

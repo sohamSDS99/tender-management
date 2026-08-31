@@ -156,7 +156,15 @@ def test_a_single_word_longer_than_the_limit_passes_through_whole():
     assert translator.chunk_text(monster, limit=100) == [monster]
 
 
-# --- the provider call ------------------------------------------------------
+# --- the google_free provider -----------------------------------------------
+#
+# Every test here names the provider explicitly. It used to rely on the default,
+# which broke the moment the default moved to mymemory - and a test that only
+# passes while a default holds still is testing the default, not the provider.
+
+
+def google_settings(settings, **over):
+    return settings.model_copy(update={"translation_provider": "google_free", **over})
 
 
 def test_the_request_we_send_is_the_one_the_endpoint_expects(settings):
@@ -168,7 +176,7 @@ def test_the_request_we_send_is_the_one_the_endpoint_expects(settings):
         return google_free_response(EN_TRANSLATION)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
-        result = translator.translate(PT_DESCRIPTION, "pt", settings, http)
+        result = translator.translate(PT_DESCRIPTION, "pt", google_settings(settings), http)
 
     assert result.text == EN_TRANSLATION
     assert result.source_language == "pt"
@@ -190,7 +198,7 @@ def test_several_segments_concatenate_with_no_separator(settings):
         return google_free_response("First part. ", "Second part.")
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
-        result = translator.translate(PT_DESCRIPTION, "pt", settings, http)
+        result = translator.translate(PT_DESCRIPTION, "pt", google_settings(settings), http)
 
     assert result.text == "First part. Second part."
 
@@ -203,7 +211,12 @@ def test_the_stored_language_is_normalised_by_translate_itself(settings):
         return google_free_response(EN_TRANSLATION)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
-        assert translator.translate(PT_DESCRIPTION, "Portuguese", settings, http).source_language == "pt"
+        assert (
+            translator.translate(
+                PT_DESCRIPTION, "Portuguese", google_settings(settings), http
+            ).source_language
+            == "pt"
+        )
 
 
 @pytest.mark.parametrize(
@@ -219,7 +232,7 @@ def test_an_unusable_answer_raises_rather_than_returning_junk(settings, response
     """Half a translation is worse than an error: the reader cannot tell."""
     with httpx.Client(transport=httpx.MockTransport(lambda _: response)) as http:
         with pytest.raises(translator.TranslationUnavailable):
-            translator.translate(PT_DESCRIPTION, "pt", settings, http)
+            translator.translate(PT_DESCRIPTION, "pt", google_settings(settings), http)
 
 
 def test_a_transport_failure_does_not_leak_hosts_into_the_message(settings):
@@ -228,7 +241,7 @@ def test_a_transport_failure_does_not_leak_hosts_into_the_message(settings):
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(translator.TranslationUnavailable) as caught:
-            translator.translate(PT_DESCRIPTION, "pt", settings, http)
+            translator.translate(PT_DESCRIPTION, "pt", google_settings(settings), http)
 
     assert "Errno" not in str(caught.value)
     assert "translation service" in str(caught.value)
@@ -239,6 +252,151 @@ def test_an_unknown_provider_is_named_rather_than_silently_skipped(settings):
     with pytest.raises(translator.TranslationUnavailable) as caught:
         translator.translate(PT_DESCRIPTION, "pt", broken)
     assert "nonesuch" in str(caught.value)
+
+
+# --- the mymemory provider --------------------------------------------------
+#
+# It is the default because it is the only keyless option that answers from a
+# datacenter. Google's endpoint returns 429 to Railway's egress IP whatever
+# headers are sent, which was found by calling it from production - not by
+# reading anything.
+
+
+def mymemory_response(text: str, *, status: int | str = 200, detail: str = "") -> httpx.Response:
+    """Always HTTP 200. The real status is in the body - that is the whole trap."""
+    return httpx.Response(
+        200,
+        json={
+            "responseData": {"translatedText": text},
+            "responseStatus": status,
+            "responseDetails": detail,
+        },
+    )
+
+
+def mymemory_settings(settings, **over):
+    return settings.model_copy(update={"translation_provider": "mymemory", **over})
+
+
+def test_mymemory_sends_the_language_pair_it_expects(settings):
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return mymemory_response("English text")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        result = translator.translate(PT_DESCRIPTION, "pt", mymemory_settings(settings), http)
+
+    assert result.text == "English text"
+    assert result.provider == "mymemory"
+    assert seen["langpair"] == "pt|en"
+    # No contact address configured, so `de` is omitted rather than sent empty -
+    # an empty one is treated as invalid.
+    assert "de" not in seen
+
+
+def test_a_contact_address_is_forwarded_because_it_raises_the_daily_allowance(settings):
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return mymemory_response("English text")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        translator.translate(
+            PT_DESCRIPTION,
+            "pt",
+            mymemory_settings(settings, translation_contact_email="tenders@sdsmanager.com"),
+            http,
+        )
+
+    assert seen["de"] == "tenders@sdsmanager.com"
+
+
+def test_a_failure_reported_inside_an_http_200_is_still_a_failure(settings):
+    """The Slack lesson (D22), in a second place: read the body, not the code.
+
+    Trusting the status code here would store the string "QUERY LENGTH LIMIT
+    EXCEEDED" as a tender's English description, and the cache would keep it
+    for ever.
+    """
+    refusal = mymemory_response(
+        "QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS",
+        status=403,
+        detail="QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS",
+    )
+    with httpx.Client(transport=httpx.MockTransport(lambda _: refusal)) as http:
+        with pytest.raises(translator.TranslationUnavailable):
+            translator.translate(PT_DESCRIPTION, "pt", mymemory_settings(settings), http)
+
+
+def test_running_out_of_free_allowance_says_so_rather_than_blaming_the_network(settings):
+    """A daily cap is a different action for the reader than a transient error."""
+    exhausted = mymemory_response(
+        "",
+        status=429,
+        detail="YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY",
+    )
+    with httpx.Client(transport=httpx.MockTransport(lambda _: exhausted)) as http:
+        with pytest.raises(translator.TranslationUnavailable) as caught:
+            translator.translate(PT_DESCRIPTION, "pt", mymemory_settings(settings), http)
+
+    assert "daily allowance" in str(caught.value)
+
+
+def test_the_provider_cap_beats_a_larger_configured_chunk_size(settings):
+    """500 is a hard limit, so an operator must not be able to configure past it.
+
+    Without this, TRANSLATION_MAX_CHUNK_CHARS=4000 with the mymemory provider
+    produces a 403 inside a 200 on every notice over 500 characters - which
+    reads as "the service is broken" from the outside.
+    """
+    lengths: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        lengths.append(len(request.url.params["q"]))
+        return mymemory_response("part. ")
+
+    long_text = " ".join(f"Sentença número {n} com algum texto." for n in range(120))
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        translator.translate(
+            long_text,
+            "pt",
+            mymemory_settings(settings, translation_max_chunk_chars=4000),
+            http,
+        )
+
+    assert lengths, "the provider was never called"
+    assert max(lengths) <= 500, f"sent a chunk of {max(lengths)} chars at a 500-char provider"
+
+
+def test_a_smaller_configured_chunk_still_wins(settings):
+    """The cap is a ceiling, not an override: a deliberate 200 stays 200."""
+    lengths: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        lengths.append(len(request.url.params["q"]))
+        return mymemory_response("part. ")
+
+    long_text = " ".join(f"Sentença número {n} com algum texto." for n in range(120))
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        translator.translate(
+            long_text,
+            "pt",
+            mymemory_settings(settings, translation_max_chunk_chars=200),
+            http,
+        )
+
+    assert max(lengths) <= 200
+
+
+def test_the_default_provider_is_the_one_that_works_in_production(settings):
+    """Pinned deliberately. google_free answers 429 from Railway's egress IP."""
+    from app.settings.config import Settings
+
+    assert Settings(_env_file=None, database_url="sqlite://").translation_provider == "mymemory"
+    assert set(translator._PROVIDERS) == {"google_free", "mymemory"}
 
 
 # --- the endpoint -----------------------------------------------------------

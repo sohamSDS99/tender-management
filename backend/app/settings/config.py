@@ -218,15 +218,25 @@ class Settings(BaseSettings):
 
     # --- translation ---
     # Which implementation in app/services/translator.py performs a translation.
-    # "google_free" is the keyless endpoint: no account, no key, and no support
-    # path if it changes shape. A keyed provider is a new _PROVIDERS entry and a
-    # change here, never a change at a call site.
-    translation_provider: str = "google_free"
-    # Per request, not per notice: a description longer than this is split on
-    # sentence boundaries and reassembled. The endpoint took 8,000 characters in
-    # testing, so this leaves generous headroom.
+    #
+    # "mymemory" is the default because it is the only keyless option that works
+    # from a datacenter: Google's translate_a/single answers 429 to Railway's
+    # egress IP no matter what headers are sent, so "google_free" is better
+    # quality but only usable from an unblocked address (a laptop, the LAN
+    # deployment). Measured, not assumed - see docs/DECISIONS.md D33.
+    #
+    # A keyed provider is a new _PROVIDERS entry and a change here, never a
+    # change at a call site.
+    translation_provider: str = "mymemory"
+    # Per request, not per notice: a longer description is split on sentence
+    # boundaries and reassembled. Capped further by the provider's own limit
+    # (MAX_CHUNK_CHARS_BY_PROVIDER), because MyMemory refuses over 500 chars with
+    # a 403 inside an HTTP 200 - a needlessly confusing failure to configure into.
     translation_max_chunk_chars: int = 4000
     translation_timeout_seconds: int = 20
+    # Not a credential: an ordinary contact address. MyMemory raises the keyless
+    # daily allowance from 5,000 characters to 50,000 when one is supplied.
+    translation_contact_email: str = ""
 
     # --- public surfaces ---
     # Base URL of the dashboard. Slack entries deep-link to
