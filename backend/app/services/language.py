@@ -39,6 +39,20 @@ Restricting the model to the ~60 languages these eight sources can plausibly emi
 was tried and made **zero** difference across all 413 notices, so it is not done:
 it would be a hand-maintained list that goes stale the first time a feed changes,
 bought for no measured accuracy.
+
+**Known limitation, measured and deliberately not tuned away.** On a very short
+text the confidence score is not a reliable guide to *which* language it is -
+`Fassade Dämmung` classifies as Swedish at **0.9966**, and it is German. Both
+real short descriptions in the corpus (`Küchentechnik Wartung`,
+`Innenputz-/ Malerarbeiten`) score 1.00 and are right, so there is no evidence
+here to tune against and a length rule fitted to one invented string would be
+worse than none. It matters less than it looks: the *button* only needs "not
+English", which was correct in every case, and a wrong source code makes the
+translation weak rather than wrong - MyMemory answered `Fassade Dämmung` with
+`Fassade Dämmung`. If short-text notices ever become a real complaint, the fix
+with evidence behind it is to prefer the provider's own detection below some
+length, because MyMemory named `Küchentechnik Wartung` as German correctly when
+this module was asked and could not.
 """
 
 from __future__ import annotations
