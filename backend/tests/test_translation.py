@@ -756,14 +756,60 @@ def test_the_button_decision_on_real_notices(case):
 def test_every_foreign_notice_in_the_gold_set_is_offered_a_button():
     """The requirement, stated once as a whole rather than case by case.
 
-    Nothing detected as a language other than English may be left without a
-    button. Phrased over the corpus instead of per-notice so that adding a new
+    "Not written in English" is the test, and it is not the same as "does not
+    classify as English". A bilingual CanadaBuys notice - the English, a blank
+    line, then the same text in French - classifies as **French at 1.00**,
+    because French carries more signal per character than English does. It is
+    still written in English, and the reader can already read it.
+
+    So the invariant excludes notices that *contain* English rather than being
+    loosened. Phrased over the corpus instead of per-notice so that adding a
     foreign notice to the fixture cannot quietly pass by being forgotten.
     """
     missed = [
-        case for case in GOLD_SET if case["detected"] not in (None, "en") and not case["needs_translation"]
+        case
+        for case in GOLD_SET
+        if case["detected"] not in (None, "en")
+        and not language.contains_english(case["description"])
+        and not case["needs_translation"]
     ]
     assert missed == []
+
+
+def test_a_bilingual_notice_is_left_alone_because_the_reader_has_english():
+    """The regression this rule exists for, on the notices that caused it.
+
+    127 of 256 stored CanadaBuys notices grew a Translate button they did not
+    need, and it took production data to see it - the live sample this fixture
+    was first built from was a seven-day window that happened to hold almost no
+    bilingual notices. Each of these reads as French when classified whole and
+    opens with English the reader can already read.
+    """
+    bilingual = [case for case in GOLD_SET if "bilingual" in (case.get("note") or "")]
+
+    assert len(bilingual) >= 3, "the gold set must keep real bilingual notices"
+    for case in bilingual:
+        assert case["detected"] == "fr", "classified foreign when read whole..."
+        assert language.contains_english(case["description"]), "...but contains English"
+        assert case["needs_translation"] is False
+
+
+def test_a_short_english_header_does_not_excuse_a_foreign_notice():
+    """The share is weighted by characters, so a header cannot outvote the body.
+
+    Counting segments instead would let `NOTICE OF PROPOSED PROCUREMENT` carry
+    the same weight as three thousand characters of French.
+    """
+    french = (
+        "Le présent marché a pour objet l’exécution du nettoyage des locaux de l’EFS "
+        "Bretagne sur le site de Quimper. Les spécifications techniques sont détaillées "
+        "dans le cahier des clauses techniques particulières. Les quantités estimatives "
+        "sont indiquées au bordereau des prix unitaires du marché public."
+    )
+    with_header = f"NOTICE OF PROPOSED PROCUREMENT\n\n{french}"
+
+    assert language.contains_english(with_header) is False
+    assert translator.needs_translation("en", with_header) is True
 
 
 def test_the_gold_set_still_contains_the_notices_that_proved_the_bug():

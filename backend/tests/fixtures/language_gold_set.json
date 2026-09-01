@@ -149,7 +149,8 @@
   "description": "This requirement is to procure qty 200 new seat belt seeking fastest delivery on B&S.\n\nCette exigence est d'acheter une quantité de 200 nouvelles ceintures de sécurité à la recherche de la livraison la plus rapide sur B&S.",
   "detected": "fr",
   "confidence": 1.0,
-  "needs_translation": true
+  "needs_translation": false,
+  "note": "bilingual: one English sentence, a blank line, then the same in French. Expected True until the bilingual rule; the reader already has the English."
  },
  {
   "source": "canada_buys",
@@ -262,5 +263,32 @@
   "detected": "en",
   "confidence": 1.0,
   "needs_translation": false
+ },
+ {
+  "source": "canada_buys",
+  "stored_language": "en",
+  "description": "Please be advised that late submissions will not be accepted or considered. This bid solicitation is Phase One of a two-phase procurement process: A) Phase One: Evaluation of the qualifications of all interested suppliers. B) Phase Two: Only suppliers deemed qualified in Phase One will be invited to submit a financial bid based on the project specifications and drawings.  Public Works and Government Services Canada (PWGSC) requires the complete provision of labour, materials, tools, equipment, and supervision necessary to demolish and replace the existing roofs on buildings C1 and C2 at Saskatchewan Penitentiary (SK Pen).  SK Pen is a Maximum-security facility owned and operated by Correctional Service Canada, located in Prince Albert, Saskatchewan.\n\nVeuillez noter que les soumissions tardives ne seront ni acceptées ni prises en compte. La présente demande de soumissions constitue la première étape d’un processus d’approvisionnement en deux étapes : A) Phase 1 : Évaluation des qualifications de tous les fournisseurs intéressés. B) Phase 2 : Seuls les fournisseurs jugés qualifiés à la phase 1 seront invités à soumettre une offre financière selon les devis et les dessins du projet. Travaux publics et Services gouvernementaux Canada (TPSGC) a besoin de la fourniture complète de la main-d’œuvre, des matériaux, des outils, de l’équipement et de la supervision nécessaires pour démolir et remplacer les toits existants des bâtiments C1 et C2 du Pénitencier de la Saskatchewan (Pénitencier de la Saskatchewan). Le Pénitencier de la Saskatchewan est un établissement à sécurité maximale qui appartient au Service correctionnel du Canada et qui est exploité par celui-ci, et qui est situé à Prince Albert, en Saskatchewan.",
+  "detected": "fr",
+  "confidence": 1.0,
+  "needs_translation": false,
+  "note": "bilingual: English, then the same text in French. Reads as French when classified whole; the reader already has English."
+ },
+ {
+  "source": "canada_buys",
+  "stored_language": "en",
+  "description": "This bid solicitation is issued in accordance with the conditions of Supply Arrangement E60HN-21HDMS. Only suppliers who are pre-qualified and have been issued a supply arrangement at the time this bid solicitation is issued are eligible to bid.\r\n\r\nBy means of this RFP, Natural Resources Canada (NRCan) is seeking proposals from bidders for the supply and installation of high-density mobile shelving for the safe storage of the National Air Photo Library Film Canister and Air Photo Collection.\r\n\r\nThere are security obligations associated with this requirement. \r\n\r\n**The closing date has been amended. Bids must now be received by June 18, 2026 at 2:00 p.m. EDT.\n\nCette demande de soumissions est émise conformément aux conditions de l'arrangement en matière d’approvisionnement numéro E60HN-21HDMS. Seuls les fournisseurs qui sont pré-qualifiés et auxquels un arrangement en matière d'approvisionnement a été émis au moment où cette demande de soumissions est émise peuvent présenter une soumission.\r\n\r\nEn vertu de cette DDP, Ressources naturelles Canada (RNCan) sollicite des propositions des soumissionnaires pour la fourniture et l'installation de rayonnages mobiles à haute densité pour les boîtes de films et la collection de photographies aériennes de la Photothèque nationale de l'air (PNA).\r\n\r\nCe besoin comporte des exigences relatives à la sécurité. \r\n\r\n**La date de clôture a été modifiée. Les soumissions doivent maintenant être reçues au plus tard le 18 juin 2026 à 14 h (HAE).",
+  "detected": "fr",
+  "confidence": 1.0,
+  "needs_translation": false,
+  "note": "bilingual: English, then the same text in French. Reads as French when classified whole; the reader already has English."
+ },
+ {
+  "source": "canada_buys",
+  "stored_language": "en",
+  "description": "Transport Canada (TC) has a requirement for the provision of meeting space and hospitality in Vancouver, British Columbia, to host the 26th Session of the Asia-Pacific Heads of Maritime Safety Agencies (APHOMSA) forum in March 2027.\n\nTransports Canada (TC) a besoin de locaux de réunion et de services d’accueil à Vancouver (Colombie-Britannique) pour la tenue de la 26e session du Forum des dirigeants des organismes de sécurité maritime de l’Asie-Pacifique (Asia-Pacific Heads of Maritime Safety Agencies – APHoMSA) en mars 2027.",
+  "detected": "fr",
+  "confidence": 1.0,
+  "needs_translation": false,
+  "note": "bilingual: English, then the same text in French. Reads as French when classified whole; the reader already has English."
  }
 ]

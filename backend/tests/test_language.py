@@ -171,3 +171,73 @@ def test_a_very_long_notice_is_sampled_rather_than_read_whole():
     assert len(long_notice) > language.MAX_SAMPLE_CHARS
     assert language.detect(long_notice).code == "en"
     assert language.detect(GERMAN + (" " + GERMAN) * 200).code == "de"
+
+
+# --- "does the reader already have English?" is a different question ---------
+
+
+BILINGUAL = (
+    "Please be advised that late submissions will not be accepted or considered. "
+    "This bid solicitation is Phase One of a two-phase procurement process, and only "
+    "suppliers deemed qualified in Phase One will be invited to submit a financial bid.\n\n"
+    "Veuillez noter que les soumissions tardives ne seront ni acceptées ni prises en "
+    "compte. La présente demande de soumissions constitue la première étape d’un "
+    "processus d’approvisionnement en deux étapes, et seuls les fournisseurs qualifiés "
+    "seront invités à soumettre une offre financière."
+)
+
+
+def test_a_bilingual_notice_reads_as_french_but_contains_english():
+    """The two questions, and the gap between them that reached production.
+
+    Classified whole, this is French - French carries more signal per character
+    than English does, so it wins on a 50/50 text. 127 of 256 stored CanadaBuys
+    notices did exactly this and grew a Translate button they did not need.
+    """
+    assert detect_code(BILINGUAL) == "fr"
+    assert language.contains_english(BILINGUAL) is True
+    assert 0.3 < language.english_share(BILINGUAL) < 0.7
+
+
+def detect_code(text: str) -> str:
+    return language.detect(text).code
+
+
+@pytest.mark.parametrize("text,expected", [(GERMAN, False), (FRENCH, False), (ENGLISH, True)])
+def test_a_single_language_notice_is_all_or_nothing(text, expected):
+    assert language.contains_english(text) is expected
+
+
+def test_the_share_is_weighted_by_length_not_by_segment_count():
+    """A two-word English header must not outvote three thousand characters of French.
+
+    Counting segments would make this notice 50% English on a 30-character
+    header, and the reader would be left with a wall of French and no button.
+    """
+    with_header = f"NOTICE OF PROPOSED PROCUREMENT\n\n{FRENCH * 8}"
+
+    assert language.contains_english(with_header) is False
+    assert language.english_share(with_header) < language.ENGLISH_PRESENT_SHARE
+
+
+def test_a_bilingual_notice_written_as_one_block_is_still_caught():
+    """No blank line to split on, so a long paragraph is sub-split into windows.
+
+    Without that, a bilingual notice that happens to use single newlines would
+    read as whatever language won the whole-text vote.
+    """
+    one_block = BILINGUAL.replace("\n\n", " ") * 3
+
+    assert len(language.segments(one_block)) > 1
+    assert language.contains_english(one_block) is True
+
+
+def test_a_short_foreign_notice_is_not_chopped_up_looking_for_english():
+    """Below the split threshold a paragraph is left whole.
+
+    Slicing `Küchentechnik Wartung` into windows would only manufacture noise,
+    and these two are exactly the notices D34 exists to give a button to.
+    """
+    assert language.segments("Küchentechnik Wartung") == ["Küchentechnik Wartung"]
+    assert language.contains_english("Küchentechnik Wartung") is False
+    assert language.contains_english("Innenputz-/ Malerarbeiten") is False

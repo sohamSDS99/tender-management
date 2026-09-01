@@ -2134,6 +2134,56 @@ real stored `language`. Every hand-written fixture in the suite had a language
 that was either correct or absent, so "trust the column" passed all of them;
 TED's is neither, and no fixture had ever been shaped like that.
 
+### D34 amended, same day — "not English" and "contains no English" are different questions
+
+Deployed, and then measured against the 1,123 stored notices rather than the
+413 fetched live. TED went from 0 buttons to **44 of 55**, which is the fix
+working. CanadaBuys went from 0 to **127 of 256**, which is not.
+
+Those 127 are **bilingual**: the English, a blank line, then the same text in
+French. Classified whole they come back **French at 1.00** — French carries more
+signal per character than English does, so it wins a 50/50 text outright. Every
+one of them opens with English the reader can already read, and every one grew a
+Translate button it did not need.
+
+**The live sample could not have caught this.** It was a seven-day window of
+*new* notices and happened to hold almost none of them: 1 of 220, against 127 of
+256 in the stored corpus. A sample of production is better than an invented
+fixture — that was D34's lesson — and a sample of *one week* of production is
+still a sample.
+
+So the question the button asks is now the right one. It was "what language is
+this?"; it is "is there English here the reader can already read?". A notice is
+left alone when a real share of it is English, whatever the whole-text
+classification says.
+
+**The share is measured over paragraphs and weighted by length.** Paragraphs
+because that is the structure bilingual notices actually have — a blank line
+between the two languages — and length-weighted because a French notice under a
+two-word English header (`NOTICE OF PROPOSED PROCUREMENT`) is a French notice,
+and counting segments would let that header outvote three thousand characters of
+French. A paragraph over 600 characters is sub-split into windows so a bilingual
+notice written as one unbroken block is caught too; below that it is left whole,
+because chopping up `Küchentechnik Wartung` to look for English inside it would
+only manufacture noise.
+
+**The threshold is 0.15, and it was read off the data rather than chosen.**
+Across the stored corpus the genuinely foreign notices — 44 TED, 477 PNCP — sit
+at an English share of **0.00 exactly**, while bilingual CanadaBuys notices
+spread from 0.16 to 0.67. Every threshold from 0.10 to 0.20 splits that corpus
+identically; 0.15 is the middle of the plateau. A number with a plateau under it
+is a number the data supports, not one fitted to it.
+
+Effect on production: **canada_buys 127 → 0, ted 44 → 44, pncp 477 → 477.** The
+two remaining single notices elsewhere are a genuinely Welsh Find-a-Tender
+notice and a genuinely French World Bank one, both checked by hand.
+
+One known miss, left alone deliberately: the Welsh notice is bilingual
+Welsh/English in a *single* paragraph under the split threshold, so it keeps a
+button it does not need. It is one notice in 1,123, the cost is a spare button,
+and the fix — sub-splitting short paragraphs — would put the two-word German
+notices at risk to save it.
+
 ## D35 — The translation provider is keyed, because a keyless one rations by IP
 
 D33 chose a keyless provider knowingly and wrote down the cost: *"5,000
