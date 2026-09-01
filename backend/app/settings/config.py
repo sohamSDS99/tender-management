@@ -227,7 +227,23 @@ class Settings(BaseSettings):
     #
     # A keyed provider is a new _PROVIDERS entry and a change here, never a
     # change at a call site.
-    translation_provider: str = "mymemory"
+    #
+    # **"deepl" is now the default, and the reason is a real complaint.** The two
+    # keyless providers ration by IP because that is the only thing a keyless
+    # service can ration by, and MyMemory's anonymous allowance is 5,000
+    # characters a day - about six notices - which production spent, so the
+    # button answered "the free translation service has used its daily
+    # allowance" to a reader who had pressed it once. A key removes the ceiling
+    # rather than raising it. See docs/DECISIONS.md D35.
+    #
+    # `mymemory` and `google_free` are still here and still work; a deployment
+    # with no key sets TRANSLATION_PROVIDER=mymemory and accepts the ration.
+    translation_provider: str = "deepl"
+    # Secret. DeepL API key. Its suffix picks the host - a `:fx` key is a free
+    # account and belongs to api-free.deepl.com, anything else is Pro and
+    # belongs to api.deepl.com, and sending one to the other's host is a 403
+    # that says "Wrong endpoint" rather than "bad key".
+    deepl_api_key: str = ""
     # Per request, not per notice: a longer description is split on sentence
     # boundaries and reassembled. Capped further by the provider's own limit
     # (MAX_CHUNK_CHARS_BY_PROVIDER), because MyMemory refuses over 500 chars with
@@ -324,6 +340,7 @@ SECRET_FIELDS = (
     "slack_bot_token",
     "cron_secret",
     "sam_gov_api_key",
+    "deepl_api_key",
     "database_url",
 )
 

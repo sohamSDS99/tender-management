@@ -268,6 +268,21 @@ describe('pressing it', () => {
     expect(note).toContain('machine');
   });
 
+  it('says "another language" when the API could not name the source', async () => {
+    // A real state since D33 was amended: the button is now offered on text
+    // nothing could confidently identify, and the provider is asked to detect
+    // the language itself. When neither it nor the feed names one, the API
+    // sends an empty string rather than a guess, and the caption has to stay a
+    // sentence. Naming a language a reader cannot check, underneath a
+    // translation they cannot check, is the failure this avoids.
+    translateMock.mockResolvedValue(translation({ source_language: '' }));
+    await render();
+    await click(button('Translate')!);
+
+    const note = container.querySelector('.translate__note')?.textContent ?? '';
+    expect(note).toContain('Translated from another language by machine');
+  });
+
   it('reports progress on the button while the request is in flight', async () => {
     let release: (value: unknown) => void = () => {};
     translateMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
