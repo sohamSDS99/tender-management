@@ -13,11 +13,14 @@ request we would really send without sending it.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 
 from app.models import Tender, TenderTranslation
-from app.services import translator
+from app.services import language, translator
 from tests.test_ingest import NOW
 
 PT_DESCRIPTION = (
@@ -27,6 +30,22 @@ PT_DESCRIPTION = (
 EN_TRANSLATION = (
     "The purpose of this bidding exemption is the choice of the most advantageous "
     "proposal for contracting a corporate storage solution."
+)
+#: A description that is unambiguously English, at the length real ones run to.
+#: `EN_TRANSLATION` would do, but a fixture that doubles as the expected output
+#: of a translation makes it impossible to tell which property a test is pinning.
+EN_DESCRIPTION = (
+    "The scope of the contract to be awarded consists of the design, engineering, "
+    "procurement, installation, certification and commissioning of an integrated "
+    "heat generation system, including all associated works."
+)
+#: One real German TED description, verbatim, stored - as every TED notice is -
+#: with `language='eng'`. Kept here so the regression has a name a reader
+#: recognises: this notice had no Translate button until D33 was amended.
+DE_DESCRIPTION = (
+    "Die ausgeschriebenen Arbeiten umfassen sämtliche Metallbauarbeiten im äußeren "
+    "Bereich im Bestand und für den Neubau einschließlich erforderlicher "
+    "Rückbauarbeiten im Zusammenhang mit geänderten Öffnungen."
 )
 
 
@@ -95,16 +114,37 @@ def test_every_spelling_this_corpus_stores_normalises(stored, expected):
         ("pt", PT_DESCRIPTION, True),
         ("por", PT_DESCRIPTION, True),
         ("French", PT_DESCRIPTION, True),
-        # English in any spelling: nothing to do.
-        ("en", PT_DESCRIPTION, False),
-        ("eng", PT_DESCRIPTION, False),
-        ("English", PT_DESCRIPTION, False),
+        # A stored "English" that is contradicted by the text loses. This is the
+        # TED case and the whole reason D33 was amended: TED reads its language
+        # off the notice *title*, which it translates into all 24 EU languages,
+        # so `eng` is stored on 100% of its notices - including the German ones.
+        ("en", PT_DESCRIPTION, True),
+        ("eng", PT_DESCRIPTION, True),
+        ("English", PT_DESCRIPTION, True),
         # Nothing to translate, whatever the language says.
         ("pt", None, False),
         ("pt", "   ", False),
-        # An unrecorded language is left alone rather than guessed at.
-        (None, PT_DESCRIPTION, False),
-        ("Klingon", PT_DESCRIPTION, False),
+        # An unrecorded language is no longer left alone. "Left alone" is
+        # indistinguishable, to a reader, from a button that does not work.
+        (None, PT_DESCRIPTION, True),
+        ("Klingon", PT_DESCRIPTION, True),
+        # Genuinely English text keeps its silence, however the feed spells it.
+        ("eng", EN_DESCRIPTION, False),
+        (None, EN_DESCRIPTION, False),
+        # Two real TED descriptions, in the two words the buyer actually wrote.
+        # Short is not the same as unknowable: both classify as German at 1.00.
+        ("eng", "Küchentechnik Wartung", True),
+        ("eng", "Innenputz-/ Malerarbeiten", True),
+        # ...but three English content words carry almost no signal (`Cloud
+        # storage framework.` reads as Dutch at 0.33), so an unconfident reading
+        # does not get to overturn a feed that positively claimed English.
+        ("eng", "Cloud storage framework.", False),
+        # With no claim to overturn, the same weak reading is enough - there is
+        # nothing on the other side of the scale.
+        (None, "Cloud storage framework.", True),
+        # Real TED descriptions. There is no text here to send anywhere.
+        ("eng", "-", False),
+        ("eng", "...", False),
     ],
 )
 def test_the_button_is_offered_only_where_it_can_work(language, description, expected):
@@ -118,10 +158,13 @@ def test_the_detail_response_carries_the_decision(client, db_session):
     feed changed what it puts in `language`.
     """
     foreign = add_tender(db_session, "pt-1")
-    english = add_tender(db_session, "en-1", language="eng", description="Cloud storage framework.")
+    english = add_tender(db_session, "en-1", language="eng", description=EN_DESCRIPTION)
+    # Stored exactly as TED stores every one of its notices, German ones included.
+    german = add_tender(db_session, "ted-de", language="eng", description=DE_DESCRIPTION)
 
     assert client.get(f"/api/tenders/{foreign.id}").json()["needs_translation"] is True
     assert client.get(f"/api/tenders/{english.id}").json()["needs_translation"] is False
+    assert client.get(f"/api/tenders/{german.id}").json()["needs_translation"] is True
 
 
 # --- chunking ---------------------------------------------------------------
@@ -459,7 +502,13 @@ def test_the_second_press_is_served_from_the_cache(client, db_session, one_call_
 
 
 def test_an_english_notice_is_refused_rather_than_translated(client, db_session, one_call_only):
-    row = add_tender(db_session, "en-1", language="English", description="Cloud storage framework.")
+    """Judged on the text now, not on what the feed called it.
+
+    Both halves are the point: the description really is English, so no provider
+    call is made and nothing is cached - a round trip through a translator would
+    hand back approximately the input, and the cache would keep it for ever.
+    """
+    row = add_tender(db_session, "en-1", language="English", description=EN_DESCRIPTION)
 
     response = client.post(f"/api/tenders/{row.id}/translate")
 
@@ -475,11 +524,21 @@ def test_a_notice_with_no_description_is_refused(client, db_session, one_call_on
     assert len(one_call_only) == 0
 
 
-def test_a_notice_with_no_recorded_language_is_refused(client, db_session, one_call_only):
+def test_a_notice_with_no_recorded_language_is_translated_from_its_text(client, db_session, one_call_only):
+    """The reversal of D33's "left alone, not guessed at", stated as a test.
+
+    Some feeds leave `language` empty; under the old rule those notices were
+    unreadable for ever with no way for a reader to tell why the button was
+    missing. The text is Portuguese and says so plainly, so the button works and
+    the response reports the language it was actually translated from.
+    """
     row = add_tender(db_session, "pt-nolang", language=None)
 
-    assert client.post(f"/api/tenders/{row.id}/translate").status_code == 409
-    assert len(one_call_only) == 0
+    response = client.post(f"/api/tenders/{row.id}/translate")
+
+    assert response.status_code == 200
+    assert response.json()["source_language"] == "pt"
+    assert len(one_call_only) == 1
 
 
 def test_a_missing_notice_is_a_404(client):
@@ -512,3 +571,83 @@ def test_translating_needs_a_session(db_session, monkeypatch, settings):
     app = _build_app(db_session, monkeypatch, settings)
     with TestClient(app) as anonymous:
         assert anonymous.post("/api/tenders/1/translate").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# The gold set
+# ---------------------------------------------------------------------------
+#
+# 33 real notices, fetched live from all seven reachable sources on 2026-09-01
+# and stored verbatim - the stored `language` is what the connector actually
+# wrote, and the description is what the feed actually published.
+#
+# It exists because this bug was invisible to a suite built from invented
+# fixtures. Every hand-written test case had a `language` that was either right
+# or absent, so the rule "trust the column" passed all of them; TED's column is
+# neither, and no fixture in the repository had ever been shaped like that. A
+# sample of production is the only thing that would have caught it, so a sample
+# of production is now committed.
+
+GOLD_SET = json.loads(
+    (Path(__file__).parent / "fixtures" / "language_gold_set.json").read_text(encoding="utf-8")
+)
+
+
+def _gold_id(case: dict) -> str:
+    return f"{case['source']}-{case['detected']}-{case['description'][:24]}"
+
+
+@pytest.mark.parametrize("case", GOLD_SET, ids=_gold_id)
+def test_the_button_decision_on_real_notices(case):
+    """Every notice in the gold set gets the button decision a reader would make.
+
+    Read the failures rather than regenerating the file. A change here means the
+    detector's answer moved on text that has not moved, which is either a better
+    model or a worse one - and the fixture cannot tell you which.
+    """
+    assert (
+        translator.needs_translation(case["stored_language"], case["description"])
+        is case["needs_translation"]
+    )
+
+
+def test_every_foreign_notice_in_the_gold_set_is_offered_a_button():
+    """The requirement, stated once as a whole rather than case by case.
+
+    Nothing detected as a language other than English may be left without a
+    button. Phrased over the corpus instead of per-notice so that adding a new
+    foreign notice to the fixture cannot quietly pass by being forgotten.
+    """
+    missed = [
+        case for case in GOLD_SET if case["detected"] not in (None, "en") and not case["needs_translation"]
+    ]
+    assert missed == []
+
+
+def test_the_gold_set_still_contains_the_notices_that_proved_the_bug():
+    """A fixture trimmed down to green is not a fixture.
+
+    TED is the whole of European procurement and stores `language='eng'` on every
+    notice it publishes; if its foreign notices ever leave this file, the
+    regression stops being covered and nothing else here would notice.
+    """
+    ted_foreign = [c for c in GOLD_SET if c["source"] == "ted" and c["detected"] not in (None, "en")]
+    assert len(ted_foreign) >= 11
+    assert {c["detected"] for c in ted_foreign} >= {"de", "fr"}
+    assert all(c["stored_language"] == "eng" for c in ted_foreign)
+    assert all(c["needs_translation"] for c in ted_foreign)
+
+
+def test_an_all_caps_english_notice_is_not_foreign():
+    """The lowercasing guard, pinned to the two notices that needed it.
+
+    py3langid is trained on natural-case text, so ALL-CAPS English reads as
+    Maltese (0.91) and Xhosa (0.64) - and capitalised headers are the house style
+    of procurement writing, so this is the common case here, not a curiosity.
+    Remove the `.lower()` in `language.detect` and these turn red.
+    """
+    shouty = [c for c in GOLD_SET if c["description"].strip()[:40].isupper()]
+    assert len(shouty) >= 3, "the gold set must keep some ALL-CAPS English notices"
+    for case in shouty:
+        assert language.detect(case["description"]).code == "en"
+        assert case["needs_translation"] is False

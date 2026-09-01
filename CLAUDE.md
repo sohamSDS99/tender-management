@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (33 records, D1–D33).
+`docs/DECISIONS.md` explains why it is built this way (34 records, D1–D34).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 657 tests, all passing
+./.venv/bin/python -m pytest -q          # 780 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 183 tests
+npx vitest run                           # 210 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -183,6 +183,46 @@ below — `responseStatus: 403` in the body. Trusting the status code stores
 keeps it for ever. Its two exhaustion messages also share no keyword, so match
 both: `QUERY LENGTH LIMIT EXCEEDED` (text too long, a config problem) and
 `YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY` (quota, wait a day).
+
+**A stored `language` can be confidently wrong, and the symptom is silence.**
+TED stores `language='eng'` on **100%** of its notices — it reads the language off
+the notice *title*, which TED machine-translates into all 24 EU languages, while
+`description-lot` stays in the buyer's own. So `needs_translation` compared an
+English claim about the title against a German description and answered False for
+every German notice in Europe. Measured live: 11 of TED's 15 descriptions were
+German, French or Dutch and not one had a Translate button. Nothing looked broken
+— a missing button is indistinguishable from a notice that does not need one,
+which is why this survived a green suite, a shipped feature and two follow-up
+fixes. `app/services/language.py` reads the language off the text now (D34); the
+column is only believed when it names a *foreign* language.
+
+**Lowercase before you classify anything.** py3langid is trained on natural-case
+text, so ALL-CAPS English is not English to it: two real CanadaBuys notices
+classified as **Maltese (0.91)** and **Xhosa (0.64)**, and both become English at
+1.00 lowercased. Capitalised headers are the house style of procurement writing,
+so this is the common case here, not an edge case. One `.lower()` was the
+difference between four wrong classifications across the corpus and none.
+
+**`unicodedata.name` gives you the *character* name, not the script name.** A
+Chinese character is `CJK UNIFIED IDEOGRAPH-5E02`, so the non-Latin script guard
+in `language.py` keys on `CJK`; `HAN` — the obvious guess, and the actual script
+name — matches nothing at all and let every Chinese notice through. Read the
+prefixes off `unicodedata.name` rather than assuming them.
+
+**MyMemory's autodetect is spelled `Autodetect`, and `auto` fails inside an HTTP
+200.** `langpair=auto|en` answers `'AUTO' IS AN INVALID SOURCE LANGUAGE` with a
+200 on the wire — the same trap as the two below, from the same vendor. Getting
+it wrong would not raise anywhere; it would store that sentence as a notice's
+English description and cache it for ever. `Autodetect|en` works and returns
+`detectedLanguage` in the body.
+
+**Railway's egress had already spent MyMemory's daily allowance, and
+`TRANSLATION_CONTACT_EMAIL` is unset in production.** The keyless allowance is
+5,000 characters a day *per IP*; setting an ordinary contact address (not a
+credential) raises it to 50,000. D33 documented that and nobody ever set the
+variable, so the button in production answers "the free translation service has
+used its daily allowance" once a few notices have been opened. That is a second,
+independent reason the button "does not work" and it is configuration, not code.
 
 **Every stored datetime is naive UTC.** Dhaka is presentation and scheduling only.
 Never write an aware datetime to the database.
@@ -563,7 +603,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **657 passing, nothing skipped, nothing failing**. Treat any
+A green run is **780 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

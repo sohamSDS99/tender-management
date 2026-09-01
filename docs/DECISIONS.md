@@ -2056,3 +2056,80 @@ notices a day, or sixty with the address. The per-notice cache is what makes
 that workable at all — a notice is translated once for all time, not once per
 view. If it becomes limiting, the fix is the path this was built for: a keyed
 `_PROVIDERS` entry, no call site moved.
+
+## D34 — The text decides what language a notice is in, not the column
+
+D33 built the Translate button on the `language` column and wrote down the rule
+that made it fail: *"An unrecorded or unrecognised language is left alone, not
+guessed at."* That rule assumed the column is either right or empty. For the
+largest source in the corpus it is neither — it is confidently wrong.
+
+**The measurement.** 413 notices fetched live from all seven reachable sources
+on 2026-09-01, every description classified and compared against the stored
+value:
+
+| source | notices | stored `language` | had a button | actually foreign |
+|---|---|---|---|---|
+| ted | 15 | `eng` on **100%** | **0** | **11** (9 German, 2 French) |
+| pncp | 112 | `pt` | 112 | 112 ✓ |
+| canada_buys | 220 | `en` | 0 | 1 (bilingual) |
+| find_a_tender | 51 | `en` | 0 | 0 ✓ |
+| world_bank | 8 | `English` | 0 | 0 ✓ |
+| contracts_finder | 6 | `en` | 0 | 0 ✓ |
+| austender | 1 | `en` | 0 | 0 ✓ |
+
+**Why TED stores `eng` on every notice it has ever published.** TED
+machine-translates a notice's *title* into all 24 EU languages, so
+`notice-title` always contains an `eng` key; `TedConnector._normalize` reads the
+notice's language off that map. The `description-lot` map carries only the
+buyer's own language — `['deu']`, `['fra','nld']`. The stored value therefore
+describes the title accurately and the description not at all, and
+`needs_translation` compared it against the description. Nobody in Europe could
+read a German notice, and the dashboard gave no sign anything was wrong: a
+missing button looks exactly like a notice that does not need one.
+
+**So the language of a description is now read from the description.**
+`app/services/language.py` classifies the text with py3langid. This is a read-side
+correction on purpose — the connectors are frozen (CLAUDE.md), and reading it at
+request time also repairs every notice already stored, with no migration, no
+backfill and no re-ingest.
+
+**The stored value still wins when it names a foreign language.** PNCP says `pt`
+on 112 of 112 and is right every time, and a stored code beats a classifier at
+telling Portuguese from Spanish on two lines of boilerplate. Nothing in the
+corpus was found claiming a foreign language it was not in, so there is no
+measured reason to second-guess that half. It is only a stored *English* — a
+claim the text can contradict — and a stored *nothing* that get checked.
+
+**How much evidence it takes to contradict the feed depends on whether the feed
+said anything.** Overturning a positive claim of English needs a confident
+classification; filling in a missing one does not. Three English content words
+carry almost no signal — `Cloud storage framework.` classifies as Dutch at 0.33 —
+so without the asymmetry the button would appear on every short English notice.
+It costs nothing measurable: every genuinely foreign description in the corpus
+scored **1.00**, including the two-word German ones.
+
+**Lowercase before classifying.** py3langid is trained on natural-case text, and
+ALL-CAPS English reads as Maltese (0.91) and Xhosa (0.64) — two real CanadaBuys
+notices did exactly that. Capitalised headers are the house style of procurement
+writing, so this is the common case here, not an edge case. It was the difference
+between four wrong classifications and none.
+
+**D33's actual warning survives, narrowed.** "A confident translation of the
+wrong thing" is still the failure to avoid — but the answer is not to withhold
+the button, it is to stop inventing a source language. Below the confidence
+threshold the provider is asked to detect the language itself (`langpair=
+Autodetect|en`, which returns what it found), and if nobody can name it the API
+sends an empty `source_language` and the dashboard says "translated from another
+language by machine". A reader is told what is known and not told what is not.
+
+**What this costs.** One notice in 286 English ones gains a button it does not
+need, and that one is genuinely bilingual English-and-French. Against 11 of 15
+TED notices that could not be read at all, that is the right side of the trade —
+an unnecessary button costs a click, a missing one costs the reader the notice.
+
+**Pinned by a sample of production, because invented fixtures could not catch
+this.** `tests/fixtures/language_gold_set.json` holds 33 real notices with their
+real stored `language`. Every hand-written fixture in the suite had a language
+that was either correct or absent, so "trust the column" passed all of them;
+TED's is neither, and no fixture had ever been shaped like that.

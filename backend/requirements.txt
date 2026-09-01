@@ -11,3 +11,7 @@ python-multipart==0.0.20
 # PostgreSQL driver. SQLite needs no driver; this makes
 # DATABASE_URL=postgresql+psycopg://... work out of the box.
 psycopg[binary]==3.2.3
+# Language identification for the Translate button. Pure-Python + numpy, no
+# native build step, and the model file ships in the wheel - which matters on a
+# platform where the image is rebuilt on every deploy. See D33 amended.
+py3langid==0.3.0
