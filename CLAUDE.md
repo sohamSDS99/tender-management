@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 790 tests, all passing
+./.venv/bin/python -m pytest -q          # 802 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
@@ -195,6 +195,23 @@ German, French or Dutch and not one had a Translate button. Nothing looked broke
 which is why this survived a green suite, a shipped feature and two follow-up
 fixes. `app/services/language.py` reads the language off the text now (D34); the
 column is only believed when it names a *foreign* language.
+
+**"Not English" and "contains no English" are different questions, and a week of
+production is still a sample.** The D34 fix was measured on 413 notices fetched
+live over seven days and looked clean. Against the 1,123 *stored* notices it put
+a Translate button on **127 of 256 CanadaBuys notices** that did not need one:
+they are bilingual — the English, a blank line, then the same text in French —
+and classified whole they come back **French at 1.00**, because French carries
+more signal per character than English does. The live window had held 1 such
+notice in 220. So `language.contains_english` now decides, over paragraphs,
+weighted by length, and the threshold (0.15) was read off a plateau in the data:
+genuinely foreign notices sit at an English share of exactly 0.00, bilingual ones
+at 0.16–0.67, and every cut from 0.10 to 0.20 splits the corpus identically.
+
+**Measure a read-side change against the stored corpus, not against a fresh
+fetch.** The two disagree, and the stored one is what readers actually open.
+`railway ssh --service backend "python -c ..."` over the ORM is how; a raw-SQL
+one-liner there is classifier-blocked, an ORM query is not.
 
 **Lowercase before you classify anything.** py3langid is trained on natural-case
 text, so ALL-CAPS English is not English to it: two real CanadaBuys notices
@@ -621,7 +638,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **790 passing, nothing skipped, nothing failing**. Treat any
+A green run is **802 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

@@ -57,6 +57,7 @@ this module was asked and could not.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
@@ -207,6 +208,85 @@ def detect(text: str | None) -> Detection | None:
         # gave so a caller can still see it was not sure which language it is.
         return Detection(code="und", confidence=detection.confidence)
     return detection
+
+
+#: Blank line. Bilingual notices separate their two languages with one, which is
+#: why the split is on paragraphs rather than on a fixed window: CanadaBuys
+#: writes the English, a blank line, then the same text in French.
+_PARAGRAPH = re.compile(r"\n\s*\n")
+
+#: A paragraph longer than this is sub-split into windows, so a bilingual notice
+#: written as one unbroken block is still caught. Below it a paragraph is left
+#: whole - chopping up two short German words to look for English inside them
+#: would only manufacture noise.
+SEGMENT_SPLIT_OVER = 600
+SEGMENT_WINDOW = 400
+
+#: How much of a notice has to read as English before the reader is judged to
+#: already have English in front of them. Measured, not chosen: across 1,123
+#: stored notices the genuinely foreign ones (44 TED, 477 PNCP) sit at **0.00**
+#: exactly, while bilingual CanadaBuys notices spread from 0.16 to 0.67. Anything
+#: from 0.10 to 0.20 produces an identical split of that corpus - a plateau, which
+#: is the sign of a threshold the data supports rather than one fitted to it. 0.15
+#: is the middle of it.
+ENGLISH_PRESENT_SHARE = 0.15
+
+#: Ceiling on how much of a very long notice is examined for the share. The
+#: longest stored description is 20,000 characters and a bilingual one splits its
+#: languages long before that.
+MAX_SHARE_CHARS = 20000
+
+
+def segments(text: str) -> list[str]:
+    """Split a notice into pieces each worth classifying on its own."""
+    parts = [part.strip() for part in _PARAGRAPH.split(text) if part.strip()] or [text.strip()]
+    out: list[str] = []
+    for part in parts:
+        if len(part) > SEGMENT_SPLIT_OVER:
+            out.extend(part[i : i + SEGMENT_WINDOW] for i in range(0, len(part), SEGMENT_WINDOW))
+        else:
+            out.append(part)
+    return [part for part in out if part.strip()]
+
+
+def english_share(text: str | None) -> float | None:
+    """What fraction of ``text``, by length, reads as English. None if unjudgeable.
+
+    Weighted by characters rather than by segment count on purpose: a French
+    notice under a two-word English header (`NOTICE OF PROPOSED PROCUREMENT`) is
+    a French notice, and counting segments would let that header carry the same
+    weight as three thousand characters of French.
+    """
+    body = (text or "").strip()[:MAX_SHARE_CHARS]
+    if not body:
+        return None
+    total = english = 0
+    for segment in segments(body):
+        detection = detect(segment)
+        if detection is None:
+            continue
+        total += len(segment)
+        if detection.is_english:
+            english += len(segment)
+    return None if total == 0 else english / total
+
+
+def contains_english(text: str | None) -> bool:
+    """Whether the reader already has English in front of them.
+
+    This is a *different question* from "what language is this", and conflating
+    the two is a bug that reached production. CanadaBuys publishes bilingually -
+    the English, a blank line, then the same text in French - and 127 of 256
+    stored notices classify **as French at 1.00** when read whole, because
+    French carries more signal per character than English does. Every one of
+    them opens with English the reader can already read, and every one of them
+    grew a Translate button it did not need.
+
+    So a notice is left alone when a real share of it is English, whatever the
+    whole-text classification says.
+    """
+    share = english_share(text)
+    return share is not None and share >= ENGLISH_PRESENT_SHARE
 
 
 def is_probably_english(text: str | None) -> bool:

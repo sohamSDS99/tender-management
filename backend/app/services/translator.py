@@ -293,6 +293,8 @@ def needs_translation(language: str | None, description: str | None) -> bool:
     detection = language_detect.detect(body)
     if detection is None or detection.is_english:
         return False
+    if language_detect.contains_english(body):
+        return False
     if code == TARGET_LANGUAGE:
         return detection.is_confident
     return True
@@ -633,10 +635,14 @@ def translate(
         detection = language_detect.detect(body)
         if detection is None:
             raise TranslationUnavailable("This notice has no description to translate.")
-        if detection.is_english or (stored == TARGET_LANGUAGE and not detection.is_confident):
-            # The second half mirrors `needs_translation` case 3 exactly. If the
-            # two ever disagree, the button appears and pressing it 409s, which
-            # is the worst of both - so they are written to be read together.
+        if (
+            detection.is_english
+            or language_detect.contains_english(body)
+            or (stored == TARGET_LANGUAGE and not detection.is_confident)
+        ):
+            # These three mirror `needs_translation` case 3 exactly. If the two
+            # ever disagree, the button appears and pressing it 409s, which is
+            # the worst of both - so they are written to be read together.
             raise TranslationUnavailable("This notice is already in English.")
         # None here means "not confident enough to name it" and becomes the
         # provider's autodetect, not a guess this app commits to.
