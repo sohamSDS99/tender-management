@@ -25,13 +25,21 @@ are deliberately separate:
    provider is configuration rather than code - the same shape
    `app/services/mailer.py` uses for SMTP.
 
-**On the providers, and why there are two keyless ones.** Both are
-undocumented, unversioned and rate-limited by IP, chosen by the operator knowing
-that. The difference is measured, not theoretical:
+**On the providers, and why the keyed one is now the default.** A keyless
+service can only ration by the caller's address, so both of the keyless options
+do - and that ration is what a reader actually hit. The differences are
+measured, not theoretical:
 
-- ``mymemory`` is the **default**, because it is the only one that answers from a
-  datacenter. It caps a request at 500 characters and reports failure as a body
-  field inside an HTTP 200.
+- ``deepl`` is the **default** (D35). Keyed, so there is no per-IP ration; a Pro
+  key reports a character limit of 10^12. It takes the whole notice as an array
+  in one request, detects the source language per element - better than this app
+  does - and reports failure in the **status code**, like an ordinary HTTP API.
+- ``mymemory`` is the keyless fallback and the only keyless one that answers
+  from a datacenter. It caps a request at 500 characters, reports failure as a
+  body field inside an HTTP 200, and allows 5,000 characters a day per IP -
+  about six notices. Production spent that allowance and the button started
+  answering "the free translation service has used its daily allowance", which
+  is what D35 exists to fix.
 - ``google_free`` gives better English on concatenated legal prose and takes
   8,000 characters at a time, but answers **429 to Railway's egress IP** whatever
   headers are sent - so it is the right choice from a laptop or the LAN
@@ -39,8 +47,9 @@ that. The difference is measured, not theoretical:
 
 Every translation is cached in `tender_translations`, so a notice is fetched once
 and never again - that is what keeps the request count proportional to *new*
-foreign notices a human actually opens, rather than to page views, and it is
-what makes a keyless service with a daily character allowance workable at all.
+foreign notices a human actually opens, rather than to page views. That mattered
+most when the provider was rationed; it still matters, because it is also what
+keeps a keyed provider's bill proportional to what somebody actually read.
 
 If it ever stops working, the fix is a new ``_PROVIDERS`` entry and a changed
 ``TRANSLATION_PROVIDER``, not a rewrite: `translate` is the only function that
@@ -492,15 +501,108 @@ def _mymemory(
     return ProviderResult(texts=out, detected_source=detected)
 
 
+#: DeepL's target. `EN` alone is deprecated as a target and DeepL asks for a
+#: variant; the corpus is UK and EU procurement, so British English is the one
+#: that reads naturally to the people using this dashboard.
+_DEEPL_TARGET = "EN-GB"
+
+#: A `:fx` suffix marks a free-tier key, and the two tiers are on different
+#: hosts. Sending a Pro key to the free host answers **403 "Wrong endpoint"** -
+#: which reads as an authentication failure and is not one, so the host is
+#: derived from the key rather than configured separately and got wrong.
+_DEEPL_FREE_SUFFIX = ":fx"
+
+
+def _deepl_host(api_key: str) -> str:
+    return "api-free.deepl.com" if api_key.endswith(_DEEPL_FREE_SUFFIX) else "api.deepl.com"
+
+
+#: DeepL's documented failures, mapped to sentences written for whoever pressed
+#: the button. Unlike MyMemory and Slack, DeepL reports failure in the **status
+#: code**, which is the ordinary thing to do and worth saying out loud because
+#: the two providers either side of it in this file do not.
+_DEEPL_ERRORS = {
+    403: "The translation service rejected this deployment's key. Check DEEPL_API_KEY.",
+    413: "This notice is too long for the translation service to accept in one request.",
+    429: "The translation service is busy. Try again in a moment.",
+    456: "The translation account has used its character allowance for this billing period.",
+}
+
+
+def _deepl(chunks: list[str], source: str | None, settings: Settings, client: httpx.Client) -> ProviderResult:
+    """DeepL, with a key. One request per notice, whatever its length.
+
+    Three things make this different from the keyless pair above, and all three
+    are why it is the default now:
+
+    1. **No ration.** The keyless providers ration by IP because that is all a
+       keyless service can ration by; a Pro key reports a character limit of
+       10^12, which is not a ceiling anybody in this product will meet.
+    2. **The whole notice goes in one HTTP request.** `text` is an *array*, and
+       DeepL returns one translation per element in order - so a long
+       description still chunks on sentence boundaries, but the chunks travel
+       together instead of costing a request each.
+    3. **``source`` is deliberately ignored.** DeepL detects per element and is
+       better at it than this app: it named `Küchentechnik Wartung` as German,
+       which `language.detect` called Swedish at 0.9966. Passing our own guess
+       would override a better answer with a worse one, and D33's "confident
+       translation of the wrong thing" is exactly what that produces. The
+       detected language is reported back instead.
+    """
+    api_key = (settings.deepl_api_key or "").strip()
+    if not api_key:
+        raise TranslationUnavailable(
+            "No translation key is configured for this deployment. Set DEEPL_API_KEY."
+        )
+
+    response = client.post(
+        f"https://{_deepl_host(api_key)}/v2/translate",
+        headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
+        json={"text": chunks, "target_lang": _DEEPL_TARGET},
+        timeout=settings.translation_timeout_seconds,
+    )
+    if response.status_code != 200:
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "translation refused",
+            provider="deepl",
+            status=response.status_code,
+        )
+        raise TranslationUnavailable(
+            _DEEPL_ERRORS.get(
+                response.status_code,
+                "The translation service refused the request. Try again in a minute.",
+            )
+        )
+
+    try:
+        translations = response.json()["translations"]
+        texts = [str(item["text"]) for item in translations]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise TranslationUnavailable(
+            "The translation service answered in a shape this app does not understand."
+        ) from exc
+
+    if not any(text.strip() for text in texts):
+        raise TranslationUnavailable("The translation service returned nothing.")
+
+    detected = next(
+        (str(item.get("detected_source_language") or "") for item in translations if item),
+        "",
+    )
+    return ProviderResult(texts=texts, detected_source=detected or None)
+
+
 #: Longest text each provider accepts in one request. Enforced as a ceiling on
 #: TRANSLATION_MAX_CHUNK_CHARS so an operator cannot configure a value the
 #: provider will reject - MyMemory's 500 is a hard limit that answers 403 in a
 #: 200 response, which is a confusing failure to debug from the outside.
-MAX_CHUNK_CHARS_BY_PROVIDER = {"google_free": 4000, "mymemory": 500}
+MAX_CHUNK_CHARS_BY_PROVIDER = {"google_free": 4000, "mymemory": 500, "deepl": 4000}
 
 #: Provider name -> implementation. Adding a keyed provider is an entry here and
 #: a changed TRANSLATION_PROVIDER; no caller changes.
-_PROVIDERS = {"google_free": _google_free, "mymemory": _mymemory}
+_PROVIDERS = {"google_free": _google_free, "mymemory": _mymemory, "deepl": _deepl}
 
 
 def translate(
@@ -571,10 +673,17 @@ def translate(
 
     joined = " ".join(part.strip() for part in result.texts if part.strip())
 
-    # What to *report* as the source, most-trustworthy first: the code the
-    # request was made with, then whatever the provider says it detected, then
-    # nothing. The empty string is a real answer here - see `Translated`.
-    reported = source or normalise_language(result.detected_source) or ""
+    # What to *report* as the source, most-trustworthy first. The provider's own
+    # detection wins when it offered one, because that is what it actually
+    # translated from - anything else would caption the text with a language it
+    # was not read as. Only then the code the request was made with, and then
+    # nothing; the empty string is a real answer here, see `Translated`.
+    #
+    # The order matters more than it looks. Written the other way round, a DeepL
+    # translation of a German notice stored by PNCP as `pt` would be captioned
+    # "translated from Portuguese" - `deepl` ignores the source it is handed
+    # precisely because its own detection is better.
+    reported = normalise_language(result.detected_source) or source or ""
     log_ctx(
         logger,
         logging.INFO,

@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (34 records, D1–D34).
+`docs/DECISIONS.md` explains why it is built this way (35 records, D1–D35).
 
 ## What this is
 
@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 780 tests, all passing
+./.venv/bin/python -m pytest -q          # 790 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
@@ -216,13 +216,31 @@ it wrong would not raise anywhere; it would store that sentence as a notice's
 English description and cache it for ever. `Autodetect|en` works and returns
 `detectedLanguage` in the body.
 
-**Railway's egress had already spent MyMemory's daily allowance, and
-`TRANSLATION_CONTACT_EMAIL` is unset in production.** The keyless allowance is
-5,000 characters a day *per IP*; setting an ordinary contact address (not a
-credential) raises it to 50,000. D33 documented that and nobody ever set the
-variable, so the button in production answers "the free translation service has
-used its daily allowance" once a few notices have been opened. That is a second,
-independent reason the button "does not work" and it is configuration, not code.
+**A keyless provider rations by IP, and six notices a day is not a rate limit —
+it is a broken feature.** Railway's egress spent MyMemory's 5,000-character
+anonymous allowance and the button started answering "the free translation
+service has used its daily allowance" to a reader who had pressed it once. The
+error handling was correct; the design was wrong. The provider default is
+**`deepl`** now (D35) and it needs `DEEPL_API_KEY` — a Pro key reports a
+character limit of 10^12, so there is no ceiling to hit. `mymemory` and
+`google_free` still work for a keyless deployment, at the ration.
+
+**DeepL ignores the source language it is handed, on purpose.** Its own
+per-element detection is better than `language.detect` — it named
+`Küchentechnik Wartung` as German where ours said Swedish at 0.9966 — so
+`translate` reports **the provider's** detected language ahead of the code the
+request was made with. Get that precedence backwards and a German notice stored
+by PNCP as `pt` is captioned "translated from Portuguese".
+
+**A DeepL key ending `:fx` is a free account on a different host.** `:fx` →
+`api-free.deepl.com`, anything else → `api.deepl.com`, and crossing them answers
+**403 "Wrong endpoint"** — which reads as a bad key and is not one. The host is
+derived from the key rather than configured, so it cannot be set wrong.
+
+**DeepL puts failure in the status code**, unlike the two providers either side
+of it in `translator.py` — both of which answer HTTP 200 when they fail (D22,
+D33). Do not carry that reflex across: 456 is the quota, 403 the key, 413 too
+large.
 
 **Every stored datetime is naive UTC.** Dhaka is presentation and scheduling only.
 Never write an aware datetime to the database.
@@ -603,7 +621,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **780 passing, nothing skipped, nothing failing**. Treat any
+A green run is **790 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

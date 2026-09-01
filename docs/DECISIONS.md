@@ -2133,3 +2133,77 @@ this.** `tests/fixtures/language_gold_set.json` holds 33 real notices with their
 real stored `language`. Every hand-written fixture in the suite had a language
 that was either correct or absent, so "trust the column" passed all of them;
 TED's is neither, and no fixture had ever been shaped like that.
+
+## D35 — The translation provider is keyed, because a keyless one rations by IP
+
+D33 chose a keyless provider knowingly and wrote down the cost: *"5,000
+characters a day per IP keyless, 50,000 with `TRANSLATION_CONTACT_EMAIL` set...
+At an average description of 838 characters that is roughly six notices a day."*
+Six notices a day is the whole ration for the whole deployment, and
+`TRANSLATION_CONTACT_EMAIL` was never set in production, so it was six and not
+sixty. Production spent it, and the button answered
+
+> The free translation service has used its daily allowance. Try again
+> tomorrow, or configure a provider with a key.
+
+to a reader who had pressed Translate once. The error handling was correct — the
+message says exactly what happened and what to do — and that is the point: the
+feature worked as designed, and the design was wrong. A ration measured in
+notices-per-day is not a rate limit on a busy system, it is a feature that works
+in testing and not in use.
+
+**A keyless service can only ration by the caller's address.** That is not an
+implementation detail to be tuned around; it is what "keyless" costs. Raising
+the allowance to 50,000 with a contact address moves the ceiling to about sixty
+notices a day, which is a better number and the same shape of problem. The only
+thing that removes the ceiling is a key.
+
+**DeepL, with a Pro key.** It reports `character_limit: 10^12` against a period
+usage of 3.3M, which is not a ceiling anybody in this product will meet. D33
+named DeepL and Anthropic as the two keyed alternatives and preferred them on
+quality for this kind of concatenated legal prose; that judgement held up when
+measured against the same German notice:
+
+| provider | English |
+|---|---|
+| mymemory | "The subject of this tender is the floor coating work for the above-mentioned construction project (subsurface preparation by shot blasting as well as floor and wall coatings with 2-K epoxy resin and PU acrylate)." |
+| deepl | "The subject of this invitation to tender is the floor coating work for the above-mentioned construction project (substrate preparation by shot blasting, and floor and wall coatings using two-component epoxy resin and PU-acrylate)." |
+
+**The swap cost what D33 promised it would cost:** one `_PROVIDERS` entry, one
+changed default, and no call site moved. That is the whole return on having
+written `translate` as the only function that knows a provider exists.
+
+Three things about DeepL that the shape had to absorb rather than hide:
+
+1. **The whole notice goes in one request.** `text` is an array and the response
+   is one object per element, in order — so a long description still chunks on
+   sentence boundaries, but the chunks travel together instead of costing a
+   request each. The keyless providers loop; this one does not.
+2. **It detects the source language itself, per element, and is better at it
+   than we are.** `deepl` therefore *ignores* the source it is handed. It named
+   `Küchentechnik Wartung` as German where `language.detect` called it Swedish
+   at 0.9966 — the exact short-text weakness D34 recorded as a known limitation,
+   closed here as a side effect. What gets reported to the reader is what DeepL
+   actually translated from, never what this app guessed; getting that
+   precedence backwards would caption a German notice stored by PNCP as `pt`
+   with "translated from Portuguese", and a test pins the order.
+3. **Failure is in the status code.** Worth stating out loud only because the
+   two providers either side of it in the same file both answer HTTP 200 when
+   they fail (D22, D33), so the reflex when reading that module is not to trust
+   a status code. 456 is the quota, 403 the key, 413 the size.
+
+**The key's suffix picks the host.** A key ending `:fx` is a free account and
+belongs to `api-free.deepl.com`; anything else is Pro and belongs to
+`api.deepl.com`. Sending one to the other's host answers **403 "Wrong
+endpoint"**, which reads as an authentication failure and is not one — so the
+host is derived from the key rather than configured separately and got wrong.
+
+**The keyless providers stay.** A deployment without a key sets
+`TRANSLATION_PROVIDER=mymemory` and accepts the ration; nothing about that path
+changed. `deepl_api_key` joins `SECRET_FIELDS`, because a key in a log line is a
+key in the logs — the lesson SAM.gov taught this codebase already.
+
+**What did not change: the cache is still the cost control.** It mattered when
+the provider was rationed and it matters now for a different reason — it is what
+keeps a keyed provider's bill proportional to what somebody actually read,
+rather than to what was ingested.

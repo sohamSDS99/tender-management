@@ -435,11 +435,153 @@ def test_a_smaller_configured_chunk_still_wins(settings):
 
 
 def test_the_default_provider_is_the_one_that_works_in_production(settings):
-    """Pinned deliberately. google_free answers 429 from Railway's egress IP."""
+    """Pinned deliberately, and the pin has moved once for a measured reason.
+
+    It was `mymemory`, because `google_free` answers 429 from Railway's egress
+    IP. It is now `deepl`, because `mymemory` rations 5,000 characters a day per
+    IP - about six notices - and production spent it, so a reader who pressed
+    Translate once was told the free service had used its daily allowance. A
+    keyless service can only ration by address; a key is what removes the
+    ceiling rather than raising it. D35.
+    """
     from app.settings.config import Settings
 
-    assert Settings(_env_file=None, database_url="sqlite://").translation_provider == "mymemory"
-    assert set(translator._PROVIDERS) == {"google_free", "mymemory"}
+    assert Settings(_env_file=None, database_url="sqlite://").translation_provider == "deepl"
+    assert set(translator._PROVIDERS) == {"google_free", "mymemory", "deepl"}
+
+
+# --- the deepl provider -----------------------------------------------------
+
+
+def deepl_settings(settings, **over):
+    return settings.model_copy(update={"translation_provider": "deepl", "deepl_api_key": "test-key", **over})
+
+
+def deepl_response(*pairs: tuple[str, str]) -> httpx.Response:
+    """DeepL's real shape: one object per input text, in order, each self-describing."""
+    return httpx.Response(
+        200,
+        json={"translations": [{"text": text, "detected_source_language": lang} for text, lang in pairs]},
+    )
+
+
+def test_deepl_sends_the_whole_notice_as_one_request(settings):
+    """`text` is an array, so a long description costs one request, not one per chunk.
+
+    The keyless providers loop and spend a request per chunk; this one does not,
+    and that is most of why a long notice is cheap here.
+    """
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        seen["calls"] = int(seen.get("calls", 0)) + 1
+        return deepl_response(("One.", "DE"), ("Two.", "DE"))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    long_text = " ".join(f"Satz nummer {n} mit etwas text." for n in range(300))
+    result = translator.translate(long_text, "deu", deepl_settings(settings), client)
+
+    assert seen["calls"] == 1
+    assert seen["url"] == "https://api.deepl.com/v2/translate"
+    assert seen["auth"] == "DeepL-Auth-Key test-key"
+    assert seen["body"]["target_lang"] == "EN-GB"
+    assert len(seen["body"]["text"]) > 1
+    assert result.text == "One. Two."
+
+
+def test_deepl_never_sends_a_source_language(settings):
+    """Its own detection is better than ours, so overriding it would be a downgrade.
+
+    `Küchentechnik Wartung` is German; DeepL says so and `language.detect` calls
+    it Swedish at 0.9966. Sending our guess would replace the better answer with
+    the worse one, which is precisely D33's "confident translation of the wrong
+    thing".
+    """
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return deepl_response(("Kitchen technology maintenance", "DE"))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    # A stored `pt` would be handed to any other provider as the source.
+    result = translator.translate("Küchentechnik Wartung", "pt", deepl_settings(settings), client)
+
+    assert "source_lang" not in seen["body"]
+    # ...and what gets reported is what DeepL actually translated from, not `pt`.
+    assert result.source_language == "de"
+
+
+def test_a_free_tier_key_goes_to_the_free_host(settings):
+    """A `:fx` suffix is the only thing that distinguishes the two tiers.
+
+    Sending a Pro key to the free host answers **403 "Wrong endpoint"**, which
+    reads as an authentication failure and is not one - so the host is derived
+    from the key rather than configured separately and got wrong.
+    """
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return deepl_response(("English.", "DE"))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    translator.translate(
+        "Ein deutscher satz.", "deu", deepl_settings(settings, deepl_api_key="abc:fx"), client
+    )
+
+    assert seen["url"] == "https://api-free.deepl.com/v2/translate"
+    assert translator._deepl_host("abc:fx") == "api-free.deepl.com"
+    assert translator._deepl_host("abc") == "api.deepl.com"
+
+
+def test_a_missing_key_says_which_variable_to_set(settings):
+    """The default provider is keyed now, so an unconfigured deployment must say so.
+
+    "Could not reach the translation service" would send somebody to look at the
+    network for a problem that is one variable.
+    """
+    with pytest.raises(translator.TranslationUnavailable) as exc:
+        translator.translate("Ein deutscher satz.", "deu", deepl_settings(settings, deepl_api_key=""))
+
+    assert "DEEPL_API_KEY" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (403, "key"),
+        (456, "character allowance"),
+        (429, "busy"),
+        (413, "too long"),
+        (500, "Try again in a minute"),
+    ],
+)
+def test_deepl_reports_each_failure_in_words_a_reader_can_act_on(settings, status, expected):
+    """DeepL puts the failure in the status code, unlike the two providers either side.
+
+    Worth a test rather than a comment: this file's other two providers both hide
+    failure inside an HTTP 200, so the reflex when reading them is not to trust a
+    status code.
+    """
+    client = httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(status)))
+
+    with pytest.raises(translator.TranslationUnavailable) as exc:
+        translator.translate("Ein deutscher satz.", "deu", deepl_settings(settings), client)
+
+    assert expected in str(exc.value)
+
+
+def test_the_deepl_key_is_redacted_from_anything_logged(settings):
+    """A key in a log line is a key in the logs, the same lesson SAM.gov taught."""
+    from app.settings.config import redact
+
+    configured = deepl_settings(settings, deepl_api_key="super-secret-key")
+
+    assert "super-secret-key" not in redact("failed with super-secret-key", configured)
 
 
 # --- the endpoint -----------------------------------------------------------
