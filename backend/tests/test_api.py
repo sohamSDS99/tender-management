@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 
+from app.connectors.registry import SOURCE_NAMES
 from app.models import FetchRun, utcnow
 from app.services import ingest
 
@@ -121,7 +122,9 @@ def test_openapi_documents_every_endpoint(client):
 
 def test_sources_report_status_and_key_requirements(client, seeded):
     entries = {e["name"]: e for e in client.get("/api/sources").json()}
-    assert len(entries) == 8
+    # Derived, not hardcoded: adding a connector should not fail this test, which
+    # is here to check the *shape* of /api/sources, not the size of the registry.
+    assert set(entries) == set(SOURCE_NAMES)
     # The bulk extract is the default transport, so SAM needs no credential and
     # is available without one. tests/test_connectors.py covers the API path,
     # where a missing key does still disable it.
@@ -151,7 +154,10 @@ def test_tender_list_is_scored_sorted_and_paginated(client, seeded):
     ("query", "expected"),
     [
         ("query=chemical inventory", {"high-1", "onprem-1"}),
-        ("minimum_score=70", {"high-1"}),
+        # review-1 (hybrid hosting) joins high-1 above 70 since D37 lifted the
+        # deployment scale off zero: "either cloud or on-premises" is a real
+        # opportunity for a SaaS vendor, so it is no longer scored like a refusal.
+        ("minimum_score=70", {"high-1", "review-1"}),
         ("maximum_score=25", {"onprem-1", "ppe-1"}),
         ("sources=ted", {"high-1"}),
         ("sources=ted&sources=sam", {"high-1", "onprem-1"}),
