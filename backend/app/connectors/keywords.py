@@ -37,6 +37,13 @@ SEARCH_PHRASES: tuple[str, ...] = (
     "environmental management system software",
     "Sicherheitsdatenblatt",
     "Gefahrstoffmanagement",
+    # Measured against TED over 2025-09..2026-09: Gefahrstoffverzeichnis 14,
+    # Gefahrstoffkataster 12, Chemikalienmanagement 2. German buyers write the
+    # compound, so an English phrase never reaches them - "chemical management"
+    # restricted to German buyers returns 0.
+    "Gefahrstoffverzeichnis",
+    "Gefahrstoffkataster",
+    "Chemikalienmanagement",
     "fiche de donnees de securite",
     "logiciel HSE",
     "ficha de datos de seguridad",
@@ -86,6 +93,28 @@ PREFILTER_TERMS: tuple[str, ...] = (
     "gefahrstoff",
 )
 
+# Stems matched as substrings, not whole words. Only for languages that compound:
+# a German notice says "Chemikalienbewirtschaftung", never "Chemikalien Verwaltung",
+# so the whole-word test in `looks_relevant` can never see it. Keep these long
+# enough to stay unambiguous - "chemikalien" is safe, "chem" would not be.
+PREFILTER_STEMS: tuple[str, ...] = (
+    # German
+    "chemikalien",
+    "gefahrstoff",
+    "sicherheitsdatenblat",  # ...blatt and the plural ...blaetter
+    "arbeitsschutz",
+    "gefahrgut",
+    "betriebsanweisung",
+    # Dutch
+    "veiligheidsinformatieblad",
+    "gevaarlijke stoffen",
+    # Danish / Norwegian / Swedish
+    "kemikalie",
+    "sikkerhetsdatablad",
+    "sakerhetsdatablad",
+    "kemikaliehantering",
+)
+
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
 
 
@@ -95,9 +124,13 @@ def _fold(text: str) -> str:
 
 
 _PREFILTER_FOLDED = tuple(_fold(t).strip() for t in PREFILTER_TERMS)
+_PREFILTER_STEMS_FOLDED = tuple(_fold(t).strip() for t in PREFILTER_STEMS)
 
 
 def looks_relevant(*texts: str | None) -> bool:
     """Cheap prefilter for feeds that cannot be searched server-side."""
     blob = _fold(" ".join(t for t in texts if t))
-    return any(f" {term} " in blob for term in _PREFILTER_FOLDED)
+    if any(f" {term} " in blob for term in _PREFILTER_FOLDED):
+        return True
+    # Compound-language stems: substring, because the term *is* part of a longer word.
+    return any(stem in blob for stem in _PREFILTER_STEMS_FOLDED)

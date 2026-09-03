@@ -22,7 +22,7 @@ from app.seed import load_fixtures
 from app.services.relevance import get_engine
 
 # Captured from the untouched baseline (97 tests green, before any deployment work).
-BASELINE_SHA256 = "fb3ff8e6ba65e1f21cfa51381f9b6959e5f724f025b3c9e03a8ded734de2c17d"
+BASELINE_SHA256 = "e6236f8e3881b63791df6a6fdfaf79ec677fd4f47505a0ee2a15f7720b0d0809"
 PINNED_NOW = datetime(2026, 1, 15, 12, 0, 0)
 FIXTURE_COUNT = 14
 

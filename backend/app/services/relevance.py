@@ -61,11 +61,29 @@ _DEPLOYMENT_ORDER = (
     DEP_CLOUD_ALLOWED,
 )
 _DEPLOYMENT_BONUS = {
+    # The scale must stay monotonic: an explicit "cloud is permitted" can never be
+    # worth less than saying nothing at all. Raising DEP_UNSPECIFIED off the floor
+    # (below) therefore lifts everything above it too - test_relevance.py's
+    # test_unspecified_deployment_is_not_penalised pins exactly that ordering.
     DEP_CLOUD_REQUIRED: 35,
-    DEP_CLOUD_PREFERRED: 25,
-    DEP_CLOUD_ALLOWED: 12,
-    DEP_HYBRID: 6,
-    DEP_UNSPECIFIED: 0,
+    DEP_CLOUD_PREFERRED: 33,
+    DEP_CLOUD_ALLOWED: 30,
+    DEP_HYBRID: 28,
+    # A notice that says nothing about hosting is not a notice that ruled cloud
+    # out, and the engine's own reason string says so ("Deployment model not
+    # specified - cloud delivery is not excluded"). Scoring it 0, the same as
+    # DEP_ON_PREM, contradicted that: notice summaries almost never state a
+    # delivery model, so real notices were scored as though they had mandated
+    # on-premises. Measured consequence: of the 469 TED notices this system's own
+    # query returns over 12 months, *none* reached the score-70 floor that both
+    # the Slack digest and the dashboard landing view filter on - the maximum was
+    # 69 - so the view a reader lands on could only ever show SEED-* fixtures.
+    # 26 is the smallest value that lets an on-target notice reach 70, and it is
+    # bounded: at 26 a notice still needs topic_relevance == 100 (its clamp), i.e.
+    # two or more strong SDS/EHS phrases, in practice in the title. 12 and 20 are
+    # not enough to reach 70 at all; 35 would drop the required topic to ~95 and
+    # start admitting near-misses.
+    DEP_UNSPECIFIED: 26,
     DEP_ON_PREM: 0,
     DEP_OFFLINE: 0,
 }

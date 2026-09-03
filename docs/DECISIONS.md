@@ -2257,3 +2257,99 @@ key in the logs — the lesson SAM.gov taught this codebase already.
 the provider was rationed and it matters now for a different reason — it is what
 keeps a keyed provider's bill proportional to what somebody actually read,
 rather than to what was ingested.
+
+## D37 — Germany is a source, not a keyword problem, and silence is not a refusal
+
+Two perfect-fit tenders were missed in one quarter, and neither was a matching
+failure. Replaying the TED connector's own query against the live API returns
+`355970-2026` ("Provision of a Chemical Data Sheet (SDS) Management Platform and
+Software Services", Ireland EPA) today. For the windows it actually ran, the
+connector had captured **55 of 55** matching notices. The code that finds
+tenders was working; three other things were not.
+
+**The window had never reached back that far.** `fetch_lookback_days` is 3 and
+`ingest` floors the span at 72 hours, so a scheduled sweep asks for three days.
+The manual button asks for 30. The earliest window this system has *ever*
+requested from any source is 2026-07-26; the Irish notice was published
+2026-05-26. Replaying the production query over the un-fetched windows: 258
+matching notices in 2026-01-01→07-25 and 466 across 2025, none of which were
+ever requested. That is a one-off backfill and a settings decision, and neither
+is recorded here as a trade-off because it was never made as one.
+
+**German sub-threshold notices were structurally invisible.** Of the connectors
+that existed, exactly one was European and it was TED-only. TED carries
+above-threshold notices plus a thin voluntary tail — Germany filed 128 voluntary
+notices out of 112,661 in 2026 — so a UVgO award never appears there.
+`FT ~ "Chemikalienbewirtschaftung"` returns **0 notices on TED, all time**, while
+IFW Dresden itself filed 35 TED notices in 2026: they publish to TED, just not
+this contract. No keyword, window or paging change could have found it.
+
+So `oeffentlichevergabe` joins the registry — the federal Datenservice
+Öffentlicher Einkauf, which aggregates 30+ German platforms (evergabe.de appears
+193 times in a single day's export), needs no authentication, and is CC0. The
+missed notice is in it, at `ocds-mnwr74-25641424`, published 2026-07-29.
+
+**We do not scrape evergabe.de, where the notice actually lives.** Its AGB §7.1
+forbids placing retrieved documents into a database accessible to third parties,
+and §7.2 sets damages at five times twelve months' spend. The federal feed
+reaches the same notices legitimately and for free, which is the whole reason to
+prefer an aggregator over the platform that fed it.
+
+**Three shapes of German notice force post-processing** that the shared OCDS
+normaliser cannot do: UVgO notices carry no `tenderPeriod`, so the submission
+date is parsed out of the prose (`i) Angebotsfrist: 10.08.2026, 10:00 Uhr`);
+there is usually no CPV, so relevance rests entirely on title and description;
+and `ocds.normalize_release` defaults `buyer_country` to `"GB"`, because it was
+written for the two UK feeds. The export is ZIP-only — every uncompressed
+representation answers HTTP 406 — so this connector reads bytes from
+`self.client()` and mirrors `base.request`'s retry and size-guard semantics
+rather than editing frozen `base.py`.
+
+**Whole-word matching cannot read German.** `looks_relevant` tested
+`f" {term} " in blob`, so a stem could never match a compound — and German
+procurement writing is almost entirely compounds. `Gefahrstoffkataster`,
+`Chemikalienmanagementsystem` and `Verwaltung von Sicherheitsdatenblättern` all
+returned False against a list that already contained `gefahrstoff` and
+`sicherheitsdatenblatt`. Those two entries were therefore close to inert on real
+German text. `PREFILTER_STEMS` adds a substring tier for the languages that
+compound (German, Dutch, the Nordics); six German stems cover the family that
+forty whole-word entries would miss. The same tender in English scored 61 and in
+German 12, which is the measurement that says this is a language problem and not
+a relevance one.
+
+**And silence about hosting was being scored as a refusal.**
+`_DEPLOYMENT_BONUS[DEP_UNSPECIFIED]` was `0` — the identical value given to
+`DEP_ON_PREM` and `DEP_OFFLINE` — while the engine printed the reason
+"Deployment model not specified - cloud delivery is not excluded". The prose said
+neutral; the arithmetic said rejected. Because notice summaries rarely state a
+delivery model, this capped essentially every real notice: of the **469** TED
+notices this system's own query returns over 12 months, scored with the real
+engine, **none** reached 70 and the maximum was **69** — while `SLACK_MIN_SCORE`
+and `DEFAULT_FILTERS.minimum_score` are both 70. Every 70+ row in the database
+was a `SEED-*` fixture, which is why a sweep that stored notices looked
+identical to one that stored none.
+
+`DEP_UNSPECIFIED` is now **26**: the smallest value that lets an on-target notice
+reach 70, and bounded, because at 26 a notice still needs `topic_relevance == 100`
+(its clamp) — two or more strong SDS/EHS phrases, in practice in the title. 12 and
+20 cannot reach 70 at all; 35 would drop the required topic to ~95 and start
+admitting near-misses. Measured on the same corpus afterwards: **2** notices clear
+70 (max 77), both genuinely on-target Irish software tenders. The Irish SDS notice
+scores exactly 70 as it would have on the day it was published.
+
+**Raising the floor had to raise everything above it.** `DEP_CLOUD_ALLOWED` was 12
+and `DEP_HYBRID` 6, so a neutral 26 would have scored *silence* higher than a
+notice that explicitly permits cloud. `test_unspecified_deployment_is_not_penalised`
+pins that ordering and caught it. The scale is now monotonic — unspecified 26,
+hybrid 28, allowed 30, preferred 33, required 35 — with `mandatory_on_premises`
+and `offline_or_air_gapped` still at 0, which is the one place a zero belongs.
+This is a deliberate rescoring, so `BASELINE_SHA256` was regenerated rather than
+worked around, and `test_tender_filters` now expects the hybrid fixture above 70.
+
+**What this does not fix.** The German notice still scores **43** open (28 now
+that 2026-08-10 has passed). Its title carries exactly one relevant compound and
+its description is UVgO boilerplate, so `topic_relevance` reaches 54, not 100 —
+there is no vocabulary that changes that, because the notice genuinely says one
+thing once. A German one-line notice will therefore land in "possible fit" and not
+on a landing view floored at 70. Whether that floor is right is a separate
+decision from this one, and it has not been made.
