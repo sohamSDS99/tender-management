@@ -70,7 +70,7 @@ curl -X POST http://localhost:8000/api/fetch \
   -d '{"sources": ["ted", "find_a_tender", "contracts_finder"], "days_back": 3}'
 ```
 
-A full sweep across every source takes around 13 minutes against eight public services. To prove
+A full sweep across every source takes around 13 minutes against nine public services. To prove
 the endpoint path works, fetch one cheap source instead (`austender` returns in about a second) —
 it runs the identical guard and ingest code.
 
@@ -224,6 +224,7 @@ not exist — see section 6.
 | **CanadaBuys** | `newTenderNotice-*.csv`, `openTenderNotice-*.csv` | none | whole file | Scheduled machine-readable CSV feeds; the new-notices feed gives frequent updates, the open-notices feed reconciles (≈7 MB, disable with `ENABLE_CANADA_BUYS_OPEN_FEED=false`). Bilingual EN/FR titles and descriptions are both stored. Closing times carry no timezone in the feed and are stored as-is. |
 | **AusTender** | `https://www.tenders.gov.au/public_data/rss/rss.xml` | none | single feed | Current ATM list. The feed only publishes title, link, description and publication date — **no closing date, buyer or value**. XML is parsed with a DOCTYPE/ENTITY guard and a response-size cap. Requires a browser-shaped `User-Agent` (the default `USER_AGENT` satisfies this and CanadaBuys' WAF). |
 | **Brazil PNCP** | `/v1/contratacoes/atualizacao`, `/v1/contratacoes/proposta` | none | `pagina`/`tamanhoPagina` (max 50) | Documented params only; `atualizacao` needs `codigoModalidadeContratacao`, so the connector iterates `PNCP_MODALIDADES`. PNCP has **no keyword search and very high volume** (>13 000 updates per 3 days per modalidade): coverage is capped at `PNCP_MAX_PAGES` pages per query and prefiltered locally. Raise `PNCP_MAX_PAGES` for fuller coverage. Portuguese text is preserved verbatim. |
+| **HigherGov** | `GET https://www.highergov.com/api-external/opportunity/` | **`HIGHERGOV_API_KEY` + `HIGHERGOV_SEARCH_ID`** | `page_number`/`page_size` (max 100) | US aggregator covering SAM, DIBBS, SBIR, grants and state/local in one feed. **This API has no free-text search on any of its 19 endpoints, and silently ignores unknown parameters** — a keyword parameter answers HTTP 200 with the unfiltered feed, so a naive integration looks like it is filtering while it is not. The only server-side filter is `search_id`, a saved search built in the web UI (carries Keywords, NAICS, PSC, Set Aside, Date Due, Value Range); with it unset the connector refuses to run rather than degrade, because base usage is 10 000 records/month while a single day of postings is ~5 500. `posted_date` takes one date and rejects ranges, so the sweep is one request and the window is applied client-side, on `posted_date` **or** `captured_date`. Every record's `document_path` arrives with the caller's own API key embedded — it is redacted before storage. |
 
 **Never scraped:** every source above is an official API, OCDS feed, CSV or RSS feed.
 No connector ever invents sample data — fixtures only enter the database through
@@ -231,7 +232,7 @@ No connector ever invents sample data — fixtures only enter the database throu
 
 ### Adding a source nobody anticipated
 
-The eight above each parse one portal. `app/connectors/generic.py` parses whatever it is pointed
+The nine above each parse one portal. `app/connectors/generic.py` parses whatever it is pointed
 at, given a mapping from that portal's field names to the common model — which is what lets a
 feed be added from **Settings → Sources** instead of in a release. Paths are dotted, with `[]`
 marking an array to walk (`data.items[].tender.title`); deliberately not JSONPath, whose filters
@@ -484,7 +485,7 @@ Reads are open by design — the content is public procurement data already publ
 governments, and the tool is internal-network only with no accounts (D5, D18).
 
 The two expensive writes were never gated for *confidentiality* either. They were gated because
-one spends outbound requests against eight public services and the other rewrites every stored
+one spends outbound requests against nine public services and the other rewrites every stored
 row — that is cost control, and a secret is a poor cost control: it says who may ask, not how
 often. Each now carries the limit it actually needed (D23), which is also what let the buttons
 the mockup asked for exist at all:

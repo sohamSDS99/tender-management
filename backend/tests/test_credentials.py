@@ -243,3 +243,38 @@ def test_a_secret_value_is_never_logged(db_session, caplog):
     with caplog.at_level(_logging.DEBUG):
         set_secret(db_session, "slack_bot_token", "xoxb-SUPER-SECRET")
     assert "xoxb-SUPER-SECRET" not in caplog.text
+
+
+def test_highergov_key_and_search_id_can_both_be_stored(db_session):
+    """Before this, a key pasted on the HigherGov card was silently refused.
+
+    The dashboard renders a key box for any source with requires_api_key, which
+    HigherGov sets - but set_credential refused the write because the source was
+    not in CREDENTIAL_FIELDS. The operator saw a field, used it, and nothing was
+    stored anywhere.
+    """
+    from app.connectors.highergov import HigherGovConnector
+    from app.services.credentials import set_secret
+
+    assert set_credential(db_session, "highergov", "hg-live-key-1234") is True
+    assert credential_hint(db_session, "highergov") == "\u20261234"
+
+    # The saved-search id is the other half; without it the connector refuses to run.
+    assert set_secret(db_session, "highergov_search_id", "abc123XYZ") is True
+
+    resolved = settings_with_stored_credentials(db_session, _settings())
+    assert resolved.highergov_api_key == "hg-live-key-1234"
+    assert resolved.highergov_search_id == "abc123XYZ"
+    # Both halves present means the source is actually available for a sweep.
+    assert HigherGovConnector(resolved).unavailable_reason() is None
+
+
+def test_highergov_key_without_a_search_id_stays_unavailable(db_session):
+    """A key alone is not a degraded mode - it is a way to burn the monthly quota."""
+    from app.connectors.highergov import HigherGovConnector
+
+    set_credential(db_session, "highergov", "hg-live-key-1234")
+    resolved = settings_with_stored_credentials(db_session, _settings())
+    reason = HigherGovConnector(resolved).unavailable_reason()
+    assert reason is not None
+    assert "SEARCH_ID" in reason.upper()

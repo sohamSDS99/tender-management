@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 #: nothing will ever read.
 CREDENTIAL_FIELDS: dict[str, str] = {
     "sam": "sam_gov_api_key",
+    "highergov": "highergov_api_key",
 }
 
 #: ``Settings`` fields that may be set from the dashboard, under ``secret.{field}``.
@@ -56,6 +57,13 @@ SETTINGS_SECRETS: tuple[str, ...] = (
     "slack_webhook_url",
     "slack_channel_label",
     "slack_bot_username",
+    # Same reasoning as slack_channel_id: not a secret, but half of a two-part
+    # configuration. HigherGov needs a key *and* a saved-search id - the API has
+    # no free-text search and silently ignores unknown parameters, so a key
+    # without a search_id is a connector that spends the monthly quota on the
+    # unfiltered firehose. Storing one without the other is the failure mode
+    # worth designing against, so they go through the same door.
+    "highergov_search_id",
 )
 
 #: Which of those are true secrets, so the hint masks them.

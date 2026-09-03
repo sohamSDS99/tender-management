@@ -2257,3 +2257,91 @@ key in the logs — the lesson SAM.gov taught this codebase already.
 the provider was rationed and it matters now for a different reason — it is what
 keeps a keyed provider's bill proportional to what somebody actually read,
 rather than to what was ingested.
+
+## D36 — HigherGov is a ninth source, and it refuses to run without a saved search
+
+HigherGov aggregates SAM, DIBBS, SBIR, grants and state/local opportunities into
+one feed, which is coverage `sam.py` cannot reach: the SAM bulk extract carries
+federal contract opportunities only. Added as a ninth connector rather than
+replacing SAM, so the two overlap on federal notices and dedupe on
+`source_notice_id` like any other pair of sources.
+
+**The API has no free-text search.** Not on the opportunity endpoint and not on
+any of the other eighteen — the OAS lists no keyword, query or text parameter
+anywhere, and `opportunity` does not even accept `naics_code`/`psc_code` the way
+`contract` and `idv` do. The required-parameter error names the whole set:
+`search_id`, `captured_date`, `posted_date`, `source_id`, `agency_key`,
+`opp_key`, `version_key`.
+
+**Unknown parameters are accepted and silently ignored, which is the actual
+hazard.** Measured 2026-09-02: `q`, `search`, `keyword`, `keywords`,
+`search_text`, `text`, `title`, `description` and `query` each returned HTTP 200,
+and `q="safety data sheet"` and `q=zzzzznonsensequery12345` produced
+*byte-identical* `opp_key` sets. A connector written the obvious way would
+therefore appear to filter while pulling the raw firehose — no error, no warning,
+just quietly wrong. `posted_date__gte` behaves the same way; a comma range on
+`posted_date` answers HTTP 500.
+
+**So the saved search is the only filter that exists, and it is required.**
+`search_id` names a search built in the HigherGov web UI, whose `searchID` is
+copied out of that page's URL; it carries Keywords, NAICS, PSC, Set Aside, Date
+Due and Value Range. With `HIGHERGOV_SEARCH_ID` unset the connector reports
+itself unavailable instead of falling back to a date scan. That refusal is the
+decision, and the numbers are why:
+
+| Measurement | Value |
+|---|---|
+| Base usage, every subscription | 10,000 records/month |
+| Opportunities posted on one day (2026-08-25) | 5,538 |
+| Unfiltered scan → monthly quota exhausted in | ~1.8 days |
+| Relevance of 300 sampled unfiltered records | **0** reached the 50-point band |
+
+The single record above 25 in that sample — "C--OSHA A/E Renovation Design and
+Phasing Services" — was a false positive from the `OSHA` token on a
+building-renovation contract. A fallback path here is not a degraded mode, it is
+a way to spend the entire allowance on noise.
+
+**One request per sweep, window applied client-side.** Because `posted_date`
+takes a single date and rejects ranges, covering an N-day window server-side
+would cost N requests. A precision-first saved search returns tens of records in
+total, so the whole search is fetched once and filtered in code — which keeps a
+sweep at one request whatever the lookback, and the monthly quota is what binds.
+The window matches `posted_date` **or** `captured_date`: 15 of 55 live records
+had them differ, because a notice posted weeks ago can be captured today, and
+filtering on `posted_date` alone would drop it. `source_updated_at` is
+`captured_date`, since for an aggregator "new to us" means when *it* saw the
+notice.
+
+**Prefiltered on title and buyer, never on the description.** The saved search is
+a relevance filter tuned by whoever built it, not a topical guarantee. On the
+live search this was verified against, the title+buyer prefilter cut 55 records
+to 5 and lost no record scoring ≥50 — the 50 it dropped were all chemical
+*purchase* notices (ADHESIVE, POTASSIUM NITRATE, Ice Melt, animal feed) whose
+text merely requires an SDS on delivery. Same measured trade-off `sam.py`
+records for the same reason, so the same choice.
+
+**Verified against a real saved search, not a schema.** `searchID`
+`OvSsysuZMmV1UnmB1s0hJ` returned 55 open records, 24 federal + 29 SLED + 2
+forecast — so the `/sl/` path in a browser URL does *not* constrain
+`source_type`, the search's own filters do. One record cleared the review band: a
+Department of Energy / Idaho National Laboratory "Chemical Management Managed
+Service", $1.5–5M, closing 2026-09-15, asking for administration of a Chemical
+Inventory System with an SDS library. Precision at 1.8% is a property of that
+search's keywords, which match the bare phrase rather than the product; the
+strong tier ("sds management", "ehs software") is what belongs in it.
+
+**The response carries the credential.** Every record's `document_path` arrives
+with the caller's own `api_key=` embedded. Stored verbatim it would be written to
+the database and rendered in the dashboard, which log redaction does not cover
+because `raw_payload` is stored whole. It is scrubbed in the connector; see the
+CLAUDE.md entry.
+
+**A related defect this surfaced but did not fix.** 13 of the 14 records scoring
+≥25 escaped `false_positives.chemical_purchase_sds_doc` entirely — the patterns
+miss a plural subject ("vendors **are** required to provide"), a subject detached
+from its verb, the source-text misspelling "saftey data sheets", "available upon
+request", "submission of ... (sdss)", "documentation such as", and bare mentions
+in goods spec lists. Eight added patterns cut the ≥25 band from 25.5% to 7.3%
+while preserving the genuine hit. Not applied: `config/relevance_profiles.yaml`
+is frozen core and scoring all nine sources, so it is a separate decision with
+its own baseline SHA to re-pin.
