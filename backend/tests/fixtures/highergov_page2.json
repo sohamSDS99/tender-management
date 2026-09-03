@@ -1,0 +1,75 @@
+{
+ "results": [
+  {
+   "opp_cat": "Federal Contract Opportunity",
+   "title": "EHS Management System Implementation",
+   "description_text": "INTRODUCTION Battelle Energy Alliance, LLC (BEA), the Management and Operating Contractor of the U.S. Department of Energy (DOE) owned Idaho National Laboratory (INL), is seeking Expressions of Interest from qualified vendors capable of providing a comprehensive Chemical Management Managed Service. INL utilizes an enterprise Chemical Inventory System (CIS) to manage the lifecycle of chemicals. The proposed managed service will operate and administer INL's CIS, ensure accurate inventory control, maintain Safety Data Sheets (SDS) governance, and coordinate sitewide chemical handling practices. CIS Administration & Data Governance: Maintain CIS data, container records, SDS library, hazard classifications, locations, and user permissions.",
+   "ai_summary": "Background\n Battelle Energy Alliance, LLC (BEA), the Management and Operating Contractor of the U.S. Department of Energy (DOE)‑owned Idaho National Laboratory (INL), is seeking Expressions of Interest (EOI) from qualified vendors capable of providing a comprehensive Chemical Management Managed Service to support INL’s research and operational mission. \n\nINL is a U.S. Department of Energy national laboratory dedicated to nuclear energy, national security, and clean energy innovation. The proposed managed service will operate and administer INL’s Chemical Inventory System (CIS), ensuring accurate inventory control and compliance with OSHA, EPA, and DOE requirements.\n\nWork Details\n Responding vendors must be capable of delivering the following on-site and system administration services: \n\n- On-Site Chemical Coordination including chemical lifecycle tracking, approval, purchasing, labeling/barcoding, staging, storage verification, periodic hands-on inventories, reconciliation with purchasing/receiving and inventory records, and disposition; \n- CIS Administration & Data Governance to maintain CIS data, container records, SDS library, hazard classifications, locations, and user permissions; \n- Compliance & Reporting to support regulatory reporting (e.g., Tier II/EPCRA), hazard communication, container tracking; \n- Operational Interfaces to coordinate with purchasing and warehouse functions; \n- Training & User Support for onboarding and refresher training for CIS users; \n- Program Management to establish KPIs and continuous improvement plans; \n- Security & Clearances demonstrating ability for on-site staff to obtain required DOE clearances; \n- Transition & Sustainment providing a mobilization plan and continuity of operations approach.\n\nPlace of Performance\n Idaho National Laboratory (INL), Idaho Falls area.\n\nBidder Requirements\n Vendors must demonstrate capabilities for delivering managed chemical services at government research sites including experience operating enterprise chemical inventory systems. They must provide a staffing plan that includes qualifications for key personnel such as Program Manager and Lead Chemical Coordinator. On-site staff must be able to obtain required DOE clearances (e.g., L-level) and pass background checks consistent with INL policy.\n",
+   "source_id": "P2-26-R-0002",
+   "source_id_version": "876e26d7829f4a17a1263c299c40ae28",
+   "captured_date": "2026-08-19",
+   "posted_date": "2026-08-19",
+   "due_date": "2026-09-15",
+   "agency": {
+    "agency_key": 110,
+    "agency_name": "Department of Energy",
+    "agency_abbreviation": "DOE",
+    "agency_type": "Federal",
+    "path": "https://www.highergov.com/agency/department-of-energy-doe-110/"
+   },
+   "naics_code": {
+    "naics_code": "541690"
+   },
+   "psc_code": null,
+   "opp_type": {
+    "description": "Sources Sought"
+   },
+   "vehicle": null,
+   "primary_contact_email": {
+    "contact_title": "Vendor Manager",
+    "contact_name": "Chase Egbert",
+    "contact_first_name": "Chase",
+    "contact_last_name": "Egbert",
+    "contact_email": "chase.egbert@inl.gov",
+    "contact_phone": null
+   },
+   "secondary_contact_email": null,
+   "set_aside": null,
+   "nsn": null,
+   "val_est_low": "1500000",
+   "val_est_high": "5000000",
+   "pop_country": "USA",
+   "pop_state": "ID",
+   "pop_city": "Idaho Falls",
+   "pop_zip": "83415",
+   "opp_key": "page2key0000000000000000000000000",
+   "version_key": "876e26d7829f4a17a1263c299c40ae28",
+   "source_type": "sam",
+   "sole_source_flag": false,
+   "product_service": null,
+   "dibbs_status": null,
+   "dibbs_quantity": null,
+   "dibbs_days_to_deliver": null,
+   "dibbs_fast_award_flag": null,
+   "dibbs_aidc_flag": null,
+   "dibbs_tech_docs_flag": null,
+   "dibbs_delivery_fob": null,
+   "path": "https://www.highergov.com/contract-opportunity/chemical-management-managed-service-inl-26-049-r-0ae28",
+   "source_path": "https://sam.gov/opp/876e26d7829f4a17a1263c299c40ae28/view",
+   "document_path": "https://www.highergov.com/api-external/document/?api_key=hg-key-not-real&page_size=10&related_key=876e26d7829f4a17a1263c299c40ae28"
+  }
+ ],
+ "meta": {
+  "pagination": {
+   "page": 2,
+   "pages": 2,
+   "count": 1
+  }
+ },
+ "links": {
+  "first": "https://www.highergov.com/api-external/opportunity/?page_number=1",
+  "last": "https://www.highergov.com/api-external/opportunity/?page_number=2",
+  "next": null,
+  "prev": "https://www.highergov.com/api-external/opportunity/?page_number=1"
+ }
+}
