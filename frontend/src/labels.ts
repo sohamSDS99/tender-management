@@ -184,7 +184,84 @@ export function isSweepInFlight(status: string | null | undefined): boolean {
   return status === 'running' || status === 'queued';
 }
 
-export type SourceHealth = 'good' | 'warning' | 'critical' | 'idle' | 'sweeping';
+export type SourceHealth = 'good' | 'warning' | 'critical' | 'idle' | 'sweeping' | 'quiet';
+
+/**
+ * How many consecutive empty scheduled sweeps count as silence, and the volume
+ * below which silence means nothing.
+ *
+ * Both are floors against crying wolf, and both are estimates until calibrated
+ * against real fetch_runs history — `scripts/calibrate-quiet.mjs` does that.
+ * Four sweeps is about two days at the twice-daily schedule. A source whose
+ * usual haul is under QUIET_FLOOR cannot be judged by volume at all: the
+ * keyword prefilter runs before records_received is counted, so a strict
+ * profile legitimately yields nothing for days.
+ */
+export const QUIET_RUNS = 4;
+export const QUIET_FLOOR = 5;
+
+/** Runs that establish "normal", and the fewest that are allowed to. */
+const BASELINE_RUNS = 10;
+const MIN_BASELINE_RUNS = 3;
+
+export type SourceVolume =
+  { verdict: 'ok' } | { verdict: 'unknown' } | { verdict: 'quiet'; zeros: number; typical: number };
+
+/** The fields of a FetchRun this rule reads, kept structural so tests stay small. */
+export interface VolumeRun {
+  source: string;
+  status: string;
+  trigger: string;
+  records_received: number;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+/**
+ * Has this source stopped returning anything, judged against its own history?
+ *
+ * The failure this exists for is invisible by construction. Every connector
+ * drops a record it cannot parse and counts nothing, so a feed that changes
+ * shape yields status='success' with records_received=0 — identical in the
+ * database to a genuinely quiet window, and green on every health surface.
+ * Two perfect-fit tenders were missed in one quarter this way.
+ *
+ * Only `trigger='cron'` rows are compared. Volume follows window size, and an
+ * operator sweep searches 3, 7, 30 or 90 days (D24) while cron always searches
+ * the same span — so one manual 90-day sweep dropped into a fortnight of
+ * silence would read as a healthy haul and hide it.
+ *
+ * `runs` is expected newest-first, which is the order /api/fetch-runs returns.
+ */
+export function sourceVolume(source: string, runs: VolumeRun[]): SourceVolume {
+  // A failed or skipped run says nothing about volume: one is already visible
+  // as critical, the other never reached the source. Step over both rather than
+  // letting either break a streak or be counted as silence.
+  const comparable = runs.filter(
+    (run) =>
+      run.source === source &&
+      run.trigger === 'cron' &&
+      (run.status === 'success' || run.status === 'partial'),
+  );
+
+  let zeros = 0;
+  while (zeros < comparable.length && comparable[zeros].records_received === 0) zeros += 1;
+  if (zeros < QUIET_RUNS) return { verdict: 'ok' };
+
+  const baseline = comparable.slice(zeros, zeros + BASELINE_RUNS);
+  // No baseline, no claim. A source that has only ever returned nothing has not
+  // gone quiet; that is a different problem, and last_success_at already says so.
+  if (baseline.length < MIN_BASELINE_RUNS) return { verdict: 'unknown' };
+
+  const typical = median(baseline.map((run) => run.records_received));
+  return typical >= QUIET_FLOOR ? { verdict: 'quiet', zeros, typical } : { verdict: 'ok' };
+}
 
 /**
  * How a source is doing, with "busy" told apart from "broken".
@@ -199,12 +276,16 @@ export type SourceHealth = 'good' | 'warning' | 'critical' | 'idle' | 'sweeping'
  * genuinely do not know yet how the source will do, and claiming either answer
  * would be a guess.
  */
-export function sourceHealth(source: {
-  enabled: boolean;
-  unavailable_reason: string | null;
-  running: boolean;
-  last_status: string | null;
-}): SourceHealth {
+export function sourceHealth(
+  source: {
+    enabled: boolean;
+    unavailable_reason: string | null;
+    running: boolean;
+    last_status: string | null;
+  },
+  /** Omitted by callers with no run history to hand; the result is then unchanged. */
+  volume?: SourceVolume,
+): SourceHealth {
   // A source that cannot run is not busy, whatever its last run said.
   if (source.unavailable_reason) return 'critical';
   if (!source.enabled) return 'idle';
@@ -212,7 +293,44 @@ export function sourceHealth(source: {
   // in-process set, so it is true before the FetchRun row has been updated.
   if (source.running || source.last_status === 'running' || source.last_status === 'queued')
     return 'sweeping';
-  return runTone(source.last_status);
+  const tone = runTone(source.last_status);
+  // Only a *succeeding* source can be quiet. A failed or partial run is already
+  // saying something louder, and speaking over it would throw that away.
+  if (tone === 'good' && volume?.verdict === 'quiet') return 'quiet';
+  return tone;
+}
+
+/** Verdicts keyed by source name, as the dashboard hands them down. */
+export type SourceVolumes = Record<string, SourceVolume>;
+
+/**
+ * One line naming the sources that need a look — failed and quiet together.
+ *
+ * They share a rung because Notice renders a single line: giving each its own
+ * would let whichever ranks higher hide the other, and a quiet source is
+ * precisely the one nobody would otherwise notice.
+ */
+export function sourcesWarning(
+  failed: { count: number; total: number; names: string[] },
+  quiet: { label: string; zeros: number; typical: number }[],
+): string | null {
+  const named = failed.names.length ? ` (${failed.names.join(', ')})` : '';
+  const labels = quiet.map((source) => source.label).join(', ');
+
+  if (failed.count > 0 && quiet.length > 0) {
+    return `${failed.count} of ${failed.total} sources failed in the last sweep${named} and ${quiet.length} ${quiet.length === 1 ? 'has' : 'have'} gone quiet (${labels}). Everything else came through.`;
+  }
+  if (failed.count > 0) {
+    return `${failed.count} of ${failed.total} sources failed in the last sweep${named}. Everything else came through.`;
+  }
+  if (quiet.length === 1) {
+    const only = quiet[0];
+    return `${only.label} has returned nothing in its last ${only.zeros} scheduled sweeps, though it normally returns about ${only.typical.toLocaleString('en-GB')}. Check Settings → Sources.`;
+  }
+  if (quiet.length > 1) {
+    return `${quiet.length} sources have returned nothing in their recent scheduled sweeps (${labels}). Check Settings → Sources.`;
+  }
+  return null;
 }
 
 /**

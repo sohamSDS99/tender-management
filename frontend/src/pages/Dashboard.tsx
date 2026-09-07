@@ -38,6 +38,9 @@ import {
   deploymentLabel,
   fitLabel,
   makeSourceLabel,
+  sourceHealth,
+  sourceVolume,
+  type SourceVolumes,
 } from '../labels';
 import { DetailPanel } from '../components/DetailPanel';
 import { BucketNote, Notice } from '../components/Notice';
@@ -168,7 +171,10 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
     const results = await Promise.allSettled([
       api.stats(),
       api.sources(),
-      api.fetchRuns(16),
+      // 200 rows is roughly eleven days across nine sources, which is the
+      // history the quiet rule needs. RunsTable still slices to 12, so this
+      // costs no extra request.
+      api.fetchRuns(200),
       api.automation(),
     ]);
     if (results[0].status === 'fulfilled') setStats(results[0].value);
@@ -375,9 +381,25 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
       : [{ label: locked, locked: true, onRemove: () => {} }, ...refinements];
   }, [chips, currentLens, lensContext, onChange]);
 
+  /*
+   * Derived once here because it needs both /api/sources and /api/fetch-runs,
+   * and the surfaces that report health must not each decide it differently.
+   */
+  const volumes = useMemo<SourceVolumes>(
+    () =>
+      Object.fromEntries(sources.map((source) => [source.name, sourceVolume(source.name, runs)])),
+    [sources, runs],
+  );
+
   const brokenSources = useMemo(
-    () => sources.filter((s) => s.unavailable_reason || s.last_status === 'failed').length,
-    [sources],
+    () =>
+      sources.filter(
+        (s) =>
+          s.unavailable_reason ||
+          s.last_status === 'failed' ||
+          sourceHealth(s, volumes[s.name]) === 'quiet',
+      ).length,
+    [sources, volumes],
   );
 
   const lensNote = useMemo(() => {
@@ -464,6 +486,7 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
     ) : settingsPage === 'sources' ? (
       <SourcesSettings
         sources={sources}
+        volumes={volumes}
         busySource={busySource}
         onFetchSource={(name) => void runAction('fetch', name)}
         onChanged={() => void loadMeta()}
@@ -490,6 +513,7 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
             <div className="col">
               <SourcesPanel
                 sources={sources}
+                volumes={volumes}
                 open={sourcesOpen}
                 onToggle={setSourcesOpen}
                 lastSweepAt={automation?.last_run?.started_at ?? null}
@@ -527,7 +551,12 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
                 </p>
               ) : null}
 
-              <Notice automation={automation} sweeping={sweeping} />
+              <Notice
+                automation={automation}
+                sources={sources}
+                volumes={volumes}
+                sweeping={sweeping}
+              />
 
               <main>
                 {lensNote ? <BucketNote text={lensNote} /> : null}

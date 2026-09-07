@@ -1,4 +1,5 @@
-import type { AutomationStatus } from '../types';
+import type { AutomationStatus, SourceStatus } from '../types';
+import { sourceHealth, sourcesWarning, type SourceVolumes } from '../labels';
 import { Icon } from './Icon';
 
 /**
@@ -8,9 +9,14 @@ import { Icon } from './Icon';
  */
 export function Notice({
   automation,
+  sources,
+  volumes,
   sweeping,
 }: {
   automation: AutomationStatus | null;
+  /** The quiet verdict is per source, not per run, so both are needed here. */
+  sources: SourceStatus[];
+  volumes: SourceVolumes;
   /** True while an operator-started sweep is in flight. */
   sweeping?: boolean;
 }) {
@@ -43,22 +49,45 @@ export function Notice({
       </p>
     );
   }
+  /*
+   * Failed and quiet share one rung, and it now sits above both Slack states.
+   * The Slack line gives the reason itself — "Everything found is stored and
+   * safe, and the next sweep will announce it again" — so a missed digest is
+   * recoverable. A notice a source never returned is not.
+   */
+  const quiet = sources
+    .filter((source) => sourceHealth(source, volumes[source.name]) === 'quiet')
+    .map((source) => {
+      const verdict = volumes[source.name];
+      return {
+        label: source.display_name,
+        zeros: verdict?.verdict === 'quiet' ? verdict.zeros : 0,
+        typical: verdict?.verdict === 'quiet' ? verdict.typical : 0,
+      };
+    });
+  const warning = sourcesWarning(
+    {
+      count: last?.sources_failed ?? 0,
+      total: last?.sources_total ?? 0,
+      names: last?.errors.map((error) => error.source) ?? [],
+    },
+    quiet,
+  );
+  if (warning) {
+    return (
+      <p className="notice" role="status">
+        <Icon name="warn" size={14} />
+        {warning}
+      </p>
+    );
+  }
+
   if (slack.status === 'degraded') {
     return (
       <p className="notice notice--bad" role="status">
         <Icon name="warn" size={14} />
         The last Slack digest did not send. Everything found is stored and safe, and the next sweep
         will announce it again.
-      </p>
-    );
-  }
-  if (last && last.sources_failed > 0) {
-    return (
-      <p className="notice" role="status">
-        <Icon name="warn" size={14} />
-        {last.sources_failed} of {last.sources_total} sources failed in the last sweep
-        {last.errors.length ? ` (${last.errors.map((e) => e.source).join(', ')})` : ''}. Everything
-        else came through.
       </p>
     );
   }

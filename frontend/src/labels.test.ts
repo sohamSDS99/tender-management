@@ -11,6 +11,8 @@ import {
   isSweepInFlight,
   scoreTone,
   sourceHealth,
+  sourceVolume,
+  sourcesWarning,
   sweepSummary,
   formatWhen,
   normalisePhrase,
@@ -383,5 +385,201 @@ describe('feedbackMessage', () => {
     expect(
       feedbackMessage({ tender_id: 1, verdict: null, reclassified: 0, learned: learned() }),
     ).toContain('Nothing else changed');
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * A source that went quiet
+ *
+ * Every connector wraps per-record normalisation in a bare `except Exception:
+ * continue` and nothing counts the drops. So a source whose feed changes shape
+ * records status='success', records_received=0, error_message=NULL — byte for
+ * byte what a genuinely empty window looks like — and every health surface
+ * paints it green. Two perfect-fit tenders were missed in one quarter this way.
+ *
+ * The rule compares a source against its own recent history, and the two floors
+ * below are what stop it crying wolf: one empty sweep is ordinary, and a source
+ * that never returns much cannot be judged by volume at all.
+ * --------------------------------------------------------------------------- */
+describe('sourceVolume tells a quiet source from an empty window', () => {
+  /** Runs arrive newest-first, which is the order /api/fetch-runs returns. */
+  const run = (
+    records_received: number,
+    extra: { source?: string; status?: string; trigger?: string } = {},
+  ) => ({
+    source: extra.source ?? 'pncp',
+    status: extra.status ?? 'success',
+    trigger: extra.trigger ?? 'cron',
+    records_received,
+  });
+
+  it('flags a streak of empty sweeps against a healthy baseline', () => {
+    const verdict = sourceVolume('pncp', [
+      run(0),
+      run(0),
+      run(0),
+      run(0),
+      run(470),
+      run(465),
+      run(480),
+      run(470),
+    ]);
+    expect(verdict.verdict).toBe('quiet');
+    if (verdict.verdict === 'quiet') {
+      expect(verdict.zeros).toBe(4);
+      expect(verdict.typical).toBe(470);
+    }
+  });
+
+  it('stays quiet about a shorter streak, because one empty sweep is ordinary', () => {
+    expect(sourceVolume('pncp', [run(0), run(0), run(0), run(470), run(465), run(480)])).toEqual({
+      verdict: 'ok',
+    });
+  });
+
+  it('will not judge a source that never returns much by volume', () => {
+    expect(sourceVolume('pncp', [run(0), run(0), run(0), run(0), run(2), run(1), run(3)])).toEqual({
+      verdict: 'ok',
+    });
+  });
+
+  /*
+   * The window trap. An operator sweep searches 3, 7, 30 or 90 days while cron
+   * always searches the same span, so their volumes are not comparable — mixing
+   * them would let one manual 90-day sweep hide a fortnight of silence.
+   */
+  it('ignores operator sweeps, whose window is a different size', () => {
+    const verdict = sourceVolume('pncp', [
+      run(0),
+      run(0),
+      run(900, { trigger: 'manual' }),
+      run(0),
+      run(0),
+      run(470),
+      run(465),
+      run(480),
+    ]);
+    expect(verdict.verdict).toBe('quiet');
+    if (verdict.verdict === 'quiet') expect(verdict.zeros).toBe(4);
+  });
+
+  it('steps over a skipped run without counting it or breaking the streak', () => {
+    const verdict = sourceVolume('pncp', [
+      run(0),
+      run(0),
+      run(0, { status: 'skipped' }),
+      run(0),
+      run(0),
+      run(470),
+      run(465),
+      run(480),
+    ]);
+    expect(verdict.verdict).toBe('quiet');
+    if (verdict.verdict === 'quiet') expect(verdict.zeros).toBe(4);
+  });
+
+  it('says unknown rather than inventing an alarm from thin history', () => {
+    expect(sourceVolume('pncp', [run(0), run(0), run(0), run(0), run(470)])).toEqual({
+      verdict: 'unknown',
+    });
+  });
+
+  it('says unknown when a source has only ever returned nothing', () => {
+    expect(sourceVolume('pncp', [run(0), run(0), run(0), run(0), run(0), run(0)])).toEqual({
+      verdict: 'unknown',
+    });
+  });
+
+  it('reads only the named source, however the others are doing', () => {
+    const verdict = sourceVolume('pncp', [
+      run(0),
+      run(300, { source: 'ted' }),
+      run(0),
+      run(0),
+      run(0),
+      run(470),
+      run(465),
+      run(480),
+    ]);
+    expect(verdict.verdict).toBe('quiet');
+    if (verdict.verdict === 'quiet') expect(verdict.zeros).toBe(4);
+  });
+});
+
+describe('quiet never speaks over a louder state', () => {
+  const base = {
+    enabled: true,
+    unavailable_reason: null as string | null,
+    running: false,
+    last_status: null as string | null,
+  };
+  const quiet = { verdict: 'quiet', zeros: 4, typical: 470 } as const;
+
+  it('turns a succeeding source quiet', () => {
+    expect(sourceHealth({ ...base, last_status: 'success' }, quiet)).toBe('quiet');
+  });
+
+  it('leaves a failing or partial source alone, which is already saying more', () => {
+    expect(sourceHealth({ ...base, last_status: 'failed' }, quiet)).toBe('critical');
+    expect(sourceHealth({ ...base, last_status: 'partial' }, quiet)).toBe('warning');
+  });
+
+  it('leaves unavailable, switched-off and mid-sweep sources alone', () => {
+    expect(sourceHealth({ ...base, unavailable_reason: 'no key' }, quiet)).toBe('critical');
+    expect(sourceHealth({ ...base, enabled: false, last_status: 'success' }, quiet)).toBe('idle');
+    expect(sourceHealth({ ...base, running: true, last_status: 'success' }, quiet)).toBe(
+      'sweeping',
+    );
+  });
+
+  it('renders exactly as before when there is no verdict to apply', () => {
+    expect(sourceHealth({ ...base, last_status: 'success' }, { verdict: 'unknown' })).toBe('good');
+    expect(sourceHealth({ ...base, last_status: 'success' }, { verdict: 'ok' })).toBe('good');
+    expect(sourceHealth({ ...base, last_status: 'success' })).toBe('good');
+  });
+});
+
+describe('sourcesWarning puts failed and quiet on one line', () => {
+  const none = { count: 0, total: 9, names: [] as string[] };
+
+  it('says nothing when nothing is wrong', () => {
+    expect(sourcesWarning(none, [])).toBeNull();
+  });
+
+  it('keeps the failed-only wording it already had', () => {
+    expect(sourcesWarning({ count: 2, total: 9, names: ['ted', 'sam'] }, [])).toBe(
+      '2 of 9 sources failed in the last sweep (ted, sam). Everything else came through.',
+    );
+  });
+
+  it('names a single quiet source with its own baseline', () => {
+    expect(sourcesWarning(none, [{ label: 'PNCP (Brazil)', zeros: 4, typical: 470 }])).toBe(
+      'PNCP (Brazil) has returned nothing in its last 4 scheduled sweeps, though it normally ' +
+        'returns about 470. Check Settings → Sources.',
+    );
+  });
+
+  it('counts several quiet sources rather than reciting each baseline', () => {
+    expect(
+      sourcesWarning(none, [
+        { label: 'PNCP (Brazil)', zeros: 4, typical: 470 },
+        { label: 'Contracts Finder', zeros: 6, typical: 40 },
+      ]),
+    ).toBe(
+      '2 sources have returned nothing in their recent scheduled sweeps (PNCP (Brazil), ' +
+        'Contracts Finder). Check Settings → Sources.',
+    );
+  });
+
+  /* One rung carries both, so neither can hide the other. */
+  it('reports failed and quiet together in one sentence', () => {
+    expect(
+      sourcesWarning({ count: 2, total: 9, names: ['ted', 'sam'] }, [
+        { label: 'PNCP (Brazil)', zeros: 4, typical: 470 },
+      ]),
+    ).toBe(
+      '2 of 9 sources failed in the last sweep (ted, sam) and 1 has gone quiet (PNCP (Brazil)). ' +
+        'Everything else came through.',
+    );
   });
 });
