@@ -11,6 +11,7 @@ from app.connectors.base import ConnectorError, NormalizedTender, TenderConnecto
 from app.connectors.canada_buys import CanadaBuysConnector
 from app.connectors.contracts_finder import ContractsFinderConnector
 from app.connectors.find_a_tender import FindATenderConnector
+from app.connectors.highergov import HigherGovConnector
 from app.connectors.oeffentlichevergabe import OeffentlicheVergabeConnector
 from app.connectors.pncp import PncpConnector
 from app.connectors.sam import SamGovConnector
@@ -28,6 +29,7 @@ CONNECTOR_CLASSES: tuple[type[TenderConnector], ...] = (
     CanadaBuysConnector,
     AusTenderConnector,
     PncpConnector,
+    HigherGovConnector,
     OeffentlicheVergabeConnector,
 )
 

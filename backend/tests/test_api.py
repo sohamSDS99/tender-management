@@ -122,8 +122,8 @@ def test_openapi_documents_every_endpoint(client):
 
 def test_sources_report_status_and_key_requirements(client, seeded):
     entries = {e["name"]: e for e in client.get("/api/sources").json()}
-    # Derived, not hardcoded: adding a connector should not fail this test, which
-    # is here to check the *shape* of /api/sources, not the size of the registry.
+    # Derived, not a literal: a hardcoded count turns every correct new source
+    # into a failing test, which says nothing about whether the endpoint works.
     assert set(entries) == set(SOURCE_NAMES)
     # The bulk extract is the default transport, so SAM needs no credential and
     # is available without one. tests/test_connectors.py covers the API path,
