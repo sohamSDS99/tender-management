@@ -3771,3 +3771,23 @@ html[data-density='compact'] .score {
   font-size: 0.8rem;
   line-height: 1.5;
 }
+
+/* A source that went quiet: succeeding, and returning nothing.
+
+   Amber rather than red, because "worth a look" is the honest claim.
+   records_received is counted after the keyword prefilter, so a genuine lull is
+   indistinguishable from a broken feed until a human compares them. Ink and
+   hairline only — a filled pill is reserved by the palette. */
+.pip--quiet {
+  background: var(--mark-warning);
+}
+.src--quiet {
+  border-left-color: var(--mark-warning);
+}
+.src__quiet {
+  color: var(--amber-ink);
+  margin-top: 5px;
+  margin-bottom: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}

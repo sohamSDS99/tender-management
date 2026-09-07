@@ -1,5 +1,5 @@
 import type { SourceStatus } from '../../types';
-import { sourceHealth } from '../../labels';
+import { sourceHealth, type SourceVolumes } from '../../labels';
 import { Icon } from '../Icon';
 import { SourceCard } from '../SourceCard';
 import { AddSource } from './AddSource';
@@ -20,21 +20,26 @@ import { SettingsPage, SettingsSection } from './SettingsPage';
  */
 export function SourcesSettings({
   sources,
+  volumes,
   busySource,
   onFetchSource,
   onChanged,
   onBack,
 }: {
   sources: SourceStatus[];
+  /** Per-source volume verdicts, so a silently-empty source is not listed healthy. */
+  volumes: SourceVolumes;
   busySource: string | null;
   onFetchSource: (name: string) => void;
   /** Re-read /api/sources, so a saved key's hint appears without a reload. */
   onChanged: () => void;
   onBack: () => void;
 }) {
-  const broken = sources.filter((s) => sourceHealth(s) === 'critical');
-  const sweeping = sources.filter((s) => sourceHealth(s) === 'sweeping');
-  const healthy = sources.filter((s) => sourceHealth(s) === 'good');
+  const health = (source: SourceStatus) => sourceHealth(source, volumes[source.name]);
+  const broken = sources.filter((s) => health(s) === 'critical');
+  const sweeping = sources.filter((s) => health(s) === 'sweeping');
+  const healthy = sources.filter((s) => health(s) === 'good');
+  const quiet = sources.filter((s) => health(s) === 'quiet');
 
   return (
     <SettingsPage
@@ -47,6 +52,8 @@ export function SourcesSettings({
           <span className="sstat__n num">{healthy.length}</span> healthy
           <span className="sstat__sep">·</span>
           <span className="sstat__n num">{sweeping.length}</span> sweeping
+          <span className="sstat__sep">·</span>
+          <span className="sstat__n num">{quiet.length}</span> quiet
           <span className="sstat__sep">·</span>
           <span className="sstat__n num">{broken.length}</span> unavailable
           <span className="sstat__sep">·</span>
@@ -62,6 +69,17 @@ export function SourcesSettings({
               {broken.map((s) => s.display_name).join(', ')}{' '}
               {broken.length === 1 ? 'cannot run' : 'cannot run'} until the configuration below is
               fixed. Every other source is unaffected.
+            </span>
+          </p>
+        ) : null}
+        {quiet.length > 0 ? (
+          <p className="snote snote--warn">
+            <Icon name="warn" size={14} />
+            <span>
+              {quiet.map((s) => s.display_name).join(', ')} {quiet.length === 1 ? 'has' : 'have'}{' '}
+              returned nothing in recent scheduled sweeps, though{' '}
+              {quiet.length === 1 ? 'it normally returns' : 'they normally return'} more. That can
+              be a real lull, or the feed may have changed shape. Open the source below to compare.
             </span>
           </p>
         ) : null}

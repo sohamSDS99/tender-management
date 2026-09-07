@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SourceStatus } from '../types';
 import { api } from '../api/client';
-import { formatWhen, sourceHealth, type SourceHealth } from '../labels';
+import { formatWhen, sourceHealth, type SourceHealth, type SourceVolume } from '../labels';
 
 export const SOURCE_CARD_CLASS: Record<SourceHealth, string> = {
   good: ' src--good',
@@ -9,6 +9,7 @@ export const SOURCE_CARD_CLASS: Record<SourceHealth, string> = {
   critical: ' src--critical',
   idle: ' src--idle',
   sweeping: ' src--sweeping',
+  quiet: ' src--quiet',
 };
 
 /**
@@ -22,12 +23,15 @@ export const SOURCE_CARD_CLASS: Record<SourceHealth, string> = {
  */
 export function SourceCard({
   source,
+  volume,
   busySource,
   onFetch,
   onCredentialSaved,
   detailed = false,
 }: {
   source: SourceStatus;
+  /** Volume verdict for this source. Absent where no run history is to hand. */
+  volume?: SourceVolume;
   /** Name of the source currently fetching, so only its button is pending. */
   busySource: string | null;
   onFetch: (name: string) => void;
@@ -56,12 +60,14 @@ export function SourceCard({
     }
   };
 
-  const state = sourceHealth(source);
+  const state = sourceHealth(source, volume);
   const status = source.unavailable_reason
     ? 'unavailable'
     : state === 'sweeping'
       ? 'sweeping now'
-      : (source.last_status ?? 'never run');
+      : state === 'quiet'
+        ? 'quiet'
+        : (source.last_status ?? 'never run');
 
   return (
     <article className={`src${SOURCE_CARD_CLASS[state]}`}>
@@ -82,6 +88,18 @@ export function SourceCard({
         unavailable_reason, but the skipped run that predates it stays on record
         forever. Rendering that in red made a working source look broken.
       */}
+      {/*
+        States the observation and the baseline, never "broken". records_received
+        is counted after the keyword prefilter, so a genuine lull is a real thing
+        — and a warning that overclaims is one the reader learns to ignore.
+      */}
+      {state === 'quiet' && volume?.verdict === 'quiet' ? (
+        <p className="src__quiet">
+          Returned nothing in its last {volume.zeros} scheduled sweeps. It normally returns about{' '}
+          {volume.typical.toLocaleString('en-GB')} notices.
+        </p>
+      ) : null}
+
       {source.unavailable_reason ? (
         <p className="src__err">{source.unavailable_reason}</p>
       ) : source.last_error ? (
