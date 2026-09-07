@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     enable_austender: bool = True
     enable_pncp: bool = True
     enable_highergov: bool = True
+    enable_oeffentlichevergabe: bool = True
 
     # --- source tuning ---
     # High-volume sources are queried with the keyword list below instead of

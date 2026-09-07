@@ -94,6 +94,24 @@ profiles:
       - sicherheitsdatenblatt management
       - sicherheitsdatenblatter verwaltung
       - gefahrstoffmanagement
+      # German names the product as one compound noun. Whole-word matching means
+      # each form has to be listed; these are the ones that actually occur in
+      # German notices (measured on TED and on the federal open-data feed).
+      - chemikalienbewirtschaftung
+      - chemikalienmanagement
+      - chemikalienmanagementsystem
+      - chemikalienverwaltung
+      - chemikalienverwaltungssoftware
+      - chemikalienkataster
+      - chemikalienverzeichnis
+      - chemikaliendatenbank
+      - gefahrstoffkataster
+      - gefahrstoffverzeichnis
+      - gefahrstoffdatenbank
+      - gefahrstoffkatastersoftware
+      - gefahrstoffmanagementsystem
+      - sicherheitsdatenblattverwaltung
+      - sicherheitsdatenblattmanagement
       - gestion de fichas de datos de seguridad
       - gestao de fichas de dados de seguranca
     medium:
@@ -128,6 +146,9 @@ profiles:
       - substance
       - mixture
       - dangerous goods
+      - chemikalien
+      - gefahrstoffe
+      - gefahrstoff
 
   sds_authoring:
     label: SDS authoring
@@ -488,6 +509,16 @@ product_fit:
     - system
     - solution
     - digital
+    - softwarelosung
+    - softwarelosungen
+    - softwareprodukt
+    - anwendung
+    - webanwendung
+    - lizenz
+    - lizenzen
+    - wartung
+    - schnittstelle
+    - mandantenfahig
     - licence
     - license
     - subscription
@@ -574,6 +605,9 @@ deployment:
       - "(cloud|saas|hosted)[^.]{0,30}(is|are) (permitted|allowed|acceptable|accepted|possible)"
       - "may be (cloud|saas|vendor) hosted"
       - "(cloud|saas) (deployment|hosting) (is )?(permitted|allowed|acceptable|an option)"
+      - "(webbasiert|webbasierte|browserbasiert|browserbasierte)"
+      - "(cloud|saas)[- ]?(losung|loesung|betrieb|dienst)"
+      - "(miete|mietmodell|mietsoftware|abonnement)"
 
 # Deployment nuances that need a human, not an automatic rejection.
 deployment_review:

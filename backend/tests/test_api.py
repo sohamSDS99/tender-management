@@ -154,7 +154,10 @@ def test_tender_list_is_scored_sorted_and_paginated(client, seeded):
     ("query", "expected"),
     [
         ("query=chemical inventory", {"high-1", "onprem-1"}),
-        ("minimum_score=70", {"high-1"}),
+        # review-1 (hybrid hosting) joins high-1 above 70 since D37 lifted the
+        # deployment scale off zero: "either cloud or on-premises" is a real
+        # opportunity for a SaaS vendor, so it is no longer scored like a refusal.
+        ("minimum_score=70", {"high-1", "review-1"}),
         ("maximum_score=25", {"onprem-1", "ppe-1"}),
         ("sources=ted", {"high-1"}),
         ("sources=ted&sources=sam", {"high-1", "onprem-1"}),

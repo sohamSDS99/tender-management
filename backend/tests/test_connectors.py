@@ -731,6 +731,7 @@ def test_registry_exposes_every_required_source(settings):
         "austender",
         "pncp",
         "highergov",
+        "oeffentlichevergabe",
     }
     assert len(build_all(settings)) == len(SOURCE_NAMES)
     assert build_connector("ted", settings).display_name == "EU TED"

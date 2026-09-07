@@ -12,6 +12,7 @@ from app.connectors.canada_buys import CanadaBuysConnector
 from app.connectors.contracts_finder import ContractsFinderConnector
 from app.connectors.find_a_tender import FindATenderConnector
 from app.connectors.highergov import HigherGovConnector
+from app.connectors.oeffentlichevergabe import OeffentlicheVergabeConnector
 from app.connectors.pncp import PncpConnector
 from app.connectors.sam import SamGovConnector
 from app.connectors.ted import TedConnector
@@ -29,6 +30,7 @@ CONNECTOR_CLASSES: tuple[type[TenderConnector], ...] = (
     AusTenderConnector,
     PncpConnector,
     HigherGovConnector,
+    OeffentlicheVergabeConnector,
 )
 
 SOURCE_NAMES: tuple[str, ...] = tuple(c.source_name for c in CONNECTOR_CLASSES)
