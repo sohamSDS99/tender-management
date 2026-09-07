@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     # --- credentials (never logged) ---
     sam_gov_api_key: str = ""
+    highergov_api_key: str = ""
 
     # --- per-source switches ---
     enable_ted: bool = True
@@ -64,6 +65,7 @@ class Settings(BaseSettings):
     enable_canada_buys: bool = True
     enable_austender: bool = True
     enable_pncp: bool = True
+    enable_highergov: bool = True
 
     # --- source tuning ---
     # High-volume sources are queried with the keyword list below instead of
@@ -100,6 +102,17 @@ class Settings(BaseSettings):
     # an unbounded stream, not a tuning knob; it is deliberately far above the
     # real size, and the download is gzipped in transit.
     sam_extract_max_bytes: int = 400_000_000
+    # HigherGov has no free-text search on any endpoint, and silently ignores
+    # unknown parameters - so a saved search built in its web UI is the only
+    # filter that exists. Copy `searchID` out of the search page URL. Without
+    # it the connector refuses to run rather than spend the 10,000-record
+    # monthly quota on an unfiltered feed (a single day is ~5,500 records, and
+    # 0 of 300 sampled reached the 50-point relevance band).
+    highergov_search_id: str = ""
+    # One request covers a precision-first saved search; this is a guard against
+    # someone saving a very broad one, not a tuning knob. A capped sweep is
+    # reported as truncated rather than passing for full coverage.
+    highergov_max_pages: int = 5
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
@@ -340,6 +353,7 @@ SECRET_FIELDS = (
     "slack_bot_token",
     "cron_secret",
     "sam_gov_api_key",
+    "highergov_api_key",
     "deepl_api_key",
     "database_url",
 )

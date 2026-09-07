@@ -25,7 +25,7 @@ roles and no per-user state, by decision (`docs/DECISIONS.md` D13).
 ## Product Purpose
 
 Public bodies publish far more procurement notices than anyone can read, across
-dozens of unrelated portals in several languages. Tender Monitor watches eight of
+dozens of unrelated portals in several languages. Tender Monitor watches nine of
 those sources on a fixed schedule, normalises every notice into one shape, scores
 it for relevance to this company's products, and surfaces the small number worth a
 human's attention — with the reasoning attached.
@@ -128,7 +128,7 @@ incumbent look is anti-reference, not a starting point.
   notice where "SDS" means software-defined storage, and one capped for mandatory
   on-premises hosting. These are the only sanctioned sample data.
 - Eight real sources: EU TED, US SAM.gov, UK Find a Tender, UK Contracts Finder,
-  World Bank, CanadaBuys, AusTender, Brazil PNCP.
+  World Bank, CanadaBuys, AusTender, Brazil PNCP, HigherGov.
 - No testimonials, customers, pricing or benchmarks exist. Future work must not
   invent any.
 

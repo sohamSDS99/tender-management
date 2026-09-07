@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 
+from app.connectors.registry import SOURCE_NAMES
 from app.models import FetchRun, utcnow
 from app.services import ingest
 
@@ -121,7 +122,9 @@ def test_openapi_documents_every_endpoint(client):
 
 def test_sources_report_status_and_key_requirements(client, seeded):
     entries = {e["name"]: e for e in client.get("/api/sources").json()}
-    assert len(entries) == 8
+    # Derived, not a literal: a hardcoded count turns every correct new source
+    # into a failing test, which says nothing about whether the endpoint works.
+    assert set(entries) == set(SOURCE_NAMES)
     # The bulk extract is the default transport, so SAM needs no credential and
     # is available without one. tests/test_connectors.py covers the API path,
     # where a missing key does still disable it.

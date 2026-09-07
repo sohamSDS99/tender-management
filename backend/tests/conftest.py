@@ -53,6 +53,17 @@ def keyed_settings(settings: Settings) -> Settings:
     return settings.model_copy(update={"sam_gov_api_key": "test-key-not-real"})
 
 
+@pytest.fixture
+def highergov_settings(settings: Settings) -> Settings:
+    """HigherGov needs two things, not one: a key *and* a saved search id."""
+    return settings.model_copy(
+        update={
+            "highergov_api_key": "hg-key-not-real",
+            "highergov_search_id": "OvSsysuZMmV1UnmB1s0hJ",
+        }
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clear_derived_caches():
     """Both service caches are process-global; every test gets its own database.

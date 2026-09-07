@@ -18,6 +18,7 @@ from app.connectors.base import ConnectorError, NormalizedTender, TenderConnecto
 from app.connectors.canada_buys import CanadaBuysConnector
 from app.connectors.contracts_finder import ContractsFinderConnector
 from app.connectors.find_a_tender import FindATenderConnector
+from app.connectors.highergov import HigherGovConnector
 from app.connectors.pncp import PncpConnector
 from app.connectors.registry import SOURCE_NAMES, build_all, build_connector, source_catalog
 from app.connectors.sam import SamGovConnector
@@ -594,6 +595,128 @@ async def test_pncp_handles_empty_page_body(settings):
     assert tenders == []
 
 
+# --- HigherGov -------------------------------------------------------------
+
+
+def _highergov_handler(urls: list[str]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        page = request.url.params.get("page_number")
+        name = "highergov_page2.json" if page == "2" else "highergov_page1.json"
+        return httpx.Response(200, json=fixture_json(name))
+
+    return handler
+
+
+async def test_highergov_needs_an_api_key(settings):
+    connector = HigherGovConnector(settings)
+    assert connector.requires_api_key is True
+    assert "HIGHERGOV_API_KEY" in connector.unavailable_reason()
+
+
+async def test_highergov_refuses_to_run_without_a_saved_search(settings):
+    """The whole design turns on this, so it is a refusal and not a warning.
+
+    The API has no free-text search on any endpoint and silently ignores
+    unknown parameters, so with no search_id the only thing left to ask for is
+    an unfiltered date scan. That is not a degraded mode: one day of postings
+    is ~5,500 records against a 10,000-record *monthly* quota, and 0 of 300
+    sampled records reached the 50-point relevance band. Running anyway would
+    spend the whole allowance on noise.
+    """
+    keyed = settings.model_copy(update={"highergov_api_key": "hg-key-not-real"})
+    connector = HigherGovConnector(keyed)
+    reason = connector.unavailable_reason()
+    assert reason is not None, "a key alone must not be enough to run"
+    assert "HIGHERGOV_SEARCH_ID" in reason
+    assert "no keyword parameter" in reason
+
+
+async def test_highergov_pagination_window_prefilter_and_normalization(highergov_settings):
+    """Two pages, and only the records that survive window *and* prefilter.
+
+    The fixtures carry four real records: the genuine hit, a chemical-purchase
+    false positive whose text merely requires an SDS on delivery, one posted
+    outside the window, and one on page two.
+    """
+    urls: list[str] = []
+    tenders = await fetch(
+        HigherGovConnector(highergov_settings, transport=transport(_highergov_handler(urls)))
+    )
+
+    assert len(urls) == 2, "the `next` link must be followed"
+    assert all("search_id=OvSsysuZMmV1UnmB1s0hJ" in u for u in urls)
+    titles = [t.title for t in tenders]
+    assert titles == ["Chemical Management Managed Service", "EHS Management System Implementation"]
+    assert "SDS Management Platform Renewal" not in titles, "posted outside the window"
+    assert "ADHESIVE" not in titles, "chemical purchase, dropped by the title prefilter"
+
+    tender = tenders[0]
+    assert tender.source == "highergov"
+    assert tender.source_notice_id
+    assert tender.buyer_country == "US"
+    assert tender.currency == "USD"
+    assert tender.language == "en"
+    assert tender.deadline == datetime(2026, 9, 15)
+    assert tender.status == "open"
+    assert tender.reference_number
+    assert {"scheme": "NAICS", "code": "541690"} in tender.classification_codes
+    # `path` is already absolute; prefixing the host would corrupt it.
+    assert tender.source_url.startswith("https://www.highergov.com/")
+    assert "highergov.comhttps://" not in tender.source_url
+    # HTML entities arrive inside otherwise-plain text fields.
+    assert "&rsquo;" not in (tender.description or "")
+    assert "&amp;" not in (tender.description or "")
+    assert "SDS library" in tender.description
+
+
+async def test_highergov_never_stores_the_api_key(highergov_settings):
+    """Every record arrives with the caller's own key inside document_path.
+
+    Stored verbatim it would be written to the database and rendered in the
+    dashboard, so document_urls, raw_payload and source_url are all scrubbed.
+    This is the one connector where the *response* carries the credential, not
+    just the request.
+    """
+    urls: list[str] = []
+    tenders = await fetch(
+        HigherGovConnector(highergov_settings, transport=transport(_highergov_handler(urls)))
+    )
+
+    assert tenders, "need a record to inspect"
+    key = highergov_settings.highergov_api_key
+    for tender in tenders:
+        blob = tender.model_dump_json()
+        assert key not in blob, "the API key reached a stored field"
+        assert "api_key=***" in blob, "document_path should survive, redacted"
+        for url in tender.document_urls:
+            assert key not in url
+
+
+async def test_highergov_window_matches_either_date(highergov_settings):
+    """posted_date OR captured_date - 15 of 55 live records had them differ.
+
+    A notice posted weeks ago can be captured by HigherGov today; filtering on
+    posted_date alone would silently drop it.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = fixture_json("highergov_page1.json")
+        # One record only, so the assertion is about the date logic alone.
+        record = payload["results"][0]
+        # Posted long before the window, captured inside it.
+        record["posted_date"] = "2026-01-05"
+        record["captured_date"] = "2026-08-19"
+        payload["results"] = [record]
+        payload["links"]["next"] = None
+        return httpx.Response(200, json=payload)
+
+    tenders = await fetch(HigherGovConnector(highergov_settings, transport=transport(handler)))
+    assert [t.title for t in tenders] == ["Chemical Management Managed Service"]
+    assert tenders[0].publication_date == datetime(2026, 1, 5)
+    assert tenders[0].source_updated_at == datetime(2026, 8, 19), "captured_date is what 'new to us' means"
+
+
 # --- registry --------------------------------------------------------------
 
 
@@ -607,6 +730,7 @@ def test_registry_exposes_every_required_source(settings):
         "canada_buys",
         "austender",
         "pncp",
+        "highergov",
     }
     assert len(build_all(settings)) == len(SOURCE_NAMES)
     assert build_connector("ted", settings).display_name == "EU TED"

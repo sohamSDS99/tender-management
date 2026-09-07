@@ -2,11 +2,11 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (35 records, D1–D35).
+`docs/DECISIONS.md` explains why it is built this way (36 records, D1–D36).
 
 ## What this is
 
-Tender Monitor watches eight free public procurement sources, normalises every
+Tender Monitor watches nine free public procurement sources, normalises every
 notice, scores it for relevance to SDS/EHS software work, and surfaces the few
 worth a human's time. Fetching is automated twice a day; a Slack digest announces
 new high scorers. Internal network only. Notices are never edited,
@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 802 tests, all passing
+./.venv/bin/python -m pytest -q          # 817 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
@@ -52,7 +52,7 @@ scripts/verify_workflow_locally.sh
 
 ## Frozen core — read, call, wrap, never edit
 
-- `backend/app/connectors/**` (all 8 connectors, `base.py`, `registry.py`,
+- `backend/app/connectors/**` (all 9 connectors, `base.py`, `registry.py`,
   `keywords.py`, `ocds.py`)
 - `backend/app/services/relevance.py`
 - `config/relevance_profiles.yaml`
@@ -395,12 +395,34 @@ query string intact, and SAM.gov takes its key as `?api_key=`. The redaction in
 on every sweep and readable by anyone with log access. `configure_logging()` pins `httpx` to
 WARNING. Any new source that authenticates by query parameter inherits this hazard.
 
+**A source can hand you your own credential back, and storing the response then
+leaks it.** Every HigherGov record's `document_path` arrives with the caller's
+`api_key=` already in the URL. The hazard recorded above is about the *request*
+reaching a log; this is the *response* reaching the database and then the
+dashboard, which no amount of log redaction covers - `raw_payload` is stored
+whole. `highergov._scrub` rewrites `api_key=` to `api_key=***` in `source_url`,
+`document_urls` and the stored payload before the record leaves the module, and
+`test_highergov_never_stores_the_api_key` asserts the key appears in no
+serialised field. Any new source that echoes a credential inherits this.
+
+**HigherGov has no keyword search, and asking for one silently succeeds.** No
+free-text parameter exists on any of its 19 endpoints, and unknown parameters
+return HTTP 200 with the *unfiltered* feed - measured, `q="safety data sheet"`
+and `q=zzzzznonsense` gave byte-identical results. So the connector requires
+`HIGHERGOV_SEARCH_ID` (a saved search built in the web UI) and refuses to run
+without it rather than degrading: base usage is 10,000 records/month, one day of
+postings is ~5,500 records, and 0 of 300 sampled from the unfiltered feed reached
+the 50-point band. Precision is a property of the saved search, not of this code
+- bare "safety data sheet" matches every chemical purchase order in government,
+which is why the strong tier ("sds management", "ehs software") is what belongs
+in it. D36.
+
 **`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
 "not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
 minutes — every one guaranteed to fail, and against SAM each one spends a request from the same
 exhausted daily budget. The run is then recorded as `failed` rather than "throttled until reset".
 Known, not fixed: the fix belongs in the frozen connector base and changes 429 handling for all
-eight sources.
+nine sources.
 
 **`PUBLIC_APP_URL` must not be a bare IP.** The host's address moved from
 `192.168.1.5` to `192.168.0.133` mid-project, which would have killed every Slack
@@ -438,11 +460,11 @@ now. Reverting to `docs_url=...` reopens it silently;
 **Signed in ≠ unlimited. These are two different axes and conflating them is the
 easy mistake.** The gate decides who gets through the door. D23's cost controls
 decide what they may do once inside, and they are unchanged — a signed-in
-operator can hammer eight public services just as hard as an anonymous one could:
+operator can hammer nine public services just as hard as an anonymous one could:
 
 | Endpoint | Limit | Why that limit |
 |---|---|---|
-| `POST /api/fetch` | single-flight (409) + 300s cooldown (429) | spends outbound requests against 8 public services |
+| `POST /api/fetch` | single-flight (409) + 300s cooldown (429) | spends outbound requests against 9 public services |
 | `POST /api/tenders/rescore` | 120s cooldown (429) | rewrites every stored row |
 | `PUT /api/automation/schedule` | none | choosing a time costs nothing (D19) |
 | `PUT /api/automation/trigger` | none | pausing spends less than doing nothing (D21) |
@@ -638,7 +660,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **802 passing, nothing skipped, nothing failing**. Treat any
+A green run is **817 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend
@@ -719,7 +741,7 @@ with a full system fallback stack, because this host may have no route out.
 - Compute contrast ratios from the hex values rather than judging by eye. Two
   colours that looked fine measured 3.80:1 and 3.22:1.
 - **Do not exercise `POST /api/fetch` casually.** A full sweep is ~13 minutes
-  against eight public services. To prove the endpoint path works, fetch one cheap
+  against nine public services. To prove the endpoint path works, fetch one cheap
   source instead — `austender` returns in about a second — which runs the identical
   guard and ingest code. `/api/tenders/rescore` is free and local, so prove the
   auth path with that.
