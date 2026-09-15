@@ -2561,3 +2561,114 @@ chip row already names them.
 The count in the Sources page blurb is now derived from the list rather than
 written into the copy. It said "Eight" for as long as there were eight, and then
 for three releases after there were not.
+
+---
+
+## D40 — The feed is taken whole, and the filter comes home
+
+D38 had Spend Network ask the API to search for us: the repo's phrase list,
+quoted and ORed into `search_term__is`, one request per sweep. It worked, and it
+was cheap — 108 notices for a month. It was also the vendor deciding what we are
+allowed to see.
+
+That is now reversed. The whole feed is paged and `PREFILTER_TERMS` decides what
+is stored, exactly as the UK feeds, CanadaBuys, AusTender and PNCP already do.
+The filter is ours, in our code, widenable tomorrow without asking anyone.
+
+**What it costs, measured before committing to it.** The feed ran 735–6,239
+notices a day over 24 consecutive days, mean 3,995 — against 108 for a whole
+month through the old query. So roughly 40 requests for a mean day, 63 for the
+worst, where there used to be one.
+
+**The quota turned out to be a budget, not a rate.** Twenty-five requests
+tripped it flat out; twenty-five tripped it again spread over ninety-three
+seconds. The same count both times, so pacing buys nothing — which is the
+opposite of what D38 assumed when it paced requests "not [as] politeness". After
+a trip the account refuses everything for about five minutes (still blocked at
+150s, clear at 302s) and then refills to 35. Call it thirty requests per five
+minutes: a mean day of feed is about seven minutes, the worst about eleven, a
+three-day sweep window about twenty-five.
+
+**So a 403 stopped being a failure.** Under D38 it was exceptional and the
+connector answered it with one wait, one retry, then gave up. Paging a whole day
+trips it once or twice *by design*, and giving up would mean never finishing a
+single day. It is now waited out in silence — never polled, because every
+request made while blocked extends the block — and the interrupted page is
+retried at the *same offset*. A skipped page is a hole in the window that
+nothing downstream could ever detect, which is the worst available outcome.
+
+**The day became the chunk.** `offset` refuses anything past 9,900 and
+`result_count` saturates at 10,000, so no query can reach past ten thousand
+records however it is paged. No measured day came close (the busiest was 6,239),
+but a multi-day window would, and would lose the remainder silently. So the
+window is walked one day per query, newest first, so that a sweep cut short by
+its budget has covered the end anybody is waiting on.
+
+**The backfill could not survive as it was.** D38 widened the lookback thirty
+days because the only date filter is the *upstream portal's* publication date,
+and a notice released last month can be aggregated today. Paging the whole feed
+back thirty days would cost about four hours. So the widened window keeps the
+old trick and pays two requests for it: one keyword-filtered query, phrases
+still quoted, over the wider range. It catches only late arrivals matching the
+*phrase* list rather than the broader prefilter — a real gap, recorded here
+rather than papered over, and two requests for most of the value against
+fourteen hundred for all of it.
+
+**The prefilter matches the description, and the first two answers were both
+wrong.** The first cut copied `sam.py` and `highergov.py`, which prefilter on
+title and buyer because their descriptions are noise, with a comment asserting
+that `content` "turned the term list into a pass-through". That comment was
+written before anything was measured, and measuring it reversed the decision:
+against 108 stored notices, title-only kept 12 and **lost ten of the twelve
+scoring 50 or better**, because these buyers put a procurement reference in the
+title and the subject in the description.
+
+The second answer — description *and* `content` — was wrong too, and for a
+subtler reason. Those 108 records had arrived through the vendor's own full-text
+search *of content*, so they were selected for having their signal in the body.
+On that sample `content` looked worth two extra rows. Re-measured against a raw
+day of the feed, 1,919 notices with nothing pre-selected, it earned nothing at
+all::
+
+    title + buyer                17 kept (0.9%)
+    + description                78 kept (4.1%)
+    + content                    78 kept — not one extra row
+
+So `content` is out. `description` stays, and it is the expensive half: 78 rows
+a day against 17, about 1.5GB a year against 0.3GB. It stays on the asymmetry —
+sixty extra rows a day is cheap and a missed tender costs a bid — and because
+the only evidence about notices whose subject is not in their title is the
+biased sample, which says title-only loses most of them.
+
+Two lessons, both general. A prefilter field list is not portable between
+connectors. And a sample drawn through a filter cannot be used to evaluate that
+filter: the 108 records were the wrong ruler, and they were the only ruler to
+hand until a raw day was pulled deliberately.
+
+**And the general switch no longer reaches this source.**
+`APPLY_KEYWORD_PREFILTER=false` means "store the window rather than the topical
+part of it", which is a reasonable thing to want of a national feed. Of a global
+aggregator it means about 1.46 million notices a year at ~25KB each — roughly
+37GB — arriving because somebody flipped a setting whose name says nothing about
+Spend Network. The escape hatch is `SPEND_NETWORK_STORE_UNFILTERED`, which has
+to be asked for by name.
+
+**The clinching measurement.** The raw day carried exactly two notices scoring
+50 or better out of 1,919. One was a firewall purchase the relevance engine
+mis-scored at 52 on the word "incident", which no term list should catch and
+none did. The other was an ISO-14001 environmental-management consulting RFP in
+the Philippines, scoring 75 — and it contains **not one phrase from
+SEARCH_PHRASES**. The old server-side query would never have returned it. That
+is the change in one record: the vendor's search was not a filter on relevance,
+it was a filter on our vocabulary, and our vocabulary is narrower than our
+interest.
+
+**What was deliberately not done.** Storing the whole feed and letting relevance
+sort it was the other option, and the one the instruction most literally
+described. It was declined on measurement: 37GB a year, and the dashboard's
+Re-score button — 11.3ms a notice — would become a four-and-a-half-hour job
+against a year of it. Filtering at ingest keeps the same API coverage and the
+same control over the terms, at ~1–3% of the rows. The cost is that widening the
+term list later does not recover the past: what was not kept was never stored,
+only re-fetchable.
+

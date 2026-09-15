@@ -7,59 +7,81 @@ Requires SPEND_NETWORK_EMAIL *and* SPEND_NETWORK_PASSWORD. Unlike every other
 source here the credential is an account, not a key: there is no API key to
 mint, so the connector signs in and carries a bearer token.
 
-WHAT THIS ADDS THAT THE OTHER NINE DO NOT
-    It is an aggregator, and a wide one. A single 31-day window of this repo's
-    own keyword list returned notices from fifteen upstream portals across
-    fourteen countries - German DTVP and oeffentlichevergabe, French BOAMP,
-    achatpublic and marchesonline, Irish and Northern Irish eTenders, Canadian
-    bidsandtenders, AusTender, PhilGEPS, US opengov - most of which this system
-    has no connector for and several of which publish no usable feed at all.
-    Every record is OCDS-shaped and carries an `ocid`, so the overlap with TED
-    and Find a Tender deduplicates on content rather than accumulating.
+WHAT THIS ADDS THAT THE OTHER TEN DO NOT
+    It is an aggregator, and a wide one. A single 31-day window returned notices
+    from fifteen upstream portals across fourteen countries - German DTVP and
+    oeffentlichevergabe, French BOAMP, achatpublic and marchesonline, Irish and
+    Northern Irish eTenders, Canadian bidsandtenders, AusTender, PhilGEPS, US
+    opengov - most of which this system has no connector for and several of
+    which publish no usable feed at all. Every record is OCDS-shaped and carries
+    an `ocid`, so the overlap with TED and Find a Tender deduplicates on content
+    rather than accumulating.
 
-THE SEARCH SYNTAX IS THE WHOLE DESIGN (all measured 2026-09-15)
-    `search_term__is` is a real server-side search - `zzzzznonsensequery`
-    returns 0 - but its default is OR-of-words, not phrase. Unquoted,
-    `safety data sheet` matched 4,770 notices in a fortnight (safety=1,648,
-    data=2,688, sheet=946, minus overlap) and its top hit was an ID-printer
-    consumables tender. Quoted, `"safety data sheet"` matched 23. Word order is
-    ignored unquoted; `sheet data safety` returned the identical 4,770.
+THE FEED IS TAKEN WHOLE, AND FILTERED HERE
+    This connector used to ask the API to search for us, with the repo's phrase
+    list quoted and ORed into `search_term__is`. It no longer does, by decision:
+    the filter is ours, not the vendor's, and a phrase list that lives in our
+    code can be widened tomorrow without asking anyone.
 
-    So every phrase is quoted. `OR` between quoted phrases works and is
-    additive: `"safety data sheet"` (188) OR `"chemical management"` (9)
-    returned 196, with `AND` confirming the single overlap. That is what lets
-    the entire SEARCH_PHRASES list ride in one request instead of one request
-    per phrase, which matters because of the throttle below.
+    The cost of that is the whole firehose. Measured over 24 consecutive days
+    the feed ran 735-6,239 notices a day, mean 3,995 - against 108 for a whole
+    month through the old keyword query. So every notice is now paged and
+    `keep()` decides what is stored, on this repo's own PREFILTER_TERMS, exactly
+    as the UK feeds, CanadaBuys, AusTender and PNCP already do.
 
-    Unknown query parameters are accepted and silently ignored - a made-up
-    parameter changed nothing - so only parameters that appear in the published
-    OpenAPI document are sent, and none of them is trusted to have filtered
-    without having been measured.
+    Two consequences worth stating plainly. Widening the term list later does
+    not recover the past - what was not kept was never stored, only re-fetchable
+    - and `APPLY_KEYWORD_PREFILTER=false` would mean storing ~1.46M notices a
+    year here. See `keep()` below for why that switch alone cannot do it.
 
-WHY THE WINDOW IS WIDENED RATHER THAN OBEYED
-    The only date filter is `release_date`, which is when the *upstream portal*
-    published - not when Spend Network ingested it. A notice released weeks ago
-    can be aggregated today (`date_created` was the sweep day for all 97 records
-    sampled, against release dates spread over a month), and a sweep windowed
-    strictly on release_date would never see it. There is no `date_created`
-    filter to use instead. So the lookback is widened by
-    SPEND_NETWORK_BACKFILL_DAYS and the extra records are left to deduplicate in
-    ingest, where a re-seen notice costs one unchanged row. It is affordable
-    precisely because the keyword filter is precise: 97 records for a whole
-    month, 23 for a week.
+THE DAY IS THE CHUNK, BECAUSE PAGING STOPS AT 10,000
+    `offset` refuses anything over 9,900 and `result_count` saturates at 10,000,
+    so no single query can reach past ten thousand records however it is paged.
+    A day never came close in 24 days of measurement (the busiest was 6,239), so
+    the window is walked one day at a time and each day is paged to exhaustion.
+    A window is therefore N days of roughly 40 requests each, not one query.
 
-THE THROTTLE IS THE REAL BUDGET
-    The account tier meters requests, and exhaustion is not an API error: it is
-    a bare nginx `403 Forbidden` HTML page with no Retry-After, no rate-limit
-    headers and no JSON. Twenty-five requests in quick succession tripped it,
-    and - this is the part worth knowing - *every request made while blocked
-    extended the block*. Polling it once every twenty seconds kept it closed for
-    four minutes; leaving it alone for about ninety seconds cleared it.
+THE QUOTA IS THE BUDGET, AND IT IS NOT A RATE LIMIT
+    The account meters *requests*, and exhaustion is not an API error: it is a
+    bare nginx `403 Forbidden` HTML page with no Retry-After, no rate-limit
+    headers and no JSON.
 
-    Hence: requests are paced, the page budget is small, and a 403 is answered
-    with one long wait and one retry, never a poll. If the retry is also refused
-    the sweep stops and returns what it already has, logged as truncated, rather
-    than digging the hole deeper.
+    It is a fixed budget rather than a rate. Twenty-five requests tripped it
+    flat-out, and twenty-five tripped it again when they were paced three
+    seconds apart over ninety-three seconds - the same count both times, so
+    slowing down buys nothing. Recovery takes about five minutes of *silence*:
+    still refused at 150s, clear at 302s, after which the budget refilled to 35
+    requests. Roughly thirty requests per five minutes, so a mean day of feed
+    (40 requests) costs about seven minutes and the worst measured day about
+    eleven.
+
+    And the part that decides the shape of the code below: *every request made
+    while blocked extends the block*. Polling once every twenty seconds kept it
+    shut for four minutes. So a 403 is never polled - it is waited out in
+    silence, once per occurrence, and the page it interrupted is retried at the
+    same offset rather than skipped. A sweep that exhausts its wait budget stops
+    and reports what it has, because guessing is worse than a short sweep that
+    says it was short.
+
+WHY A CHEAP KEYWORD PASS SURVIVES AT THE END
+    The only date filter is `release_date` - when the *upstream portal*
+    published, not when Spend Network ingested. A notice released weeks ago can
+    be aggregated today, and a sweep windowed on release_date would never see
+    it. Paging the whole feed back thirty days to catch those would cost about
+    four hours.
+
+    So the backfill keeps the old trick and pays two requests for it: one
+    keyword-filtered query, phrases quoted and ORed, over the wider window. It
+    catches only late arrivals that match the *phrase* list rather than the
+    broader prefilter, which is a real gap and is logged as one - but two
+    requests for most of the value is the right trade against fourteen hundred.
+
+    `search_term__is` is a real search (`zzzzznonsensequery` returns 0) but ORs
+    bare words: unquoted, `safety data sheet` matched 4,770 notices in a
+    fortnight and quoted it matched 23. So that pass quotes every phrase, and
+    `build_query` keeps its own test. Unknown query parameters are accepted and
+    silently ignored, so only parameters in the published OpenAPI document are
+    sent and none is trusted to have filtered without being measured.
 """
 
 from __future__ import annotations
@@ -67,7 +89,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import UTC, datetime, timedelta
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -80,7 +104,7 @@ from app.connectors.base import (
     stage_from_code,
     status_from_deadline,
 )
-from app.connectors.keywords import SEARCH_PHRASES
+from app.connectors.keywords import SEARCH_PHRASES, looks_relevant
 from app.logging_config import log_ctx
 
 logger = logging.getLogger(__name__)
@@ -103,23 +127,66 @@ _TOKEN_CACHE: dict[str, tuple[str, datetime]] = {}
 _TOKEN_LOCK = asyncio.Lock()
 
 
+@dataclass
+class _Sweep:
+    """One sweep's running totals, and the two budgets that bound it.
+
+    Both budgets exist because this source is the only one whose cost is a
+    function of the *window* rather than of how much matched. A month asked for
+    by hand is 1,200 requests and four hours; nothing should be able to start
+    that by accident, and nothing should report it as full coverage if it does.
+    """
+
+    budget: int
+    waits: int
+    requests: int = 0
+    days: int = 0
+    seen: int = 0
+    filtered: int = 0
+    skipped: int = 0
+    backfilled: int = 0
+    throttled: int = 0
+    truncated: bool = False
+    #: Set when the account is blocked and there is no patience left. The block
+    #: is account-wide, not per-day, so walking on to the next day would spend
+    #: the remaining budget collecting 403s.
+    stop: bool = False
+
+    def spent(self) -> bool:
+        return self.stop or self.requests >= self.budget
+
+
+def _days(first: date, last: date) -> Iterator[date]:
+    """Every day in the window, newest first.
+
+    Newest first so that a sweep which runs out of budget has covered the recent
+    end, which is the end anybody is waiting on.
+    """
+    day = last
+    while day >= first:
+        yield day
+        day -= timedelta(days=1)
+
+
 class SpendNetworkConnector(TenderConnector):
     source_name = "spend_network"
     display_name = "Spend Network (Open Opportunities)"
     homepage = "https://www.spendnetwork.com"
     requires_api_key = True
-    # The search runs on the server and is precise, so there is nothing for the
-    # client-side prefilter to save: it would only re-apply a coarser version of
-    # the filter that has already run. Same reasoning as TED.
-    prefilter = False
+    # The whole feed is paged and filtered here rather than searched server-side,
+    # so this is the filter - not a second, coarser copy of one. Same mechanism
+    # the UK feeds, CanadaBuys, AusTender and PNCP use.
+    prefilter = True
     notes = (
         "An aggregator: one account covers ~40 national portals (German DTVP, French BOAMP, "
         "Irish eTenders, PhilGEPS, AusTender and more) that have no connector of their own. "
-        "Needs an email and a password rather than an API key. Search phrases are quoted "
-        "because the API ORs bare words - unquoted, one phrase matched 4,770 notices in a "
-        "fortnight and quoted it matched 23. The account is metered and answers a bare HTML "
-        "403 when it runs out, so requests are paced and a refusal stops the sweep rather "
-        "than retrying into it."
+        "Needs an email and a password rather than an API key. The whole feed is paged - "
+        "735-6,239 notices a day, mean 3,995 - and filtered here on our own term list, one "
+        "day at a time because paging stops dead at 10,000 records. A measured day kept 78 "
+        "notices out of 1,919. The account meters requests (~30 per 5 minutes) and answers a "
+        "bare HTML 403 when they run out, so a day of feed costs about seven minutes and a "
+        "refusal is waited out in silence, never polled: every request made while blocked "
+        "extends the block."
     )
 
     def unavailable_reason(self) -> str | None:
@@ -188,112 +255,279 @@ class SpendNetworkConnector(TenderConnector):
             return str(token)
 
     # -- fetch --------------------------------------------------------------
+    def keep_record(self, raw: dict[str, Any]) -> bool:
+        """Our own term list, applied to the title, the buyer and the description.
+
+        Which fields is not a matter of taste, and the first answer was wrong,
+        so both measurements are recorded here.
+
+        Against a raw day of the feed - 1,919 notices, 2 of which scored 50 or
+        better::
+
+            title + buyer                17 kept (0.9%)
+            + description                78 kept (4.1%)
+            + content                    78 kept - identical, not one extra row
+
+        So `content` earns nothing and is left out: it is the whole notice body,
+        the field most likely to be boilerplate, and on unbiased data it changed
+        nothing at all. An earlier run said it recovered a notice, but that run
+        was over 108 records that had *arrived through the vendor's own
+        full-text search of content* - they were selected for having their
+        signal in the body, which is exactly the bias that makes the number
+        meaningless.
+
+        `description` stays, and is the expensive half of the choice: 78 rows a
+        day against 17. It stays because that same biased sample - the only
+        evidence available about notices whose subject is not in the title -
+        had title-only losing ten of twelve notices scoring 50 or better, and
+        these buyers do put a procurement reference in the title and the subject
+        in the description. Sixty extra rows a day is about 1.5GB a year. A
+        missed tender costs a bid. The asymmetry decides it.
+        """
+        return self.keep(
+            _text(raw.get("tender_title")),
+            _text(raw.get("buyer_name")),
+            _text(raw.get("tender_description")),
+        )
+
+    def keep(self, *texts: str | None) -> bool:
+        """The prefilter here is not optional, and APPLY_KEYWORD_PREFILTER cannot turn it off.
+
+        That switch means "store the whole window rather than the topical part
+        of it", which is a reasonable thing to want of a national feed. Of a
+        global aggregator it means 1.46 million notices a year at ~25KB each -
+        roughly 37GB - arriving because somebody flipped a setting whose name
+        says nothing about this source. So the escape hatch is its own setting,
+        deliberately named, and the general switch does not reach it.
+        """
+        if self.settings.spend_network_store_unfiltered:
+            return True
+        return looks_relevant(*texts)
+
     async def fetch(self, date_from: datetime, date_to: datetime) -> list[NormalizedTender]:
         date_from, date_to = self.clamp_window(date_from, date_to)
-        # The widened floor. See "why the window is widened" above.
-        backfill = max(0, self.settings.spend_network_backfill_days)
-        window_from = (date_from - timedelta(days=backfill)).date()
-        window_to = date_to.date()
-        query = self.build_query()
-
+        state = _Sweep(
+            budget=max(1, self.settings.spend_network_max_requests_per_sweep),
+            waits=max(0, self.settings.spend_network_max_throttle_waits),
+        )
         out: list[NormalizedTender] = []
         seen: set[str] = set()
-        received = 0
-        skipped = 0
-        truncated = False
-        total: int | None = None
 
         async with self.client() as client:
             bearer = await self.token(client)
             headers = {"Authorization": f"Bearer {bearer}"}
-            budget = max(1, self.settings.spend_network_max_pages)
-            page_size = min(self.settings.page_size, MAX_PAGE_SIZE)
 
-            for page in range(budget):
-                offset = page * page_size
-                if offset > MAX_OFFSET:
-                    truncated = True
+            # One day at a time: paging stops dead at 10,000 records and a day
+            # has never come near that, while a multi-day window would.
+            for day in _days(date_from.date(), date_to.date()):
+                if state.spent():
                     break
-                if page:
-                    await self._sleep(self.settings.spend_network_page_pause_seconds)
-                params = {
-                    "search_term__is": query,
-                    "release_date__gte": window_from.isoformat(),
-                    "release_date__lte": window_to.isoformat(),
-                    "limit": page_size,
-                    "offset": offset,
-                    # Newest first, so a truncated sweep keeps the recent end.
-                    "date_direction": "desc",
-                }
-                data = await self._page(client, headers, params)
-                if data is None:  # throttled, and already waited once
-                    truncated = True
-                    break
-                records = data.get("results") or []
-                total = data.get("result_count") if total is None else total
-                received += len(records)
-                for raw in records:
-                    try:
-                        tender = self._normalize(raw)
-                    except Exception:  # one malformed record must not lose the page
-                        skipped += 1
-                        continue
-                    if tender is None:
-                        skipped += 1
-                        continue
-                    if tender.source_notice_id in seen:
-                        continue
-                    seen.add(tender.source_notice_id)
-                    out.append(tender)
-                if len(records) < page_size:
-                    break
-                if page + 1 >= budget and isinstance(total, int) and total > received:
-                    # Never let a capped sweep read as full coverage.
-                    truncated = True
+                await self._collect_day(client, headers, day, state, out, seen)
+
+            # The late-arrival net. Two requests for the notices Spend Network
+            # aggregated inside the window but whose *upstream* publication date
+            # falls outside it - see the module docstring.
+            await self._collect_backfill(client, headers, date_from, state, out, seen)
 
         self.log_progress(
-            window_from=window_from.isoformat(),
-            window_to=window_to.isoformat(),
-            matched=total,
-            received=received,
+            window_from=date_from.date().isoformat(),
+            window_to=date_to.date().isoformat(),
+            days=state.days,
+            requests=state.requests,
+            seen=state.seen,
             kept=len(out),
-            skipped=skipped,
-            truncated=truncated,
+            dropped_by_filter=state.filtered,
+            skipped=state.skipped,
+            throttle_waits=state.throttled,
+            truncated=state.truncated,
         )
         return out
 
+    async def _collect_day(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        day: date,
+        state: _Sweep,
+        out: list[NormalizedTender],
+        seen: set[str],
+    ) -> None:
+        """Page one day to exhaustion, or until the sweep runs out of budget."""
+        state.days += 1
+        offset = 0
+        page_size = min(self.settings.page_size, MAX_PAGE_SIZE)
+        while offset <= MAX_OFFSET:
+            if state.spent():
+                state.truncated = True
+                return
+            if state.requests:
+                await self._sleep(self.settings.spend_network_page_pause_seconds)
+            data = await self._page(
+                client,
+                headers,
+                {
+                    "release_date__gte": day.isoformat(),
+                    "release_date__lte": day.isoformat(),
+                    "limit": page_size,
+                    "offset": offset,
+                    # Newest first, so a sweep cut short keeps the recent end.
+                    "date_direction": "desc",
+                },
+                state,
+            )
+            if data is None:
+                state.truncated = True
+                return
+            records = data.get("results") or []
+            state.seen += len(records)
+            self._absorb(records, state, out, seen)
+            if len(records) < page_size:
+                return
+            offset += page_size
+        # Only reachable if a single day ever exceeds the paging ceiling, which
+        # 24 days of measurement never saw. Said out loud rather than assumed
+        # away: it would be silent under-coverage of the busiest day.
+        state.truncated = True
+        log_ctx(
+            logger,
+            logging.WARNING,
+            "day exceeded the paging ceiling",
+            source=self.source_name,
+            day=day.isoformat(),
+            ceiling=MAX_OFFSET + MAX_PAGE_SIZE,
+        )
+
+    async def _collect_backfill(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        date_from: datetime,
+        state: _Sweep,
+        out: list[NormalizedTender],
+        seen: set[str],
+    ) -> None:
+        """The cheap keyword pass over the wider window. See the module docstring."""
+        days = max(0, self.settings.spend_network_backfill_days)
+        if not days or state.spent():
+            return
+        floor = (date_from - timedelta(days=days)).date()
+        ceiling = (date_from - timedelta(days=1)).date()
+        if floor > ceiling:
+            return
+        page_size = min(self.settings.page_size, MAX_PAGE_SIZE)
+        offset = 0
+        while offset <= MAX_OFFSET and not state.spent():
+            await self._sleep(self.settings.spend_network_page_pause_seconds)
+            data = await self._page(
+                client,
+                headers,
+                {
+                    "search_term__is": self.build_query(),
+                    "release_date__gte": floor.isoformat(),
+                    "release_date__lte": ceiling.isoformat(),
+                    "limit": page_size,
+                    "offset": offset,
+                    "date_direction": "desc",
+                },
+                state,
+            )
+            if data is None:
+                state.truncated = True
+                return
+            records = data.get("results") or []
+            state.seen += len(records)
+            state.backfilled += self._absorb(records, state, out, seen)
+            if len(records) < page_size:
+                return
+            offset += page_size
+
+    def _absorb(
+        self,
+        records: list[dict[str, Any]],
+        state: _Sweep,
+        out: list[NormalizedTender],
+        seen: set[str],
+    ) -> int:
+        """Filter, normalize and collect one page. Returns how many were kept."""
+        kept = 0
+        for raw in records:
+            if not self.keep_record(raw):
+                state.filtered += 1
+                continue
+            try:
+                tender = self._normalize(raw)
+            except Exception:  # one malformed record must not lose the page
+                state.skipped += 1
+                continue
+            if tender is None:
+                state.skipped += 1
+                continue
+            if tender.source_notice_id in seen:
+                continue
+            seen.add(tender.source_notice_id)
+            out.append(tender)
+            kept += 1
+        return kept
+
     async def _page(
-        self, client: httpx.AsyncClient, headers: dict[str, str], params: dict[str, Any]
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        params: dict[str, Any],
+        state: _Sweep,
     ) -> dict[str, Any] | None:
-        """One page, with the throttle answered exactly once.
+        """One page, with the throttle waited out rather than treated as failure.
 
         403 here is not "forbidden", it is "you have spent your requests" - a
-        bare HTML page from the front door with nothing to read. It is also the
-        one status that must not be retried in a loop, because requests made
-        while blocked extend the block. So: one wait, one retry, then give up
-        and let the caller report a short sweep.
+        bare HTML page from the front door with nothing to read. When the whole
+        feed is being paged, hitting it is not an exception: a mean day costs
+        forty requests against a budget of about thirty per five minutes, so
+        every day of feed trips it once or twice *by design*. Treating that as a
+        failed sweep would mean never finishing a single day.
+
+        So the wait is the mechanism, not the error path. What must not happen is
+        polling: every request made while blocked extends the block, which is why
+        this sleeps the full measured recovery in silence and then retries the
+        *same* offset rather than moving on - a skipped page is a hole in the
+        window that nothing downstream could ever notice.
+
+        Returns None only when the sweep has run out of patience, which the
+        caller reports as truncated.
         """
-        try:
-            return await self.request(client, "GET", RECORDS_URL, params=params, headers=headers)
-        except ConnectorError as exc:
-            if exc.status != 403:
-                raise
+        while True:
+            if state.spent():
+                state.truncated = True
+                return None
+            state.requests += 1
+            try:
+                return await self.request(client, "GET", RECORDS_URL, params=params, headers=headers)
+            except ConnectorError as exc:
+                if exc.status != 403:
+                    raise
+            if state.throttled >= state.waits:
+                log_ctx(
+                    logger,
+                    logging.WARNING,
+                    "out of throttle waits, stopping",
+                    source=self.source_name,
+                    waits=state.throttled,
+                    requests=state.requests,
+                )
+                state.truncated = True
+                state.stop = True
+                return None
+            state.throttled += 1
             wait = max(0.0, self.settings.spend_network_throttle_backoff_seconds)
             log_ctx(
                 logger,
-                logging.WARNING,
-                "throttled, waiting once",
+                logging.INFO,
+                "request budget spent, waiting it out",
                 source=self.source_name,
                 wait=round(wait, 1),
+                wait_number=state.throttled,
+                requests=state.requests,
             )
             await self._sleep(wait)
-        try:
-            return await self.request(client, "GET", RECORDS_URL, params=params, headers=headers)
-        except ConnectorError as exc:
-            if exc.status != 403:
-                raise
-            log_ctx(logger, logging.WARNING, "still throttled, stopping", source=self.source_name)
-            return None
 
     # -- normalization ------------------------------------------------------
     def _normalize(self, raw: dict[str, Any]) -> NormalizedTender | None:

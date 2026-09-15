@@ -77,8 +77,9 @@ def spend_network_settings(settings: Settings) -> Settings:
             "spend_network_email": "tender-monitor@example.invalid",
             "spend_network_password": "sn-password-not-real",
             "page_size": 2,
-            "spend_network_max_pages": 4,
             "spend_network_backfill_days": 30,
+            # Both zeroed so the suite does not spend five and a half minutes
+            # proving that the connector waits five and a half minutes.
             "spend_network_page_pause_seconds": 0.0,
             "spend_network_throttle_backoff_seconds": 0.0,
         }

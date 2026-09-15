@@ -122,27 +122,47 @@ class Settings(BaseSettings):
     # someone saving a very broad one, not a tuning knob. A capped sweep is
     # reported as truncated rather than passing for full coverage.
     highergov_max_pages: int = 5
-    # Spend Network's only date filter is the upstream portal's publication
-    # date, not the date Spend Network ingested the notice - so a notice
-    # released last month and aggregated today falls outside a three-day sweep
-    # window entirely. There is no ingest-date filter to use instead, so the
-    # lookback is widened by this many days and the repeats are left to
-    # deduplicate in ingest. Affordable because the keyword search is precise:
-    # a whole month of it was 97 records, a week was 23.
+    # Spend Network pages its whole feed and filters here, so its cost is a
+    # function of the *window*, not of how much matched. All four numbers below
+    # come from measurement on 2026-09-15 rather than from taste.
+    #
+    # The feed ran 735-6,239 notices a day over 24 consecutive days, mean 3,995,
+    # which is 40 requests for a mean day and 63 for the worst. The account
+    # meters requests rather than rate-limiting them: 25 tripped it flat-out and
+    # 25 tripped it again spread over 93 seconds, then it refused everything for
+    # about five minutes (still blocked at 150s, clear at 302s) and refilled to
+    # 35. So roughly 30 requests per 5 minutes - a mean day of feed is about
+    # seven minutes, the worst about eleven.
+    #
+    # 400 requests is therefore ~8-10 days of feed and about an hour of wall
+    # clock. It is a guard against someone asking the dashboard for a 90-day
+    # sweep (1,200 requests, four hours) by accident, not a tuning knob; a sweep
+    # that hits it stops and is reported as truncated rather than passing for
+    # full coverage.
+    spend_network_max_requests_per_sweep: int = 400
+    # At ~30 requests per window, 400 requests is about 13 waits. This bounds
+    # the waiting rather than the requesting, so a sweep cannot sit for hours if
+    # the account's budget turns out to be smaller than measured.
+    spend_network_max_throttle_waits: int = 16
+    # The measured recovery, with margin: 150s was still refused and 302s was
+    # clear. Undershooting costs an extra wait *and* extends the block, because
+    # every request made while blocked restarts it - so this errs long on
+    # purpose.
+    spend_network_throttle_backoff_seconds: float = 330.0
+    # Pacing buys nothing against a request *budget* - the same 25 requests
+    # tripped it at full speed and at 3s apart - so this is politeness to the
+    # server and a brake on a runaway loop, not throttle avoidance.
+    spend_network_page_pause_seconds: float = 0.6
+    # The cheap late-arrival net: one keyword-filtered query over this many days
+    # before the window, catching notices Spend Network aggregated inside the
+    # window whose upstream publication date falls outside it. Two requests.
+    # Paging the whole feed back this far instead would cost about four hours.
     spend_network_backfill_days: int = 30
-    # At 100 records a page that is 500 records a sweep, which is five times the
-    # busiest month measured. A guard against a broadened keyword list, not a
-    # tuning knob; a capped sweep is reported as truncated rather than passing
-    # for full coverage.
-    spend_network_max_pages: int = 5
-    # Seconds between paged requests. Not politeness: the throttle below counts
-    # requests, and a burst is what trips it. Zeroed in tests.
-    spend_network_page_pause_seconds: float = 2.0
-    # Running out of metered requests answers a bare HTML 403 with no
-    # Retry-After and no rate-limit headers, and every request made while
-    # blocked extends the block. This is the single wait before the single
-    # retry; ninety seconds of silence cleared it when measured.
-    spend_network_throttle_backoff_seconds: float = 90.0
+    # Store every notice in the window instead of only what the term list keeps.
+    # Its own setting rather than APPLY_KEYWORD_PREFILTER, because for this
+    # source that means ~1.46M notices a year at ~25KB each - roughly 37GB - and
+    # the general switch's name says nothing about a global aggregator.
+    spend_network_store_unfiltered: bool = False
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True

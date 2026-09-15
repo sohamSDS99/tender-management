@@ -417,25 +417,43 @@ the 50-point band. Precision is a property of the saved search, not of this code
 which is why the strong tier ("sds management", "ehs software") is what belongs
 in it. D36.
 
-**Spend Network ORs bare words, and quoting is the whole filter.**
-`search_term__is` *is* a real server-side search - `zzzzznonsensequery` returns 0
-- but unquoted it is OR-of-words, ignoring order. Measured over a fortnight:
-`safety data sheet` matched 4,770 notices and `"safety data sheet"` matched 23.
-`OR` between quoted phrases is additive (188 OR 9 = 196, with one overlap
-confirmed by `AND`), so the whole phrase list fits in one request. Drop the
-quotes and the API answers HTTP 200 with the feed - the same silent-success
-shape HigherGov has, from the other direction. `SpendNetworkConnector.build_query`
-is a named function for exactly this reason, and
-`test_spend_network_quotes_every_search_phrase` is the only thing that would
-notice. Unknown parameters are likewise accepted and ignored. D38.
+**Spend Network's cost is a function of the window, not of what matched.**
+The whole feed is paged and filtered on our own `PREFILTER_TERMS` - 735-6,239
+notices a day over 24 measured days, mean 3,995, so ~40 requests for a mean day
+and ~63 for the worst. Paging stops dead at 10,000 records (`offset` refuses
+past 9,900), so the window is walked **one day per query**; a multi-day query
+would silently lose everything past the ceiling on any busy window. Asking the
+dashboard for a 90-day sweep here is 1,200 requests and about four hours, which
+is what `SPEND_NETWORK_MAX_REQUESTS_PER_SWEEP` exists to stop. D38.
 
-**Spend Network answers a bare HTML 403 when the account runs out of requests,
-and polling it extends the block.** No `Retry-After`, no rate-limit headers, no
-JSON - an nginx page from the front door. Twenty-five requests in quick
-succession tripped it; probing every 20s kept it closed for four minutes, while
-~90s of silence cleared it. The connector waits once, retries once, and then
-returns a short sweep logged as truncated. Never write a retry loop against this
-source. D38.
+**Spend Network's 403 is a budget, not a rate limit, and polling it extends it.**
+The account meters *requests*: 25 tripped it flat-out and 25 tripped it again
+spread over 93 seconds - pacing buys nothing. Recovery is ~5 minutes of
+**silence** (still refused at 150s, clear at 302s), then the budget refills to
+35. Every request made while blocked restarts the block: probing every 20s kept
+it shut for four minutes. So a 403 is waited out once and the *same offset*
+retried - never skipped, because a skipped page is a hole in the window nothing
+downstream could detect - and a sweep out of waits stops entirely rather than
+walking on to the next day, since the block is account-wide. D38.
+
+**Its prefilter matches title + buyer + description, and a sample drawn through
+a filter cannot evaluate that filter.** sam.py and highergov.py prefilter on
+title (+ buyer); here that loses five sixths of what matters - over 108 stored
+notices title-only kept 12 and **lost ten of the twelve scoring >=50**, because
+these buyers put a procurement reference in the title and the subject in the
+description. Adding `content` looked worth two extra rows on that same sample -
+but those 108 had arrived *through the vendor's full-text search of content*, so
+they were selected for having their signal in the body. Re-measured on a raw day
+(1,919 notices, nothing pre-selected) `content` earned **zero** extra rows, and
+is out. Never copy a prefilter field list between connectors, and never tune one
+against records that reached you through a filter. D40.
+
+**`APPLY_KEYWORD_PREFILTER=false` cannot reach Spend Network.** For a national
+feed that switch means "store the window rather than the topical part of it",
+which is reasonable. For a global aggregator it means ~1.46M notices a year at
+~25KB each - roughly 37GB - arriving because somebody flipped a setting whose
+name says nothing about this source. The escape hatch is
+`SPEND_NETWORK_STORE_UNFILTERED`, deliberately named. D38.
 
 **`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
 "not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
