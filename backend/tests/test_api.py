@@ -332,3 +332,63 @@ def test_first_seen_from_is_optional(client, seeded) -> None:
     """Omitting it must not narrow anything."""
     everything = client.get("/api/tenders?minimum_score=0&page_size=50").json()["total"]
     assert client.get("/api/tenders?minimum_score=0&page_size=50").json()["total"] == everything
+
+
+#: The settable-secret fields the Settings page actually renders.
+#:
+#: Derived from the UI rather than repeated by hand would be better, but the UI
+#: is TypeScript. So the rule is: anything with a SecretField in
+#: SystemSettings.tsx belongs here, because the failure this guards against is
+#: silent - the page renders a box, an operator fills it in, the server answers
+#: 404 and the source it belongs to goes on refusing to run.
+SETTABLE_FROM_THE_SETTINGS_PAGE = (
+    "slack_bot_token",
+    "slack_channel_id",
+    "slack_bot_username",
+    "slack_webhook_url",
+    "slack_channel_label",
+    "spend_network_email",
+    "highergov_search_id",
+)
+
+
+def test_every_field_the_settings_page_offers_can_actually_be_set(client) -> None:
+    """The route and the page must agree on the field names, or the box lies.
+
+    This is exactly how HigherGov shipped: the source card rendered a key box
+    for any source with requires_api_key, and set_credential refused the write
+    because the name was not on the allow-list. The operator saw a field, used
+    it, and nothing was stored anywhere.
+    """
+    listed = client.get("/api/settings/secrets").json()
+    for field in SETTABLE_FROM_THE_SETTINGS_PAGE:
+        assert field in listed, f"{field} is rendered by the page but not listed by the API"
+        assert client.put(f"/api/settings/secrets/{field}", json={"value": "a-value"}).status_code == 204
+        assert client.get("/api/settings/secrets").json()[field]["configured"] is True
+        # Blank clears, so a value can be withdrawn without shell access.
+        assert client.put(f"/api/settings/secrets/{field}", json={"value": ""}).status_code == 204
+        assert client.get("/api/settings/secrets").json()[field]["configured"] is False
+
+
+def test_a_field_outside_the_allow_list_is_refused(client) -> None:
+    """The allow-list is what stops this being a hole, so it gets its own test."""
+    assert client.put("/api/settings/secrets/database_url", json={"value": "x"}).status_code == 404
+    assert client.put("/api/settings/secrets/allow_operator_actions", json={"value": "1"}).status_code == 404
+
+
+def test_the_spend_network_email_is_shown_back_but_the_password_never_is(client) -> None:
+    """One is an address, the other is a password, and the hint treats them so.
+
+    An address shown back is how an operator confirms which account is signed
+    in. A password shown back - even four characters of it - is a password.
+    """
+    client.put("/api/settings/secrets/spend_network_email", json={"value": "tenders@example.invalid"})
+    assert client.get("/api/settings/secrets").json()["spend_network_email"]["hint"] == (
+        "tenders@example.invalid"
+    )
+
+    client.put("/api/sources/spend_network/credential", json={"value": "sn-password-not-real"})
+    sources = {s["name"]: s for s in client.get("/api/sources").json()}
+    assert sources["spend_network"]["credential_configured"] is True
+    assert sources["spend_network"]["credential_hint"] == "…real"
+    assert "sn-password-not-real" not in client.get("/api/sources").text
