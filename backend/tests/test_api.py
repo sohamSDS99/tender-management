@@ -390,5 +390,5 @@ def test_the_spend_network_email_is_shown_back_but_the_password_never_is(client)
     client.put("/api/sources/spend_network/credential", json={"value": "sn-password-not-real"})
     sources = {s["name"]: s for s in client.get("/api/sources").json()}
     assert sources["spend_network"]["credential_configured"] is True
-    assert sources["spend_network"]["credential_hint"] == "…real"
+    assert sources["spend_network"]["credential_hint"] == "…", "a password hint shows nothing of it"
     assert "sn-password-not-real" not in client.get("/api/sources").text

@@ -293,7 +293,6 @@ def test_spend_network_password_and_email_can_both_be_stored(db_session):
     from app.services.credentials import set_secret
 
     assert set_credential(db_session, "spend_network", "sn-live-password-9876") is True
-    assert credential_hint(db_session, "spend_network") == "…9876"
 
     assert set_secret(db_session, "spend_network_email", "tenders@example.invalid") is True
 
@@ -326,3 +325,19 @@ def test_spend_network_password_is_redacted_from_anything_logged():
     leaked = "sign-in failed for sn-live-password-9876 at api.spendnetwork.cloud"
     assert "sn-live-password-9876" not in redact(leaked, settings)
     assert "***" in redact(leaked, settings)
+
+
+def test_a_password_hint_shows_nothing_of_the_password(db_session):
+    """Last-four is a card-number convention, and a password is not a card number.
+
+    The hint answers "*which* key is set", which is a real question when an
+    account holds several indistinguishable strings. A password has no which -
+    the account it belongs to is named by ``spend_network_email`` right beside
+    it - so four characters of a human-chosen secret would buy nothing.
+    """
+    set_credential(db_session, "sam", "sam-live-key-1234")
+    set_credential(db_session, "spend_network", "hunter2-and-then-some")
+
+    assert credential_hint(db_session, "sam") == "…1234", "a key still says which one"
+    assert credential_hint(db_session, "spend_network") == "…"
+    assert "some" not in credential_hint(db_session, "spend_network")

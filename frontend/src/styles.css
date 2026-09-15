@@ -2915,6 +2915,14 @@ html[data-density='compact'] .score {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Three controls in a 230px card column squeezed the labels into two lines
+     mid-word ("See its / notices"). Wrapping keeps each button its natural
+     width and moves the third one down instead. */
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.src__foot .btn {
+  white-space: nowrap;
 }
 
 /* The sweep-depth control came from the masthead, where it had a whole row.
@@ -2974,6 +2982,26 @@ html[data-density='compact'] .score {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--ink-muted);
+}
+
+/* The value-and-buttons row inside a SecretField. It had no rule at all, which
+   nothing noticed while every value on the page was a short Slack id: the
+   stored value butted straight against "Replace" with no gap, and a long one
+   (an email address) ran underneath it. */
+.credrow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.credrow .src__keyhint {
+  flex: 0 1 auto;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.credrow .btn {
+  white-space: nowrap;
 }
 
 /* ============================================================

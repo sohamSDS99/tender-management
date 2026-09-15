@@ -104,15 +104,29 @@ def stored_credential(db: Session, source: str) -> str | None:
     return value or None
 
 
+#: Sources whose credential is a password rather than a key.
+#:
+#: The hint exists to answer "*which* key is set", which is a real question when
+#: an account can hold several and they are indistinguishable strings. A password
+#: has no which: the account it belongs to is named by its own setting, right
+#: beside it. So the last four characters would buy nothing and cost a quarter of
+#: a human-chosen secret - last-four is a card-number convention, and a password
+#: is not a card number.
+PASSWORD_CREDENTIALS: frozenset[str] = frozenset({"spend_network"})
+
+
 def credential_hint(db: Session, source: str) -> str | None:
     """The last four characters, for confirming *which* key is set.
 
     Short values are masked entirely rather than partially: revealing three of
     four characters of a four-character secret is not a hint, it is the secret.
+    A password is masked entirely for the reason above, at any length.
     """
     value = stored_credential(db, source)
     if value is None:
         return None
+    if source in PASSWORD_CREDENTIALS:
+        return "…"
     return f"…{value[-4:]}" if len(value) >= 8 else "…"
 
 
