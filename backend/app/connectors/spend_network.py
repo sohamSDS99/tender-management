@@ -174,6 +174,13 @@ class SpendNetworkConnector(TenderConnector):
     homepage = "https://www.spendnetwork.com"
     requires_api_key = True
     credential_label = "password"
+    credential_extra_field = "spend_network_email"
+    credential_extra_label = "Account email"
+    credential_extra_hint = (
+        "The address you sign in with at api.spendnetwork.cloud. Both halves are needed; "
+        "a password with no address to use it on cannot sign in."
+    )
+    credential_extra_placeholder = "you@example.com"
     # The whole feed is paged and filtered here rather than searched server-side,
     # so this is the filter - not a second, coarser copy of one. Same mechanism
     # the UK feeds, CanadaBuys, AusTender and PNCP use.
@@ -191,15 +198,22 @@ class SpendNetworkConnector(TenderConnector):
     )
 
     def unavailable_reason(self) -> str | None:
+        """Names the missing half *and* where to put it.
+
+        This used to explain what the credential is not ("...not an API key")
+        while the box for it lived on a different settings page. Saying what is
+        missing without saying where it goes is half a message.
+        """
         if not self.settings.spend_network_email:
             return (
-                "SPEND_NETWORK_EMAIL is not set - this source signs in with the account "
-                "email and password used at https://api.spendnetwork.cloud/docs, not an API key."
+                "SPEND_NETWORK_EMAIL is not set - add the account email in the "
+                "'Account email' box on this card. It signs in with the email and password "
+                "from https://api.spendnetwork.cloud/docs, not an API key."
             )
         if not self.settings.spend_network_password:
             return (
-                "SPEND_NETWORK_PASSWORD is not set - paste the account password here; it is "
-                "stored write-only and exchanged for a short-lived bearer token on each sweep."
+                "SPEND_NETWORK_PASSWORD is not set - add the account password on this card. "
+                "It is stored write-only and exchanged for a short-lived bearer token."
             )
         return None
 

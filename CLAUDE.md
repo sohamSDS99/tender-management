@@ -448,6 +448,16 @@ they were selected for having their signal in the body. Re-measured on a raw day
 is out. Never copy a prefilter field list between connectors, and never tune one
 against records that reached you through a filter. D40.
 
+**Both halves of a paired credential go on the source's own card.** Spend
+Network needs an email *and* a password; HigherGov a key *and* a saved search.
+The second half shipped on the System settings page - a page away from the card
+that reports it missing - so the card said "SPEND_NETWORK_EMAIL is not set"
+while offering a box for the password, and nothing pointed at the other box.
+`SourceCard` already carried a comment saying exactly why that is wrong ("it put
+the control one place away from the source it acts on") and it was done anyway.
+A connector now declares `credential_extra_field`, and `unavailable_reason`
+names the box rather than explaining what the credential is not. D39.
+
 **`APPLY_KEYWORD_PREFILTER=false` cannot reach Spend Network.** For a national
 feed that switch means "store the window rather than the topical part of it",
 which is reasonable. For a global aggregator it means ~1.46M notices a year at

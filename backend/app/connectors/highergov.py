@@ -73,6 +73,14 @@ class HigherGovConnector(TenderConnector):
     display_name = "HigherGov (US federal + SLED)"
     homepage = "https://www.highergov.com"
     requires_api_key = True
+    credential_extra_field = "highergov_search_id"
+    credential_extra_label = "Saved search ID"
+    credential_extra_hint = (
+        "Build a search at highergov.com and copy searchID out of the URL. The API has no "
+        "keyword parameter, so without this there is nothing to filter on and the connector "
+        "refuses to run rather than spend the monthly quota on the unfiltered feed."
+    )
+    credential_extra_placeholder = "OvSsysuZMmV1UnmB1s0hJ"
     # The saved search is a *relevance* filter, not a topical one: it is tuned
     # in the UI and can be as loose as whoever built it left it. On the live
     # search this connector was verified against, the title+buyer prefilter cut
@@ -99,8 +107,9 @@ class HigherGovConnector(TenderConnector):
         if not self.settings.highergov_search_id:
             return (
                 "HIGHERGOV_SEARCH_ID is not set - build a search at "
-                "https://www.highergov.com and copy searchID from the URL. The API has no "
-                "keyword parameter, so without a saved search there is nothing to filter on."
+                "https://www.highergov.com, copy searchID from the URL, and paste it in the "
+                "'Saved search ID' box on this card. The API has no keyword parameter, so "
+                "without a saved search there is nothing to filter on."
             )
         return None
 

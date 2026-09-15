@@ -181,39 +181,6 @@ export function SystemSettings({
         />
       </SettingsSection>
 
-      {/*
-        Two sources need a second value that is not itself a secret, and until
-        now neither could be set from anywhere but a .env file and a restart.
-        That is the exact failure `credentials.py` records for HigherGov: the
-        dashboard renders a key box on the source card, an operator uses it, and
-        the source still refuses to run because its other half was never
-        settable. A password with no address to sign in with is not a
-        credential.
-      */}
-      <SettingsSection
-        title="Source credentials"
-        note="The other half of two sources. The secret half lives on the source's own card under Sources — HigherGov's is an API key, Spend Network's is the account password."
-      >
-        <SecretField
-          field="spend_network_email"
-          label="Spend Network account email"
-          hint="The address you sign in with at api.spendnetwork.cloud. The matching password goes in the box on the Spend Network card under Sources — that box takes the account password here, not an API key. The source refuses to run until both are set."
-          placeholder="you@example.com"
-          configured={at('spend_network_email').configured}
-          current={at('spend_network_email').hint}
-          onSaved={saved}
-        />
-        <SecretField
-          field="highergov_search_id"
-          label="HigherGov saved search"
-          hint="Build a search at highergov.com and copy searchID out of the URL. The API has no keyword parameter, so without this there is nothing to filter on and the connector refuses to run."
-          placeholder="OvSsysuZMmV1UnmB1s0hJ"
-          configured={at('highergov_search_id').configured}
-          current={at('highergov_search_id').hint}
-          onSaved={saved}
-        />
-      </SettingsSection>
-
       <SettingsSection title="Links">
         {automation ? <LinkBase url={automation.public_app_url} /> : null}
       </SettingsSection>

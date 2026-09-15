@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { SourceStatus } from '../types';
 import { api } from '../api/client';
 import { formatWhen, sourceHealth, type SourceHealth, type SourceVolume } from '../labels';
+import { SecretField } from './settings/SecretField';
 
 /** "an API key", "a password". */
 function article(label: string): string {
@@ -206,6 +207,31 @@ export function SourceCard({
             </div>
           ) : null}
           {keyError ? <p className="src__err">{keyError}</p> : null}
+
+          {/*
+            The other half, on the same card as the first.
+
+            Two sources need a pair - Spend Network an email and a password,
+            HigherGov a key and a saved search - and the second half used to
+            live on the System settings page. That is the mistake the comment
+            block above warns about, made anyway: the card said
+            "SPEND_NETWORK_EMAIL is not set" while offering a box for the
+            password, and the box for the email was a page away with nothing
+            pointing at it.
+          */}
+          {source.credential_extra_field ? (
+            <div className="src__extra">
+              <SecretField
+                field={source.credential_extra_field}
+                label={source.credential_extra_label}
+                hint={source.credential_extra_hint}
+                placeholder={source.credential_extra_placeholder}
+                configured={source.credential_extra_configured}
+                current={source.credential_extra_value}
+                onSaved={() => onCredentialSaved?.()}
+              />
+            </div>
+          ) : null}
         </>
       ) : null}
 

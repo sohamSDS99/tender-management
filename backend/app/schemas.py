@@ -235,6 +235,16 @@ class SourceStatus(UtcModel):
     requires_api_key: bool
     #: What the credential is called on screen - "API key", "password".
     credential_label: str = "API key"
+    #: The other half, for the two sources whose credential is a pair. Empty
+    #: string means there is no second half, which is most of them.
+    credential_extra_field: str = ""
+    credential_extra_label: str = ""
+    credential_extra_hint: str = ""
+    credential_extra_placeholder: str = ""
+    #: Whether that half is stored, and what is in force. Not a secret - an
+    #: address and a search id are both meant to be read back.
+    credential_extra_configured: bool = False
+    credential_extra_value: str | None = None
     #: Whether a key is stored for this source. The value itself is never
     #: returned by any endpoint - see app/services/credentials.py.
     credential_configured: bool = False
