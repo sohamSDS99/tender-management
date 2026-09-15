@@ -121,6 +121,16 @@ export interface SourceStatus {
   homepage: string;
   enabled: boolean;
   requires_api_key: boolean;
+  /** What the credential is called on screen: "API key" for nine sources, "password" for the one that signs in. */
+  credential_label: string;
+  /** The other half, for the two sources whose credential is a pair. Empty when there is none. */
+  credential_extra_field: string;
+  credential_extra_label: string;
+  credential_extra_hint: string;
+  credential_extra_placeholder: string;
+  credential_extra_configured: boolean;
+  /** Read back in full: an address and a saved search id are meant to be checked. */
+  credential_extra_value: string | null;
   /** Whether a key is stored. The value itself is never sent to the browser. */
   credential_configured: boolean;
   /** Last four characters, for confirming which key is set. */

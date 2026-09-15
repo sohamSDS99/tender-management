@@ -392,3 +392,85 @@ def test_the_spend_network_email_is_shown_back_but_the_password_never_is(client)
     assert sources["spend_network"]["credential_configured"] is True
     assert sources["spend_network"]["credential_hint"] == "…", "a password hint shows nothing of it"
     assert "sn-password-not-real" not in client.get("/api/sources").text
+
+
+def test_a_source_says_what_its_credential_is_called(client) -> None:
+    """Nine sources take an API key; one signs in with an account.
+
+    Calling a password a "key" on screen is not a harmless imprecision - it sent
+    an operator looking for an API key that does not exist, within a day of the
+    source shipping. The word is the connector's to choose, so the browser never
+    has to guess it from the source name.
+    """
+    sources = {s["name"]: s for s in client.get("/api/sources").json()}
+    assert sources["spend_network"]["credential_label"] == "password"
+    assert sources["highergov"]["credential_label"] == "API key"
+    assert sources["sam"]["credential_label"] == "API key"
+    # Every source carries one, including the ones that need no credential at
+    # all, so the browser never has to handle a missing field.
+    assert all(s["credential_label"] for s in sources.values())
+
+
+def test_a_paired_credential_is_reported_on_the_source_itself(client) -> None:
+    """Both halves belong to the source, and the API has to say so.
+
+    Spend Network needs an email and a password; HigherGov needs a key and a
+    saved search. The second half shipped on the System settings page, a page
+    away from the card that reports it missing - the card said
+    "SPEND_NETWORK_EMAIL is not set" and offered a box for the password. The
+    connector now declares the pair, so the card can render both.
+    """
+
+    sources = {s["name"]: s for s in client.get("/api/sources").json()}
+    sn, hg = sources["spend_network"], sources["highergov"]
+
+    assert sn["credential_extra_field"] == "spend_network_email"
+    assert sn["credential_extra_label"] == "Account email"
+    assert sn["credential_extra_hint"], "a field with no hint is a field nobody fills in"
+    assert hg["credential_extra_field"] == "highergov_search_id"
+    # Sources with a single-value credential, or none, declare no second half.
+    assert sources["ted"]["credential_extra_field"] == ""
+    assert sources["sam"]["credential_extra_field"] == ""
+
+
+def test_the_second_half_is_read_back_in_full_because_it_is_not_a_secret(client, db_session) -> None:
+    """An address and a saved search id are meant to be checked, not masked.
+
+    The password beside them is masked entirely. The asymmetry is the point:
+    you confirm *which account* is signed in by reading the address.
+    """
+    before = {s["name"]: s for s in client.get("/api/sources").json()}["spend_network"]
+    assert before["credential_extra_configured"] is False
+    assert before["credential_extra_value"] is None
+
+    assert (
+        client.put(
+            "/api/settings/secrets/spend_network_email",
+            json={"value": "tenders@example.invalid"},
+        ).status_code
+        == 204
+    )
+
+    after = {s["name"]: s for s in client.get("/api/sources").json()}["spend_network"]
+    assert after["credential_extra_configured"] is True
+    assert after["credential_extra_value"] == "tenders@example.invalid"
+
+
+def test_setting_both_halves_from_the_card_makes_the_source_runnable(client) -> None:
+    """The whole point: two controls, one card, no restart, no .env.
+
+    Each half alone leaves the source unavailable, and the reason names the half
+    that is still missing.
+    """
+    unavailable = {s["name"]: s for s in client.get("/api/sources").json()}["spend_network"]
+    assert "SPEND_NETWORK_EMAIL" in (unavailable["unavailable_reason"] or "")
+
+    client.put("/api/sources/spend_network/credential", json={"value": "sn-password-not-real"})
+    half = {s["name"]: s for s in client.get("/api/sources").json()}["spend_network"]
+    assert "SPEND_NETWORK_EMAIL" in (
+        half["unavailable_reason"] or ""
+    ), "the password alone must not be enough"
+
+    client.put("/api/settings/secrets/spend_network_email", json={"value": "tenders@example.invalid"})
+    both = {s["name"]: s for s in client.get("/api/sources").json()}["spend_network"]
+    assert both["unavailable_reason"] is None

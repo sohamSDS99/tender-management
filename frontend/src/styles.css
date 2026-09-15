@@ -3910,3 +3910,35 @@ html[data-density='compact'] .score {
   gap: 10px;
   margin-top: 11px;
 }
+
+/* The second half of a paired credential, under the first on the same card.
+   Two sources need a pair and the second half used to live on a different
+   settings page entirely — the card said "SPEND_NETWORK_EMAIL is not set" and
+   offered a box for the password. Indented under the key box so the pair reads
+   as one thing rather than two unrelated controls. */
+.src__extra {
+  margin-top: 6px;
+  padding-top: 6px;
+}
+.src__extra .srow {
+  display: block;
+  padding: 0;
+  border-top: 0;
+}
+.src__extra .srow__label p {
+  font-size: 0.78rem;
+  font-weight: 550;
+}
+.src__extra .srow__label small {
+  max-width: none;
+  font-size: 0.72rem;
+}
+.src__extra .srow__control {
+  margin-top: 6px;
+}
+.src__extra .credrow {
+  justify-content: flex-start;
+}
+.src__extra .input {
+  max-width: 100%;
+}

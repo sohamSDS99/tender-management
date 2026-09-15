@@ -250,6 +250,26 @@ class TenderConnector(ABC):
     display_name: str = ""
     homepage: str = ""
     requires_api_key: bool = False
+    #: What to call the credential on screen. Nine sources use an API key and
+    #: one signs in with an account, and calling a password a "key" is not a
+    #: harmless imprecision - it is the difference between an operator pasting
+    #: the right secret and going to look for one that does not exist.
+    credential_label: str = "API key"
+    #: The other half, for the two sources whose credential is a pair.
+    #:
+    #: A settable-secret field name (see services.credentials.SETTINGS_SECRETS),
+    #: shown on the same card as the secret half. Empty for the eight sources
+    #: whose credential is one value - or none at all.
+    #:
+    #: It lives on the card for the same reason the key does: a control one page
+    #: away from the source it acts on is a control nobody finds. Spend Network
+    #: shipped with this half on the System settings page and the card saying
+    #: "SPEND_NETWORK_EMAIL is not set" with no hint where to go, which is how
+    #: that was discovered.
+    credential_extra_field: str = ""
+    credential_extra_label: str = ""
+    credential_extra_hint: str = ""
+    credential_extra_placeholder: str = ""
     notes: str = ""
     # Sources with no server-side keyword search are prefiltered client-side so
     # we do not store an entire national tender feed. See keywords.PREFILTER_TERMS.
