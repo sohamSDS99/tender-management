@@ -1,0 +1,151 @@
+{
+ "offset": 0,
+ "limit": 2,
+ "result_count": 1,
+ "results": [
+  {
+   "award_currency_first": "AUD",
+   "awards_usd_value": 78349.813,
+   "buyer_address_country_name": "Australia",
+   "tender_eur_value": 71689.303,
+   "award_amount_sum": 118800,
+   "buyer_name": "Australian Taxation Office",
+   "language": "en",
+   "source": "cn_austender_au",
+   "release_tags": "award",
+   "buyer_address_locality": null,
+   "contact": "ATOPROCUREMENTANDLEASING@ATO.GOV.AU",
+   "awards_gbp_value": 62084.585,
+   "supplier_names": [
+    "Mitti Holdings Pty Ltd"
+   ],
+   "buyer_address_region": null,
+   "contracts_usd_value": 0.0,
+   "tender_currency": "AUD",
+   "source_data": {
+    "domain_name": "",
+    "source_domain": "tenders.gov.au",
+    "region_nickname": "",
+    "domain_region": "",
+    "source": "td_austender_au"
+   },
+   "dps_pred": false,
+   "contact_url": null,
+   "has_lots": false,
+   "award_end_date_first": "2029-09-28T00:00:00+00:00",
+   "awards_eur_value": 71689.303,
+   "award_duration_in_days_first": null,
+   "cpv_aug_data": [
+    {
+     "cpv_aug_names": "Software-related services",
+     "cpv_aug_codes": "72260000",
+     "relevance_score": 19.8523
+    },
+    {
+     "cpv_aug_names": "Networking software package",
+     "cpv_aug_codes": "48210000",
+     "relevance_score": 13.4169
+    },
+    {
+     "cpv_aug_names": "Communication software package",
+     "cpv_aug_codes": "48510000",
+     "relevance_score": 11.0665
+    },
+    {
+     "cpv_aug_names": "Systems and technical consultancy services",
+     "cpv_aug_codes": "72220000",
+     "relevance_score": 8.5884
+    },
+    {
+     "cpv_aug_names": "Programming services of packaged software products",
+     "cpv_aug_codes": "72210000",
+     "relevance_score": 5.1871
+    }
+   ],
+   "tender_usd_value": 78349.813,
+   "release_date": "2026-09-11T21:49:10.934284",
+   "tag_status": "closed",
+   "tender_title": null,
+   "naics": [
+    {
+     "naics_code": "541511",
+     "naics_title": "Custom Computer Programming Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    },
+    {
+     "naics_code": "513210",
+     "naics_title": "Software Publishers",
+     "naics_sector": "Information"
+    },
+    {
+     "naics_code": "517810",
+     "naics_title": "All Other Telecommunications",
+     "naics_sector": "Information"
+    },
+    {
+     "naics_code": "541690",
+     "naics_title": "Other Scientific and Technical Consulting Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    }
+   ],
+   "cpv_names": [],
+   "tender_url": "https://www.tenders.gov.au/Cn/Show/ff9e77cd-9d86-4793-82ff-9a7e06661f42",
+   "closing_date": "2029-09-28T00:00:00+00:00",
+   "naics_codes": [
+    "541511",
+    "513210",
+    "517810",
+    "541690"
+   ],
+   "date_updated": "2026-09-12T01:39:18.120780",
+   "cpv_aug_names": [
+    "Software-related services",
+    "Networking software package",
+    "Communication software package",
+    "Systems and technical consultancy services",
+    "Programming services of packaged software products"
+   ],
+   "cpv_aug_codes": [
+    "72260000",
+    "48210000",
+    "48510000",
+    "72220000",
+    "72210000"
+   ],
+   "tender_id": "ocds-0c46vo-0004-ff9e77cd-9d86-4793-82ff-9a7e06661f42",
+   "cpv_codes": [],
+   "content": "None  None Provision of Workplace Inspection Management Application Subscription... Provision of Workplace Inspection Management Application Subscription Licences for Safety Culture iAuditor ",
+   "notice_id": null,
+   "contracts_eur_value": 0.0,
+   "buyer_address_street_address": null,
+   "buyer_address_iso_alpha2": "AU",
+   "contracts_gbp_value": 0.0,
+   "tender_end_date": null,
+   "source_timezone": null,
+   "supplier_ids": [
+    "14e617913627eb6447386f618e51f34e"
+   ],
+   "ocid": "ocds-0c46vo-0004-ff9e77cd-9d86-4793-82ff-9a7e06661f42",
+   "start_date": "2026-09-29T00:00:00+00:00",
+   "has_attachments": false,
+   "date_created": "2026-09-12T01:39:18.120780",
+   "award_start_date_first": "2026-09-29T00:00:00+00:00",
+   "tender_description": null,
+   "award_descriptions": "Provision of Workplace Inspection Management Application Subscription Licences for Safety Culture iAuditor",
+   "tender_gbp_value": 62084.585,
+   "references_ocids": [
+    {
+     "ocds-0c46vo-0001-070975-2026_070975-2026": 0.08199999999999999
+    },
+    {
+     "ocds-0c46vo-0128-8871056": 0.162
+    },
+    {
+     "ocds-0c46vo-0002-a2f0d82d-2f65-458d-8afb-f12601f21ba9": 0.138
+    }
+   ],
+   "tender_amount": 0.0,
+   "award_titles": "Provision of Workplace Inspection Management Application Subscription..."
+  }
+ ]
+}

@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # --- credentials (never logged) ---
     sam_gov_api_key: str = ""
     highergov_api_key: str = ""
+    # Spend Network signs in with an account rather than a key: there is no API
+    # key to mint, so both halves are required and both are treated as secret.
+    # The email is not itself confidential, but it is half of a credential, and
+    # splitting the pair across a secret and a plain setting is how one ends up
+    # stored without the other.
+    spend_network_email: str = ""
+    spend_network_password: str = ""
 
     # --- per-source switches ---
     enable_ted: bool = True
@@ -66,6 +73,7 @@ class Settings(BaseSettings):
     enable_austender: bool = True
     enable_pncp: bool = True
     enable_highergov: bool = True
+    enable_spend_network: bool = True
     enable_oeffentlichevergabe: bool = True
 
     # --- source tuning ---
@@ -114,6 +122,47 @@ class Settings(BaseSettings):
     # someone saving a very broad one, not a tuning knob. A capped sweep is
     # reported as truncated rather than passing for full coverage.
     highergov_max_pages: int = 5
+    # Spend Network pages its whole feed and filters here, so its cost is a
+    # function of the *window*, not of how much matched. All four numbers below
+    # come from measurement on 2026-09-15 rather than from taste.
+    #
+    # The feed ran 735-6,239 notices a day over 24 consecutive days, mean 3,995,
+    # which is 40 requests for a mean day and 63 for the worst. The account
+    # meters requests rather than rate-limiting them: 25 tripped it flat-out and
+    # 25 tripped it again spread over 93 seconds, then it refused everything for
+    # about five minutes (still blocked at 150s, clear at 302s) and refilled to
+    # 35. So roughly 30 requests per 5 minutes - a mean day of feed is about
+    # seven minutes, the worst about eleven.
+    #
+    # 400 requests is therefore ~8-10 days of feed and about an hour of wall
+    # clock. It is a guard against someone asking the dashboard for a 90-day
+    # sweep (1,200 requests, four hours) by accident, not a tuning knob; a sweep
+    # that hits it stops and is reported as truncated rather than passing for
+    # full coverage.
+    spend_network_max_requests_per_sweep: int = 400
+    # At ~30 requests per window, 400 requests is about 13 waits. This bounds
+    # the waiting rather than the requesting, so a sweep cannot sit for hours if
+    # the account's budget turns out to be smaller than measured.
+    spend_network_max_throttle_waits: int = 16
+    # The measured recovery, with margin: 150s was still refused and 302s was
+    # clear. Undershooting costs an extra wait *and* extends the block, because
+    # every request made while blocked restarts it - so this errs long on
+    # purpose.
+    spend_network_throttle_backoff_seconds: float = 330.0
+    # Pacing buys nothing against a request *budget* - the same 25 requests
+    # tripped it at full speed and at 3s apart - so this is politeness to the
+    # server and a brake on a runaway loop, not throttle avoidance.
+    spend_network_page_pause_seconds: float = 0.6
+    # The cheap late-arrival net: one keyword-filtered query over this many days
+    # before the window, catching notices Spend Network aggregated inside the
+    # window whose upstream publication date falls outside it. Two requests.
+    # Paging the whole feed back this far instead would cost about four hours.
+    spend_network_backfill_days: int = 30
+    # Store every notice in the window instead of only what the term list keeps.
+    # Its own setting rather than APPLY_KEYWORD_PREFILTER, because for this
+    # source that means ~1.46M notices a year at ~25KB each - roughly 37GB - and
+    # the general switch's name says nothing about a global aggregator.
+    spend_network_store_unfiltered: bool = False
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
@@ -355,6 +404,7 @@ SECRET_FIELDS = (
     "cron_secret",
     "sam_gov_api_key",
     "highergov_api_key",
+    "spend_network_password",
     "deepl_api_key",
     "database_url",
 )

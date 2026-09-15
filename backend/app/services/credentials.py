@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 CREDENTIAL_FIELDS: dict[str, str] = {
     "sam": "sam_gov_api_key",
     "highergov": "highergov_api_key",
+    # The password half. The email half is a settable setting below, for the
+    # same reason highergov_search_id is: it is not secret on its own, but it is
+    # useless without the other and storing one without the other is the failure
+    # worth designing against.
+    "spend_network": "spend_network_password",
 }
 
 #: ``Settings`` fields that may be set from the dashboard, under ``secret.{field}``.
@@ -64,6 +69,9 @@ SETTINGS_SECRETS: tuple[str, ...] = (
     # unfiltered firehose. Storing one without the other is the failure mode
     # worth designing against, so they go through the same door.
     "highergov_search_id",
+    # Spend Network signs in with an account, so the "key" an operator pastes on
+    # the source card is the password and this is the address it belongs to.
+    "spend_network_email",
 )
 
 #: Which of those are true secrets, so the hint masks them.
@@ -96,15 +104,29 @@ def stored_credential(db: Session, source: str) -> str | None:
     return value or None
 
 
+#: Sources whose credential is a password rather than a key.
+#:
+#: The hint exists to answer "*which* key is set", which is a real question when
+#: an account can hold several and they are indistinguishable strings. A password
+#: has no which: the account it belongs to is named by its own setting, right
+#: beside it. So the last four characters would buy nothing and cost a quarter of
+#: a human-chosen secret - last-four is a card-number convention, and a password
+#: is not a card number.
+PASSWORD_CREDENTIALS: frozenset[str] = frozenset({"spend_network"})
+
+
 def credential_hint(db: Session, source: str) -> str | None:
     """The last four characters, for confirming *which* key is set.
 
     Short values are masked entirely rather than partially: revealing three of
     four characters of a four-character secret is not a hint, it is the secret.
+    A password is masked entirely for the reason above, at any length.
     """
     value = stored_credential(db, source)
     if value is None:
         return None
+    if source in PASSWORD_CREDENTIALS:
+        return "…"
     return f"…{value[-4:]}" if len(value) >= 8 else "…"
 
 

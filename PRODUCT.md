@@ -127,8 +127,12 @@ incumbent look is anti-reference, not a starting point.
   every score band, deployment class and known false-positive case — including a
   notice where "SDS" means software-defined storage, and one capped for mandatory
   on-premises hosting. These are the only sanctioned sample data.
-- Eight real sources: EU TED, US SAM.gov, UK Find a Tender, UK Contracts Finder,
-  World Bank, CanadaBuys, AusTender, Brazil PNCP, HigherGov.
+- Eleven real sources: EU TED, US SAM.gov, UK Find a Tender, UK Contracts Finder,
+  World Bank, CanadaBuys, AusTender, Brazil PNCP, HigherGov, Germany's
+  Datenservice Öffentlicher Einkauf, and Spend Network's Open Opportunities —
+  the last of which is itself an aggregator over ~40 further national portals.
+- Any one of them can be opened on its own: a source card's count is a way in,
+  and the list below it then holds only what that source brought.
 - No testimonials, customers, pricing or benchmarks exist. Future work must not
   invent any.
 

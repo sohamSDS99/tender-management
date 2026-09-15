@@ -15,6 +15,7 @@ from app.connectors.highergov import HigherGovConnector
 from app.connectors.oeffentlichevergabe import OeffentlicheVergabeConnector
 from app.connectors.pncp import PncpConnector
 from app.connectors.sam import SamGovConnector
+from app.connectors.spend_network import SpendNetworkConnector
 from app.connectors.ted import TedConnector
 from app.connectors.world_bank import WorldBankConnector
 from app.models import Source
@@ -31,6 +32,7 @@ CONNECTOR_CLASSES: tuple[type[TenderConnector], ...] = (
     PncpConnector,
     HigherGovConnector,
     OeffentlicheVergabeConnector,
+    SpendNetworkConnector,
 )
 
 SOURCE_NAMES: tuple[str, ...] = tuple(c.source_name for c in CONNECTOR_CLASSES)

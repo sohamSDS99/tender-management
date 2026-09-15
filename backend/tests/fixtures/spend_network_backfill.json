@@ -1,0 +1,153 @@
+{
+ "offset": 0,
+ "limit": 2,
+ "result_count": 1,
+ "results": [
+  {
+   "award_currency_first": null,
+   "awards_usd_value": 0.0,
+   "buyer_address_country_name": "Germany",
+   "tender_eur_value": 0.0,
+   "award_amount_sum": 0.0,
+   "buyer_name": "Wirtschaftsbetriebe Duisburg - AöR im Namen und Rechnung für Stadt Duisburg - Sondervermögen-Immobilien Duisburg (SVI)",
+   "language": "de",
+   "source": "td_dtvp_de",
+   "release_tags": "tender",
+   "buyer_address_locality": null,
+   "contact": "svi-einkauf@wb-duisburg.de",
+   "awards_gbp_value": 0.0,
+   "supplier_names": [],
+   "buyer_address_region": null,
+   "contracts_usd_value": 0.0,
+   "tender_currency": null,
+   "source_data": {
+    "domain_name": "",
+    "source_domain": "dtvp.de",
+    "region_nickname": "",
+    "domain_region": "",
+    "source": "td_dtvp_de"
+   },
+   "dps_pred": false,
+   "contact_url": null,
+   "has_lots": false,
+   "award_end_date_first": null,
+   "awards_eur_value": 0.0,
+   "award_duration_in_days_first": null,
+   "cpv_aug_data": [
+    {
+     "cpv_aug_names": "Plumbing and sanitary works",
+     "cpv_aug_codes": "45330000",
+     "relevance_score": 43.0573
+    },
+    {
+     "cpv_aug_names": "Construction work for pipelines, communication and power lines, for highways, roads, airfields and railways; flatwork",
+     "cpv_aug_codes": "45230000",
+     "relevance_score": 18.3009
+    },
+    {
+     "cpv_aug_names": "Heat-exchange units, air-conditioning and refrigerating equipment, and filtering machinery",
+     "cpv_aug_codes": "42510000",
+     "relevance_score": 9.954
+    },
+    {
+     "cpv_aug_names": "Electrical installation work",
+     "cpv_aug_codes": "45310000",
+     "relevance_score": 6.9133
+    },
+    {
+     "cpv_aug_names": "Electrical domestic appliances",
+     "cpv_aug_codes": "39710000",
+     "relevance_score": 4.6142
+    }
+   ],
+   "tender_usd_value": 0.0,
+   "release_date": "2026-09-14T00:00:00+00:00",
+   "tag_status": "open",
+   "tender_title": "2026-0563 Erneuerung Wärmeversorgung GHS Gneisenaustr, 47057 Duisburg",
+   "naics": [
+    {
+     "naics_code": "238220",
+     "naics_title": "Plumbing, Heating, and Air-Conditioning Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "237130",
+     "naics_title": "Power and Communication Line and Related Structures Construction",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "423730",
+     "naics_title": "Warm Air Heating and Air-Conditioning Equipment and Supplies Merchant Wholesalers",
+     "naics_sector": "Wholesale Trade"
+    },
+    {
+     "naics_code": "238210",
+     "naics_title": "Electrical Contractors and Other Wiring Installation Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "423620",
+     "naics_title": "Household Appliances, Electric Housewares, and Consumer Electronics Merchant Wholesalers",
+     "naics_sector": "Wholesale Trade"
+    }
+   ],
+   "cpv_names": [],
+   "tender_url": "https://www.dtvp.de/Center/secured/company/projectForwarding.do?pid=2605221",
+   "closing_date": "2026-10-06T00:00:00+00:00",
+   "naics_codes": [
+    "238220",
+    "237130",
+    "423730",
+    "238210",
+    "423620"
+   ],
+   "date_updated": "2026-09-15T04:31:16.385523",
+   "cpv_aug_names": [
+    "Plumbing and sanitary works",
+    "Construction work for pipelines, communication and power lines, for highways, roads, airfields and railways; flatwork",
+    "Heat-exchange units, air-conditioning and refrigerating equipment, and filtering machinery",
+    "Electrical installation work",
+    "Electrical domestic appliances"
+   ],
+   "cpv_aug_codes": [
+    "45330000",
+    "45230000",
+    "42510000",
+    "45310000",
+    "39710000"
+   ],
+   "tender_id": "2605221",
+   "cpv_codes": [],
+   "content": "2026-0563 Erneuerung Wärmeversorgung GHS Gneisenaustr, 47057 Duisburg  Art der Leistung\nHeizungstechnik, Erneuerung der Wärmeversorgung\n\n\nUmfang der Leistung\nKomplette Erneuerung des Verteileraufbaus im Heizraum zwischen Verteilerbalken und den Rohranschlussflanschen. Installation eines Wärmetauschers zur Systemtrennung nach der Fernwärmestation im HAR.\nDemontage der bisherigen Warmwasserversorgung im Heizraum und Neuinstallation unter den Umkleiden (neben dem HAR) unter Verwendung von 2 Pufferspeichern und 2 Frischwasserstationen.   ",
+   "notice_id": null,
+   "contracts_eur_value": 0.0,
+   "buyer_address_street_address": "Schifferstr. 190",
+   "buyer_address_iso_alpha2": "DE",
+   "contracts_gbp_value": 0.0,
+   "tender_end_date": "2026-10-06T00:00:00+00:00",
+   "source_timezone": "UTC+02:00",
+   "supplier_ids": [],
+   "ocid": "ocds-0c46vo-0125-2605221",
+   "start_date": null,
+   "has_attachments": false,
+   "date_created": "2026-09-15T04:31:16.385523",
+   "award_start_date_first": null,
+   "tender_description": "Art der Leistung\nHeizungstechnik, Erneuerung der Wärmeversorgung\n\n\nUmfang der Leistung\nKomplette Erneuerung des Verteileraufbaus im Heizraum zwischen Verteilerbalken und den Rohranschlussflanschen. Installation eines Wärmetauschers zur Systemtrennung nach der Fernwärmestation im HAR.\nDemontage der bisherigen Warmwasserversorgung im Heizraum und Neuinstallation unter den Umkleiden (neben dem HAR) unter Verwendung von 2 Pufferspeichern und 2 Frischwasserstationen.",
+   "award_descriptions": "",
+   "tender_gbp_value": 0.0,
+   "references_ocids": [
+    {
+     "ocds-0c46vo-0058-1130466": 0.7289999999999999
+    },
+    {
+     "ocds-0c46vo-0058-1127556": 0.006999999999999999
+    },
+    {
+     "ocds-0c46vo-0058-1125954": 0.037
+    }
+   ],
+   "tender_amount": 0.0,
+   "award_titles": ""
+  }
+ ]
+}

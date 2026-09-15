@@ -19,15 +19,24 @@ from app.connectors.canada_buys import CanadaBuysConnector
 from app.connectors.contracts_finder import ContractsFinderConnector
 from app.connectors.find_a_tender import FindATenderConnector
 from app.connectors.highergov import HigherGovConnector
+from app.connectors.keywords import SEARCH_PHRASES
 from app.connectors.pncp import PncpConnector
 from app.connectors.registry import SOURCE_NAMES, build_all, build_connector, source_catalog
 from app.connectors.sam import SamGovConnector
+from app.connectors.spend_network import SpendNetworkConnector
 from app.connectors.ted import TedConnector
 from app.connectors.world_bank import WorldBankConnector
 from tests.conftest import fixture_json, fixture_text
 
 DATE_FROM = datetime(2026, 8, 18)
 DATE_TO = datetime(2026, 8, 21)
+
+# Deadlines in the fixtures sit in 2030 deliberately. `status_from_deadline`
+# compares against the real clock, so a fixture whose deadline was merely
+# "soon" when it was captured turns three passing tests red on the day it
+# arrives - which is exactly what happened on 2026-09-15, to SAM, the SAM
+# extract and HigherGov at once. A date far enough out is not laziness; it is
+# the difference between asserting the mapping and asserting today's date.
 
 
 def transport(handler) -> httpx.MockTransport:
@@ -181,7 +190,7 @@ SAM_PAGE = {
             "type": "Solicitation",
             "baseType": "Presolicitation",
             "active": "Yes",
-            "responseDeadLine": "2026-09-15T17:00:00-04:00",
+            "responseDeadLine": "2030-09-15T17:00:00-04:00",
             "naicsCode": "541511",
             "naicsCodes": [{"code": ["541512"]}],
             "classificationCode": "7A20",
@@ -245,7 +254,7 @@ async def test_sam_bulk_extract_filters_type_window_and_topic(settings):
     # Three columns rebuilt into the dotted path the API used to return whole.
     assert tender.buyer_name == "DEPT OF DEFENSE.DEPT OF THE ARMY.W07V ENDIST NEW ORLEANS"
     assert tender.buyer_country == "US"
-    assert tender.deadline == datetime(2026, 9, 15, 21, 0)
+    assert tender.deadline == datetime(2030, 9, 15, 21, 0)
     assert tender.status == "open"
     assert {"scheme": "NAICS", "code": "541511"} in tender.classification_codes
     assert {"scheme": "PSC", "code": "7A20"} in tender.classification_codes
@@ -316,7 +325,7 @@ async def test_sam_pagination_description_fetch_and_key_never_leaks(keyed_settin
     assert {"scheme": "NAICS", "code": "541511"} in tender.classification_codes
     assert {"scheme": "PSC", "code": "7A20"} in tender.classification_codes
     assert tender.buyer_country == "US"
-    assert tender.deadline == datetime(2026, 9, 15, 21, 0)
+    assert tender.deadline == datetime(2030, 9, 15, 21, 0)
     assert tender.status == "open"
     assert "postedFrom=08%2F18%2F2026" in urls[0]
     # The key travels in the query string; nothing that is stored may contain it.
@@ -657,7 +666,7 @@ async def test_highergov_pagination_window_prefilter_and_normalization(highergov
     assert tender.buyer_country == "US"
     assert tender.currency == "USD"
     assert tender.language == "en"
-    assert tender.deadline == datetime(2026, 9, 15)
+    assert tender.deadline == datetime(2030, 9, 15)
     assert tender.status == "open"
     assert tender.reference_number
     assert {"scheme": "NAICS", "code": "541690"} in tender.classification_codes
@@ -717,6 +726,437 @@ async def test_highergov_window_matches_either_date(highergov_settings):
     assert tenders[0].source_updated_at == datetime(2026, 8, 19), "captured_date is what 'new to us' means"
 
 
+# --- Spend Network ---------------------------------------------------------
+#
+# The window is DATE_FROM..DATE_TO (2026-08-18..21), walked newest day first.
+# The busiest day here has two pages at the fixture's page size of 2; the rest
+# are one page or empty. That shape is what lets these tests say something about
+# day-chunking, the throttle and the backfill separately.
+
+SN_BUSY_DAY = "2026-08-21"
+SN_OLD_DAY = "2026-08-18"
+
+
+def _spend_network_pages() -> dict[tuple[str, int], str]:
+    return {
+        (SN_BUSY_DAY, 0): "spend_network_day_page1.json",
+        (SN_BUSY_DAY, 2): "spend_network_day_page2.json",
+        (SN_OLD_DAY, 0): "spend_network_day_older.json",
+    }
+
+
+def _spend_network_handler(calls: list[httpx.Request], refuse: list[tuple[str, int]] | None = None):
+    """Sign-in, then a fixture per (day, offset). Empty for any day not listed.
+
+    ``refuse`` names (day, offset) pairs that answer 403 *once each* before
+    serving, which is how the throttle is modelled: it is not a failure mode
+    here, it is the ordinary cost of paging a whole day.
+    """
+    pages = _spend_network_pages()
+    outstanding = list(refuse or [])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/login/access-token"):
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "sn-token-not-real",
+                    "token_type": "bearer",
+                    "expiration_date": "2026-09-23T04:33:25.900350+00:00",
+                },
+            )
+        day = request.url.params.get("release_date__gte")
+        offset = int(request.url.params.get("offset", 0))
+        if (day, offset) in outstanding:
+            outstanding.remove((day, offset))
+            return httpx.Response(403, text="<html><body>403 Forbidden</body></html>")
+        if request.url.params.get("search_term__is"):
+            return httpx.Response(200, json=fixture_json("spend_network_backfill.json"))
+        name = pages.get((day, offset))
+        if name is None:
+            return httpx.Response(200, json={"offset": offset, "limit": 2, "result_count": 0, "results": []})
+        return httpx.Response(200, json=fixture_json(name))
+
+    return handler
+
+
+def _sn_searches(calls: list[httpx.Request]) -> list[httpx.Request]:
+    return [c for c in calls if not c.url.path.endswith("/login/access-token")]
+
+
+def _sn_feed_calls(calls: list[httpx.Request]) -> list[httpx.Request]:
+    """The whole-feed requests, excluding the keyword backfill pass."""
+    return [c for c in _sn_searches(calls) if not c.url.params.get("search_term__is")]
+
+
+async def test_spend_network_needs_both_halves_of_the_account(settings):
+    """An email or a password alone is not a credential, and says which is missing."""
+    connector = SpendNetworkConnector(settings)
+    assert connector.requires_api_key is True
+    assert "SPEND_NETWORK_EMAIL" in connector.unavailable_reason()
+
+    half = settings.model_copy(update={"spend_network_email": "someone@example.invalid"})
+    reason = SpendNetworkConnector(half).unavailable_reason()
+    assert reason is not None, "an email alone must not be enough to run"
+    assert "SPEND_NETWORK_PASSWORD" in reason
+
+    both = half.model_copy(update={"spend_network_password": "sn-password-not-real"})
+    assert SpendNetworkConnector(both).unavailable_reason() is None
+
+
+async def test_spend_network_takes_the_whole_feed_and_does_not_ask_the_api_to_search(
+    spend_network_settings,
+):
+    """The filter is ours now, which means no `search_term__is` on the feed pass.
+
+    This is the decision the whole connector turns on. Sending a search term
+    again would silently shrink the feed back to whatever the vendor's engine
+    matched - 108 notices in a month against the ~132,000 actually published -
+    and nothing downstream could tell the difference between "the feed was
+    quiet" and "we asked for a hundredth of it".
+    """
+    calls: list[httpx.Request] = []
+    await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+
+    feed = _sn_feed_calls(calls)
+    assert feed, "no feed requests were made at all"
+    for call in feed:
+        assert "search_term__is" not in call.url.params, "the API was asked to filter for us"
+
+
+async def test_spend_network_walks_the_window_one_day_at_a_time_newest_first(spend_network_settings):
+    """Paging stops dead at 10,000 records, so the day is the chunk.
+
+    A multi-day query would silently lose everything past the ceiling on any
+    busy window. Newest first so a sweep cut short by its budget has covered the
+    end anybody is waiting on.
+    """
+    calls: list[httpx.Request] = []
+    await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+
+    feed = _sn_feed_calls(calls)
+    # Every request asks for exactly one day.
+    for call in feed:
+        assert call.url.params["release_date__gte"] == call.url.params["release_date__lte"]
+    days = list(dict.fromkeys(c.url.params["release_date__gte"] for c in feed))
+    assert days == ["2026-08-21", "2026-08-20", "2026-08-19", "2026-08-18"]
+    # The busy day is paged to exhaustion; the empty ones cost one request each.
+    busy = [int(c.url.params["offset"]) for c in feed if c.url.params["release_date__gte"] == SN_BUSY_DAY]
+    assert busy == [0, 2, 4], "a day must be paged until it runs out, not sampled"
+
+
+async def test_spend_network_filters_on_our_own_terms_before_storing(spend_network_settings):
+    """The whole point of paging the feed: we decide what is worth keeping.
+
+    The fixture's busy day carries a road-resurfacing notice, which is what
+    almost all of a global procurement feed is. It matches no term and must not
+    reach the database. The one beside it matches "health and safety" in its
+    body and must.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+
+    titles = [t.title or "" for t in tenders]
+    assert not any("Fahrbahndecke" in t for t in titles), "a works contract was stored"
+    assert any("P1218" in t for t in titles), "a topical notice was dropped"
+    assert all(t.source == "spend_network" for t in tenders)
+
+
+async def test_spend_network_matches_the_body_not_only_the_title(spend_network_settings):
+    """Title-only prefiltering would throw away five sixths of what matters here.
+
+    Measured over 108 stored notices: matching title alone kept 12 and lost ten
+    of the twelve that scored 50 or better, because these buyers put a
+    procurement reference in the title and the subject in the description. The
+    kept records below match on body text, not on their titles - which is the
+    whole reason this connector does not copy sam.py's title-only prefilter.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    kept = next(t for t in tenders if "P1218" in (t.title or ""))
+    from app.connectors.keywords import looks_relevant
+
+    assert not looks_relevant(kept.title), "pick a fixture whose title does not match"
+    assert looks_relevant(kept.description), "...but whose body does"
+
+
+async def test_spend_network_prefilter_cannot_be_switched_off_by_the_general_flag(
+    spend_network_settings,
+):
+    """APPLY_KEYWORD_PREFILTER=false means something reasonable for a national feed.
+
+    For a global aggregator it means ~1.46M notices a year at ~25KB each, and
+    the flag's name says nothing about this source. The escape hatch is its own
+    setting, so nobody arrives at 37GB by flipping something else.
+    """
+    loose = spend_network_settings.model_copy(update={"apply_keyword_prefilter": False})
+    calls: list[httpx.Request] = []
+    tenders = await fetch(SpendNetworkConnector(loose, transport=transport(_spend_network_handler(calls))))
+    assert not any("Fahrbahndecke" in t.title for t in tenders)
+
+    deliberate = spend_network_settings.model_copy(update={"spend_network_store_unfiltered": True})
+    calls = []
+    everything = await fetch(
+        SpendNetworkConnector(deliberate, transport=transport(_spend_network_handler(calls)))
+    )
+    assert any("Fahrbahndecke" in t.title for t in everything), "the deliberate switch did nothing"
+
+
+async def test_spend_network_waits_out_the_throttle_and_retries_the_same_page(
+    spend_network_settings,
+):
+    """A 403 mid-feed is the ordinary cost of a day, not a failed sweep.
+
+    A mean day is 40 requests against a budget of about 30 per five minutes, so
+    every day trips it. What must never happen is the interrupted page being
+    skipped: that is a hole in the window nothing downstream could detect.
+    """
+    calls: list[httpx.Request] = []
+    handler = _spend_network_handler(calls, refuse=[(SN_BUSY_DAY, 2)])
+    tenders = await fetch(SpendNetworkConnector(spend_network_settings, transport=transport(handler)))
+
+    feed = _sn_feed_calls(calls)
+    busy = [int(c.url.params["offset"]) for c in feed if c.url.params["release_date__gte"] == SN_BUSY_DAY]
+    assert busy == [0, 2, 2, 4], "the refused offset must be retried, not stepped over"
+    # And the page behind the 403 actually arrived.
+    assert any("P1218" in (t.title or "") for t in tenders), "the retried page was lost"
+
+
+async def test_spend_network_stops_when_it_runs_out_of_patience(spend_network_settings):
+    """Bounded waiting, so a sweep cannot sit for hours if the budget shrinks."""
+    calls: list[httpx.Request] = []
+    impatient = spend_network_settings.model_copy(update={"spend_network_max_throttle_waits": 0})
+    handler = _spend_network_handler(calls, refuse=[(SN_BUSY_DAY, 0)])
+    tenders = await fetch(SpendNetworkConnector(impatient, transport=transport(handler)))
+
+    feed = _sn_feed_calls(calls)
+    assert [int(c.url.params["offset"]) for c in feed] == [0], "with no waits left it must not retry"
+    # And it must not walk on to the next day either: the block is account-wide,
+    # so every remaining day would spend a request to be refused again.
+    assert len({c.url.params["release_date__gte"] for c in feed}) == 1
+    assert not [c for c in _sn_searches(calls) if c.url.params.get("search_term__is")], "backfill ran anyway"
+    assert tenders == [], "nothing was reachable, so nothing is claimed"
+
+
+async def test_spend_network_stops_at_its_request_budget(spend_network_settings):
+    """The guard against a 90-day sweep asked for by accident: 1,200 requests, four hours."""
+    calls: list[httpx.Request] = []
+    tiny = spend_network_settings.model_copy(update={"spend_network_max_requests_per_sweep": 2})
+    await fetch(SpendNetworkConnector(tiny, transport=transport(_spend_network_handler(calls))))
+    assert len(_sn_searches(calls)) == 2
+
+
+async def test_spend_network_pays_two_requests_for_the_late_arrivals(spend_network_settings):
+    """The only date filter is the upstream portal's publication date.
+
+    A notice released last month and aggregated today falls outside any sane
+    window, and paging the whole feed back thirty days to catch it would cost
+    about four hours. One keyword query costs two requests and catches most of
+    it - and it is the one request that *does* carry quoted phrases.
+    """
+    calls: list[httpx.Request] = []
+    await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+
+    backfill = [c for c in _sn_searches(calls) if c.url.params.get("search_term__is")]
+    assert len(backfill) == 1
+    term = backfill[0].url.params["search_term__is"]
+    assert term.startswith('"') and " OR " in term, "the backfill pass lost its quoting"
+    # It covers the days *before* the window, which the day walk already did.
+    assert backfill[0].url.params["release_date__lte"] == "2026-08-17"
+    assert backfill[0].url.params["release_date__gte"] == "2026-07-19"
+
+
+async def test_spend_network_skips_the_backfill_when_it_is_switched_off(spend_network_settings):
+    off = spend_network_settings.model_copy(update={"spend_network_backfill_days": 0})
+    calls: list[httpx.Request] = []
+    await fetch(SpendNetworkConnector(off, transport=transport(_spend_network_handler(calls))))
+    assert not [c for c in _sn_searches(calls) if c.url.params.get("search_term__is")]
+
+
+def test_spend_network_quotes_every_search_phrase():
+    """The backfill pass is the only search left, and it is quoted or it is the feed.
+
+    Measured 2026-09-15: unquoted, `safety data sheet` is ORed word by word and
+    matched 4,770 notices in a fortnight; quoted, it matched 23. The API reports
+    no error either way, so nothing but this test notices if the quotes go.
+    """
+    query = SpendNetworkConnector.build_query(("safety data sheet", "chemical management"))
+    assert query == '"safety data sheet" OR "chemical management"'
+
+    full = SpendNetworkConnector.build_query()
+    assert full.startswith('"'), "a bare leading word would be ORed into the feed"
+    assert " OR " in full
+    for phrase in SEARCH_PHRASES:
+        assert f'"{phrase}"' in full, f"{phrase} reached the API unquoted"
+
+
+async def test_spend_network_signs_in_once_per_sweep(spend_network_settings):
+    calls: list[httpx.Request] = []
+    await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    logins = [c for c in calls if c.url.path.endswith("/login/access-token")]
+    assert len(logins) == 1
+    assert all(c.headers["authorization"] == "Bearer sn-token-not-real" for c in _sn_searches(calls))
+
+
+async def test_spend_network_reuses_its_token_across_sweeps(spend_network_settings):
+    """The cache earns its keep between sweeps, not between pages.
+
+    One ``fetch`` signs in once whether or not anything is cached - the token is
+    taken before the day walk - so asserting "one login per sweep" says nothing
+    about the cache. Two sweeps is the question it answers, and the token lives
+    eight days.
+    """
+    calls: list[httpx.Request] = []
+    handler = transport(_spend_network_handler(calls))
+    await fetch(SpendNetworkConnector(spend_network_settings, transport=handler))
+    await fetch(SpendNetworkConnector(spend_network_settings, transport=handler))
+
+    logins = [c for c in calls if c.url.path.endswith("/login/access-token")]
+    assert len(logins) == 1, "the second sweep re-minted a token that had eight days left"
+
+
+async def test_spend_network_signs_in_again_when_the_password_changes(spend_network_settings):
+    """A rotated credential must not be served a token minted from the old one."""
+    calls: list[httpx.Request] = []
+    handler = transport(_spend_network_handler(calls))
+    await fetch(SpendNetworkConnector(spend_network_settings, transport=handler))
+    rotated = spend_network_settings.model_copy(update={"spend_network_password": "sn-password-rotated"})
+    await fetch(SpendNetworkConnector(rotated, transport=handler))
+
+    logins = [c for c in calls if c.url.path.endswith("/login/access-token")]
+    assert len(logins) == 2, "the cache key must cover the credential, not just the address"
+
+
+async def test_spend_network_drops_a_record_with_no_ocid(spend_network_settings):
+    """The OCDS id is the only field unique across forty upstream portals.
+
+    tender_id collides between them, so a record without an ocid cannot be
+    stored, deduplicated or looked up again - it is skipped, not invented.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    assert "Record with no OCDS id" not in [t.title for t in tenders]
+    assert all(t.source_notice_id.startswith("ocds-") for t in tenders)
+
+
+async def test_spend_network_normalizes_a_real_record(spend_network_settings):
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    german = next(t for t in tenders if t.source_notice_id == "ocds-0c46vo-0125-2605221")
+
+    assert german.title.startswith("2026-0563 Erneuerung")
+    assert german.buyer_country == "DE"
+    assert german.language == "de"
+    assert german.delivery_location == "Germany"
+    assert german.publication_date == datetime(2026, 9, 14)
+    assert german.deadline == datetime(2026, 10, 6)
+    assert german.status == "open"
+    assert german.procurement_stage == "tender"
+    assert german.source_url.startswith("https://www.dtvp.de/")
+    # Absent values arrive as 0.0, not null. Zero means "not stated".
+    assert german.estimated_value is None
+    # The upstream portal's own timezone label, kept beside the UTC value.
+    assert german.source_timezone == "UTC+02:00"
+
+
+async def test_spend_network_keeps_a_predicted_cpv_apart_from_a_published_one(spend_network_settings):
+    """`cpv_aug_data` is a model's guess and arrives on every record.
+
+    `cpv_codes` is what the buyer actually published and arrived on 20 of 97.
+    Filing both under "CPV" would let a prediction pass downstream as a
+    classification the buyer made.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    with_cpv = next(t for t in tenders if any(c["scheme"] == "CPV" for c in t.classification_codes))
+    schemes = {c["scheme"] for c in with_cpv.classification_codes}
+    assert "CPV" in schemes and "CPV-PREDICTED" in schemes
+    predicted = [c for c in with_cpv.classification_codes if c["scheme"] == "CPV-PREDICTED"]
+    assert all("confidence" in c for c in predicted)
+    published = [c for c in with_cpv.classification_codes if c["scheme"] == "CPV"]
+    assert all("confidence" not in c for c in published), "a published code has no confidence to state"
+
+
+def test_spend_network_falls_back_to_a_converted_value(spend_network_settings):
+    """48 of 97 records carried a currency and only 35 carried an amount.
+
+    Neither field implies the other, so when the native amount is missing the
+    connector takes Spend Network's own conversion and stores the currency it
+    actually took - never the native currency beside a converted number.
+
+    Asserted against ``_normalize`` rather than through ``fetch`` on purpose:
+    this record does not survive the term filter, and no record in a 2,027-notice
+    pool both survived it and lacked a title. Normalisation has to be right for
+    records the pipeline drops, because the term list is the one thing here that
+    is expected to change.
+    """
+    connector = SpendNetworkConnector(spend_network_settings)
+    raw = fixture_json("spend_network_day_older.json")["results"][0]
+    award = connector._normalize(raw)
+
+    # The record states AUD but carries no tender_amount, so GBP is what was used.
+    assert award.currency == "GBP"
+    assert award.estimated_value and award.estimated_value > 0
+    # 4 of 97 records carried no title; the ocid is a poor label but a true one.
+    assert award.title == award.source_notice_id
+    assert award.status == "closed"
+    assert award.procurement_stage == "award"
+
+
+async def test_spend_network_drops_that_same_award_from_the_pipeline(spend_network_settings):
+    """And it is dropped, which is the term list doing its job on a real record.
+
+    A fuel-supply award mentioning safety in its body is exactly the kind of
+    notice the old server-side search returned and this system has no use for.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    assert not any(t.procurement_stage == "award" for t in tenders)
+
+
+async def test_spend_network_never_stores_the_password_or_the_token(spend_network_settings):
+    """The credential is an account, so the failure mode is different.
+
+    A key can only leak through a URL the connector built; a password could leak
+    through anything that echoes the sign-in. Nothing that reaches the database
+    may contain either half of it.
+    """
+    calls: list[httpx.Request] = []
+    tenders = await fetch(
+        SpendNetworkConnector(spend_network_settings, transport=transport(_spend_network_handler(calls)))
+    )
+    assert tenders, "need a record to inspect"
+    for tender in tenders:
+        blob = tender.model_dump_json()
+        assert spend_network_settings.spend_network_password not in blob
+        assert spend_network_settings.spend_network_email not in blob
+        assert "sn-token-not-real" not in blob
+    # And the request that carries it is a POST body, not a query string.
+    login = next(c for c in calls if c.url.path.endswith("/login/access-token"))
+    assert spend_network_settings.spend_network_password not in str(login.url)
+
+
 # --- registry --------------------------------------------------------------
 
 
@@ -732,6 +1172,7 @@ def test_registry_exposes_every_required_source(settings):
         "pncp",
         "highergov",
         "oeffentlichevergabe",
+        "spend_network",
     }
     assert len(build_all(settings)) == len(SOURCE_NAMES)
     assert build_connector("ted", settings).display_name == "EU TED"

@@ -2440,3 +2440,235 @@ there is no vocabulary that changes that, because the notice genuinely says one
 thing once. A German one-line notice will therefore land in "possible fit" and not
 on a landing view floored at 70. Whether that floor is right is a separate
 decision from this one, and it has not been made.
+
+---
+
+## D38 — Spend Network is an eleventh source, and its search is quoted or it is not a search
+
+Ten connectors and one recurring gap: the system reaches a portal only when
+somebody writes a connector for it. Germany took a whole decision (D37) and one
+new module. France, Ireland, the Philippines, Canada's municipal platforms and
+US state and local had none at all.
+
+Spend Network's Open Opportunities API is an aggregator over roughly forty
+national portals, OCDS-shaped, one account. Measured over a single 31-day window
+using this repo's own keyword list, it returned notices from fifteen upstream
+portals across fourteen countries — German DTVP and oeffentlichevergabe, French
+BOAMP, achatpublic and marchesonline, Irish and Northern Irish eTenders,
+Canadian bidsandtenders, AusTender, PhilGEPS, US opengov. Every record carries
+an `ocid`, so the overlap with TED and Find a Tender deduplicates on content
+rather than accumulating.
+
+**The credential is an account, not a key.** There is nothing to mint: the
+connector posts the email and password to `/api/v3/login/access-token` and
+carries the bearer token it gets back, which lasts eight days and is cached for
+its lifetime. Both halves go through the dashboard's existing write-only
+credential path — the password on the source card's key box, the address as a
+settable secret, on exactly the reasoning `HIGHERGOV_SEARCH_ID` established: one
+without the other is not a credential, and splitting them across two storage
+mechanisms is how one ends up set alone.
+
+**The search is quoted or it is not a search.** `search_term__is` is genuinely
+server-side — `zzzzznonsensequery` returns 0 — but its default is OR-of-words.
+Measured 2026-09-15 over a fortnight: `safety data sheet` unquoted matched
+**4 770** notices (safety 1 648, data 2 688, sheet 946, minus overlap) and its
+top hit was an ID-printer consumables tender; word order was ignored, with
+`sheet data safety` returning the identical set. `"safety data sheet"` matched
+**23**. `OR` between quoted phrases is additive and verified by arithmetic:
+`"safety data sheet"` (188) OR `"chemical management"` (9) returned 196, with
+`AND` confirming the single overlap. That is what lets the entire
+`SEARCH_PHRASES` list ride in one request rather than one request per phrase.
+
+The API reports no error when the quotes are missing. It returns HTTP 200 and a
+feed — the same failure shape HigherGov has, arrived at from the opposite
+direction, and the reason `build_query` is a named function with a test that
+asserts every phrase leaves quoted.
+
+**Unknown parameters are accepted and ignored,** as they are on HigherGov. A
+made-up parameter changed nothing and answered 200. So only parameters that
+appear in the published OpenAPI document are sent, and none of them was trusted
+to have filtered without having been measured doing so.
+
+**The window is widened rather than obeyed.** The only date filter is
+`release_date` — when the *upstream portal* published — and there is no filter
+on when Spend Network ingested. All 97 records in the sampled month had
+`date_created` on the sweep day against release dates spread across it, so a
+sweep windowed strictly on release date would never see a late arrival at all.
+`SPEND_NETWORK_BACKFILL_DAYS` (30) widens the floor and the repeats deduplicate
+in ingest at the cost of one unchanged row each. Affordable only because the
+keyword filter is precise: 97 records for a month, 23 for a week.
+
+**Running out of requests is not an API error.** The account tier meters
+requests and exhaustion answers a bare nginx `403 Forbidden` HTML page — no
+`Retry-After`, no rate-limit headers, no JSON. Twenty-five requests in quick
+succession tripped it, and every request made while blocked *extended* the
+block: polling once every twenty seconds kept it closed for four minutes, while
+roughly ninety seconds of silence cleared it. So pages are paced
+(`SPEND_NETWORK_PAGE_PAUSE_SECONDS`), the page budget is small, and a 403 costs
+one wait and one retry and then stops, returning what the sweep already has and
+logging it as truncated. Retrying into it is the one thing that makes it worse.
+
+**A predicted classification is not a classification.** `cpv_aug_data` is a
+model's guess and arrives on every record with its own relevance score;
+`cpv_codes` is what the buyer published and arrived on 20 of 97. They are stored
+under `CPV-PREDICTED` and `CPV` respectively, so nothing downstream can read a
+prediction as something a buyer wrote.
+
+**What it is worth.** A first live sweep over a 33-day window stored 108
+notices: 3 in the good-fit band (≥70) and 9 more in the review band (50–69),
+led by "Provision of Environmental, Health and Safety (EHS) Management" at 78,
+"Electronic substance register" at 72 and "Chemical management system and
+exposure register" at 67. The remaining 86 are what the relevance engine is for.
+One caveat worth recording: `GHS` is in `SEARCH_PHRASES` as a bare three-letter
+token and accounted for 13 of the matches, most of them German school buildings
+(*Gemeinschaftsgrundschule*). That term is shared with TED and was left alone
+here rather than changed under another source's feet.
+
+---
+
+## D39 — A source can be opened, because a count you cannot check is a claim
+
+Three surfaces reported a per-source stored count — the dashboard health strip,
+the Sources settings page, and both through the same `SourceCard` — and not one
+of them could open it. The number was the fact on the card a reader was most
+likely to want to check, and checking it meant knowing that the filters side
+panel hides a source checklist several scrolls down. With eleven sources, "is
+this one earning its place" had become a question the screen that raises it
+could not answer.
+
+So the count is now a way in. `See its notices` on any source card filters the
+list to that source, from either surface, and a `SourceFocus` panel heads the
+results with what that source is, when it last ran, when it last succeeded, and
+what it has ever stored.
+
+**It opens the All-tenders lens, not the default view.** The default hides
+anything under 70 points, anything closed and anything marked not relevant —
+which is most of what somebody checking a suspect source came to look at. A
+source drill-down that answered "what did we get from this feed" with the
+high-scoring active subset would be answering a different question, and the
+source anybody opens this way is usually the one they suspect of returning
+nothing useful.
+
+**Two numbers, never one.** The panel states what the source has ever stored
+*and* how many of those the filters currently on screen admit, and says the
+second only when it differs. Collapsing them would make whichever survived read
+as the other — and they differ the moment any lens or score floor is applied.
+
+**No panel when two sources are selected.** The sentence it writes is about one
+source beside a list belonging to both, which is false about each of them. The
+chip row already names them.
+
+The count in the Sources page blurb is now derived from the list rather than
+written into the copy. It said "Eight" for as long as there were eight, and then
+for three releases after there were not.
+
+---
+
+## D40 — The feed is taken whole, and the filter comes home
+
+D38 had Spend Network ask the API to search for us: the repo's phrase list,
+quoted and ORed into `search_term__is`, one request per sweep. It worked, and it
+was cheap — 108 notices for a month. It was also the vendor deciding what we are
+allowed to see.
+
+That is now reversed. The whole feed is paged and `PREFILTER_TERMS` decides what
+is stored, exactly as the UK feeds, CanadaBuys, AusTender and PNCP already do.
+The filter is ours, in our code, widenable tomorrow without asking anyone.
+
+**What it costs, measured before committing to it.** The feed ran 735–6,239
+notices a day over 24 consecutive days, mean 3,995 — against 108 for a whole
+month through the old query. So roughly 40 requests for a mean day, 63 for the
+worst, where there used to be one.
+
+**The quota turned out to be a budget, not a rate.** Twenty-five requests
+tripped it flat out; twenty-five tripped it again spread over ninety-three
+seconds. The same count both times, so pacing buys nothing — which is the
+opposite of what D38 assumed when it paced requests "not [as] politeness". After
+a trip the account refuses everything for about five minutes (still blocked at
+150s, clear at 302s) and then refills to 35. Call it thirty requests per five
+minutes: a mean day of feed is about seven minutes, the worst about eleven, a
+three-day sweep window about twenty-five.
+
+**So a 403 stopped being a failure.** Under D38 it was exceptional and the
+connector answered it with one wait, one retry, then gave up. Paging a whole day
+trips it once or twice *by design*, and giving up would mean never finishing a
+single day. It is now waited out in silence — never polled, because every
+request made while blocked extends the block — and the interrupted page is
+retried at the *same offset*. A skipped page is a hole in the window that
+nothing downstream could ever detect, which is the worst available outcome.
+
+**The day became the chunk.** `offset` refuses anything past 9,900 and
+`result_count` saturates at 10,000, so no query can reach past ten thousand
+records however it is paged. No measured day came close (the busiest was 6,239),
+but a multi-day window would, and would lose the remainder silently. So the
+window is walked one day per query, newest first, so that a sweep cut short by
+its budget has covered the end anybody is waiting on.
+
+**The backfill could not survive as it was.** D38 widened the lookback thirty
+days because the only date filter is the *upstream portal's* publication date,
+and a notice released last month can be aggregated today. Paging the whole feed
+back thirty days would cost about four hours. So the widened window keeps the
+old trick and pays two requests for it: one keyword-filtered query, phrases
+still quoted, over the wider range. It catches only late arrivals matching the
+*phrase* list rather than the broader prefilter — a real gap, recorded here
+rather than papered over, and two requests for most of the value against
+fourteen hundred for all of it.
+
+**The prefilter matches the description, and the first two answers were both
+wrong.** The first cut copied `sam.py` and `highergov.py`, which prefilter on
+title and buyer because their descriptions are noise, with a comment asserting
+that `content` "turned the term list into a pass-through". That comment was
+written before anything was measured, and measuring it reversed the decision:
+against 108 stored notices, title-only kept 12 and **lost ten of the twelve
+scoring 50 or better**, because these buyers put a procurement reference in the
+title and the subject in the description.
+
+The second answer — description *and* `content` — was wrong too, and for a
+subtler reason. Those 108 records had arrived through the vendor's own full-text
+search *of content*, so they were selected for having their signal in the body.
+On that sample `content` looked worth two extra rows. Re-measured against a raw
+day of the feed, 1,919 notices with nothing pre-selected, it earned nothing at
+all::
+
+    title + buyer                17 kept (0.9%)
+    + description                78 kept (4.1%)
+    + content                    78 kept — not one extra row
+
+So `content` is out. `description` stays, and it is the expensive half: 78 rows
+a day against 17, about 1.5GB a year against 0.3GB. It stays on the asymmetry —
+sixty extra rows a day is cheap and a missed tender costs a bid — and because
+the only evidence about notices whose subject is not in their title is the
+biased sample, which says title-only loses most of them.
+
+Two lessons, both general. A prefilter field list is not portable between
+connectors. And a sample drawn through a filter cannot be used to evaluate that
+filter: the 108 records were the wrong ruler, and they were the only ruler to
+hand until a raw day was pulled deliberately.
+
+**And the general switch no longer reaches this source.**
+`APPLY_KEYWORD_PREFILTER=false` means "store the window rather than the topical
+part of it", which is a reasonable thing to want of a national feed. Of a global
+aggregator it means about 1.46 million notices a year at ~25KB each — roughly
+37GB — arriving because somebody flipped a setting whose name says nothing about
+Spend Network. The escape hatch is `SPEND_NETWORK_STORE_UNFILTERED`, which has
+to be asked for by name.
+
+**The clinching measurement.** The raw day carried exactly two notices scoring
+50 or better out of 1,919. One was a firewall purchase the relevance engine
+mis-scored at 52 on the word "incident", which no term list should catch and
+none did. The other was an ISO-14001 environmental-management consulting RFP in
+the Philippines, scoring 75 — and it contains **not one phrase from
+SEARCH_PHRASES**. The old server-side query would never have returned it. That
+is the change in one record: the vendor's search was not a filter on relevance,
+it was a filter on our vocabulary, and our vocabulary is narrower than our
+interest.
+
+**What was deliberately not done.** Storing the whole feed and letting relevance
+sort it was the other option, and the one the instruction most literally
+described. It was declined on measurement: 37GB a year, and the dashboard's
+Re-score button — 11.3ms a notice — would become a four-and-a-half-hour job
+against a year of it. Filtering at ingest keeps the same API coverage and the
+same control over the terms, at ~1–3% of the rows. The cost is that widening the
+term list later does not recover the past: what was not kept was never stored,
+only re-fetchable.
+
