@@ -46,6 +46,7 @@ export function SourcesPanel({
   lastSweepAt,
   busySource,
   onFetchSource,
+  onOpenSource,
 }: {
   sources: SourceStatus[];
   /** Per-source volume verdicts, so a silently-empty source is not painted green. */
@@ -56,6 +57,8 @@ export function SourcesPanel({
   /** Name of the source currently being fetched, so only its button is pending. */
   busySource: string | null;
   onFetchSource: (name: string) => void;
+  /** Filter the list below to one source. */
+  onOpenSource: (name: string) => void;
 }) {
   if (sources.length === 0) return null;
 
@@ -111,6 +114,7 @@ export function SourcesPanel({
               volume={volumes[source.name]}
               busySource={busySource}
               onFetch={onFetchSource}
+              onOpen={onOpenSource}
             />
           ))}
         </div>

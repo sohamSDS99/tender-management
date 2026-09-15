@@ -278,3 +278,51 @@ def test_highergov_key_without_a_search_id_stays_unavailable(db_session):
     reason = HigherGovConnector(resolved).unavailable_reason()
     assert reason is not None
     assert "SEARCH_ID" in reason.upper()
+
+
+def test_spend_network_password_and_email_can_both_be_stored(db_session):
+    """The credential here is an account, so both halves go through this door.
+
+    The password rides the source-card key box like every other credential; the
+    email rides the settable-secrets list, for the same reason
+    highergov_search_id does. Splitting them across a stored secret and a
+    deploy-time environment variable is how one ends up set without the other,
+    and a password with no address to use it on cannot sign in.
+    """
+    from app.connectors.spend_network import SpendNetworkConnector
+    from app.services.credentials import set_secret
+
+    assert set_credential(db_session, "spend_network", "sn-live-password-9876") is True
+    assert credential_hint(db_session, "spend_network") == "…9876"
+
+    assert set_secret(db_session, "spend_network_email", "tenders@example.invalid") is True
+
+    resolved = settings_with_stored_credentials(db_session, _settings())
+    assert resolved.spend_network_password == "sn-live-password-9876"
+    assert resolved.spend_network_email == "tenders@example.invalid"
+    assert SpendNetworkConnector(resolved).unavailable_reason() is None
+
+
+def test_spend_network_password_without_an_email_stays_unavailable(db_session):
+    from app.connectors.spend_network import SpendNetworkConnector
+
+    set_credential(db_session, "spend_network", "sn-live-password-9876")
+    resolved = settings_with_stored_credentials(db_session, _settings())
+    reason = SpendNetworkConnector(resolved).unavailable_reason()
+    assert reason is not None
+    assert "EMAIL" in reason.upper()
+
+
+def test_spend_network_password_is_redacted_from_anything_logged():
+    """It is a password, not a key, so it must never survive into an error message.
+
+    FetchRun.error_message reaches the dashboard through /api/fetch-runs, and a
+    connector stack trace is exactly the kind of text a credential ends up
+    inside.
+    """
+    from app.settings.config import redact
+
+    settings = _settings().model_copy(update={"spend_network_password": "sn-live-password-9876"})
+    leaked = "sign-in failed for sn-live-password-9876 at api.spendnetwork.cloud"
+    assert "sn-live-password-9876" not in redact(leaked, settings)
+    assert "***" in redact(leaked, settings)

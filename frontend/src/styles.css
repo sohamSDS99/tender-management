@@ -3791,3 +3791,94 @@ html[data-density='compact'] .score {
   font-size: 0.78rem;
   line-height: 1.45;
 }
+
+/* ============================================================
+   SOURCE FOCUS — one source, with its own notices below it
+   ============================================================
+   Built from the source-card vocabulary rather than a new one: the left border
+   carries the same health colour, and the state word sits in the same place, so
+   arriving here from a card is continuous rather than a second design. It is
+   wider and quieter than a card because it is a heading for the page, not a
+   tile in a grid of eleven. */
+.srcfocus {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 13px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-1);
+}
+.srcfocus.src--good {
+  border-left-color: var(--mark-good);
+}
+.srcfocus.src--critical {
+  border-left-color: var(--mark-critical);
+}
+.srcfocus.src--warning,
+.srcfocus.src--quiet {
+  border-left-color: var(--mark-warning);
+}
+.srcfocus.src--idle {
+  border-left-color: var(--line-strong);
+}
+/* Named explicitly, all of them: .srcfocus sets the `border-left` shorthand and
+   sits later in the file than the .src--* modifiers, so an unqualified one
+   loses to it on source order and the panel would show a grey edge whatever
+   the source was doing. */
+.srcfocus.src--sweeping {
+  border-left-color: var(--blue-ink);
+}
+.srcfocus__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.srcfocus__title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.srcfocus__title h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.srcfocus__meta {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.srcfocus__meta b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.srcfocus__notes {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+.srcfocus__empty {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 9px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--amber-ink);
+}
+.srcfocus__empty svg {
+  flex: none;
+  margin-top: 2px;
+}
+.srcfocus__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 11px;
+}

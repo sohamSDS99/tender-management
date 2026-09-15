@@ -26,6 +26,7 @@ export function SourceCard({
   volume,
   busySource,
   onFetch,
+  onOpen,
   onCredentialSaved,
   detailed = false,
 }: {
@@ -35,6 +36,8 @@ export function SourceCard({
   /** Name of the source currently fetching, so only its button is pending. */
   busySource: string | null;
   onFetch: (name: string) => void;
+  /** Show the notices this source brought. Absent where there is no list to show. */
+  onOpen?: (name: string) => void;
   /** Re-read /api/sources so a saved key's hint appears without a reload. */
   onCredentialSaved?: () => void;
   /** The settings page shows the notes and the last success; the strip does not. */
@@ -198,6 +201,26 @@ export function SourceCard({
         >
           {source.running || busySource === source.name ? 'Fetching…' : 'Fetch this source'}
         </button>
+        {/*
+          The stored count used to be a dead number. It is the one fact on this
+          card a reader is most likely to want to check, and checking it meant
+          knowing that the filters panel has a source list buried in it.
+        */}
+        {onOpen ? (
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={source.tender_count === 0}
+            onClick={() => onOpen(source.name)}
+            title={
+              source.tender_count === 0
+                ? `Nothing stored from ${source.display_name} yet`
+                : `Show the notices ${source.display_name} brought`
+            }
+          >
+            See its notices
+          </button>
+        ) : null}
         {detailed ? (
           <a className="src__home" href={source.homepage} target="_blank" rel="noreferrer noopener">
             Open {source.display_name}

@@ -1,0 +1,398 @@
+{
+ "offset": 2,
+ "limit": 2,
+ "result_count": 5,
+ "results": [
+  {
+   "award_currency_first": null,
+   "awards_usd_value": 0.0,
+   "buyer_address_country_name": "United Kingdom",
+   "tender_eur_value": 110771932.154,
+   "award_amount_sum": 0.0,
+   "buyer_name": "Northern Ireland Housing Executive",
+   "language": "en",
+   "source": "td_etenders_ni",
+   "release_tags": "tender",
+   "buyer_address_locality": null,
+   "contact": null,
+   "awards_gbp_value": 0.0,
+   "supplier_names": [],
+   "buyer_address_region": "Belfast",
+   "contracts_usd_value": 0.0,
+   "tender_currency": "GBP",
+   "source_data": {
+    "domain_name": "",
+    "source_domain": "etendersni.gov.uk",
+    "region_nickname": "",
+    "domain_region": "",
+    "source": "td_etenders_ni"
+   },
+   "dps_pred": false,
+   "contact_url": "www.nihe.gov.uk",
+   "has_lots": false,
+   "award_end_date_first": null,
+   "awards_eur_value": 0.0,
+   "award_duration_in_days_first": null,
+   "cpv_aug_data": [
+    {
+     "cpv_aug_names": "Repair and maintenance services of electrical and mechanical building installations",
+     "cpv_aug_codes": "50710000",
+     "relevance_score": 18.8172
+    },
+    {
+     "cpv_aug_names": "Electrical installation work",
+     "cpv_aug_codes": "45310000",
+     "relevance_score": 7.0138
+    },
+    {
+     "cpv_aug_names": "Roof works and other special trade construction works",
+     "cpv_aug_codes": "45260000",
+     "relevance_score": 6.9196
+    },
+    {
+     "cpv_aug_names": "Repair and maintenance services of central heating",
+     "cpv_aug_codes": "50720000",
+     "relevance_score": 5.7168
+    },
+    {
+     "cpv_aug_names": "Plumbing and sanitary works",
+     "cpv_aug_codes": "45330000",
+     "relevance_score": 5.3787
+    }
+   ],
+   "tender_usd_value": 121063530.827,
+   "release_date": "2026-09-11T12:55:00+00:00",
+   "tag_status": "open",
+   "tender_title": "P1218 - CONTRACT FOR RESPONSE MAINTENANCE AND IMPROVEMENT",
+   "naics": [
+    {
+     "naics_code": "811198",
+     "naics_title": "All Other Automotive Repair and Maintenance",
+     "naics_sector": "Other Services"
+    },
+    {
+     "naics_code": "561790",
+     "naics_title": "Other Services to Buildings and Dwellings",
+     "naics_sector": "Administrative/Support/Waste"
+    },
+    {
+     "naics_code": "237990",
+     "naics_title": "Other Heavy and Civil Engineering Construction",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238910",
+     "naics_title": "Site Preparation Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "236220",
+     "naics_title": "Commercial and Institutional Building Construction",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238160",
+     "naics_title": "Roofing Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238290",
+     "naics_title": "Other Building Equipment Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238210",
+     "naics_title": "Electrical Contractors and Other Wiring Installation Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238220",
+     "naics_title": "Plumbing, Heating, and Air-Conditioning Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238310",
+     "naics_title": "Drywall and Insulation Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238390",
+     "naics_title": "Other Building Finishing Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "236118",
+     "naics_title": "Residential Remodelers",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "541310",
+     "naics_title": "Architectural Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    },
+    {
+     "naics_code": "541350",
+     "naics_title": "Building Inspection Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    },
+    {
+     "naics_code": "541380",
+     "naics_title": "Testing Laboratories and Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    },
+    {
+     "naics_code": "562910",
+     "naics_title": "Remediation Services",
+     "naics_sector": "Administrative/Support/Waste"
+    },
+    {
+     "naics_code": "238350",
+     "naics_title": "Finish Carpentry Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238330",
+     "naics_title": "Flooring Contractors",
+     "naics_sector": "Construction"
+    },
+    {
+     "naics_code": "238320",
+     "naics_title": "Painting and Wall Covering Contractors",
+     "naics_sector": "Construction"
+    }
+   ],
+   "cpv_names": [],
+   "tender_url": "https://etendersni.gov.uk/epps/cft/prepareViewCfTWS.do?resourceId=6726390",
+   "closing_date": "2026-10-12T15:00:00+00:00",
+   "naics_codes": [
+    "811198",
+    "561790",
+    "237990",
+    "238910",
+    "236220",
+    "238160",
+    "238290",
+    "238210",
+    "238220",
+    "238310",
+    "238390",
+    "236118",
+    "541310",
+    "541350",
+    "541380",
+    "562910",
+    "238350",
+    "238330",
+    "238320"
+   ],
+   "date_updated": "2026-09-12T04:29:53.682124",
+   "cpv_aug_names": [
+    "Repair and maintenance services of electrical and mechanical building installations",
+    "Electrical installation work",
+    "Roof works and other special trade construction works",
+    "Repair and maintenance services of central heating",
+    "Plumbing and sanitary works"
+   ],
+   "cpv_aug_codes": [
+    "50710000",
+    "45310000",
+    "45260000",
+    "50720000",
+    "45330000"
+   ],
+   "tender_id": "6726390",
+   "cpv_codes": [
+    "50000000",
+    "50700000",
+    "45000000",
+    "45100000",
+    "45111100",
+    "45200000",
+    "45210000",
+    "45211310",
+    "45261900",
+    "45262660",
+    "45300000",
+    "45310000",
+    "45312100",
+    "45330000",
+    "45340000",
+    "45343000",
+    "45343100",
+    "45350000",
+    "45400000",
+    "45421151",
+    "45453000",
+    "45453100",
+    "71315000",
+    "71315400",
+    "71600000",
+    "90650000",
+    "71631000",
+    "45410000",
+    "45420000",
+    "45430000",
+    "45440000",
+    "45450000"
+   ],
+   "content": "P1218 - CONTRACT FOR RESPONSE MAINTENANCE AND IMPROVEMENT  The contracts associated with this competition will deliver responsive maintenance, emergency repairs, void property works, civil engineering, asbestos services, fire safety works, and associated inspections across the Housing Executive's properties within the relevant region. The successful Supplier(s) will provide a 24/7/365 responsive repairs service, undertake technical and compliance inspections, manage multi‑trade repair tasks, and support statutory landlord obligations. Works include working in occupied and unoccupied homes, communal areas, and Housing Executive owned land and buildings. The Supplier(s) must meet extensive requirements in health and safety, customer care, IT integration, appointments, reporting, social value, environmental sustainability, and performance management, and must collaborate with the Housing Ex",
+   "notice_id": null,
+   "contracts_eur_value": 0.0,
+   "buyer_address_street_address": "2 Adelaide Street",
+   "buyer_address_iso_alpha2": "GB",
+   "contracts_gbp_value": 0.0,
+   "tender_end_date": "2026-10-12T15:00:00+00:00",
+   "source_timezone": "UTC+00:00",
+   "supplier_ids": [],
+   "ocid": "ocds-0c46vo-0052-6726390",
+   "start_date": null,
+   "has_attachments": false,
+   "date_created": "2026-09-12T04:29:53.682124",
+   "award_start_date_first": null,
+   "tender_description": "The contracts associated with this competition will deliver responsive maintenance, emergency repairs, void property works, civil engineering, asbestos services, fire safety works, and associated inspections across the Housing Executive's properties within the relevant region. The successful Supplier(s) will provide a 24/7/365 responsive repairs service, undertake technical and compliance inspections, manage multi‑trade repair tasks, and support statutory landlord obligations. Works include working in occupied and unoccupied homes, communal areas, and Housing Executive owned land and buildings. The Supplier(s) must meet extensive requirements in health and safety, customer care, IT integration, appointments, reporting, social value, environmental sustainability, and performance management, and must collaborate with the Housing Executive. No minimum volume of work is guaranteed. The full ",
+   "award_descriptions": "",
+   "tender_gbp_value": 95931041.0,
+   "references_ocids": [
+    {
+     "ocds-0c46vo-0001-086393-2026_086393-2026": 0.919
+    },
+    {
+     "ocds-0c46vo-0001-073721-2026_073721-2026": 0.606
+    },
+    {
+     "ocds-0c46vo-0003-00553005-2026": 0.096
+    }
+   ],
+   "tender_amount": 95931041.0,
+   "award_titles": ""
+  },
+  {
+   "award_currency_first": null,
+   "awards_usd_value": 0.0,
+   "buyer_address_country_name": "Germany",
+   "tender_eur_value": 0.0,
+   "award_amount_sum": 0.0,
+   "buyer_name": "Stadt Forst (Lausitz), Die Bürgermeisterin, Fachbereich Bauverwaltung",
+   "language": "de",
+   "source": "td_dtvp_de",
+   "release_tags": "tender",
+   "buyer_address_locality": null,
+   "contact": "vergabestelle@forst-lausitz.de",
+   "awards_gbp_value": 0.0,
+   "supplier_names": [],
+   "buyer_address_region": null,
+   "contracts_usd_value": 0.0,
+   "tender_currency": null,
+   "source_data": {
+    "domain_name": "",
+    "source_domain": "dtvp.de",
+    "region_nickname": "",
+    "domain_region": "",
+    "source": "td_dtvp_de"
+   },
+   "dps_pred": false,
+   "contact_url": null,
+   "has_lots": false,
+   "award_end_date_first": null,
+   "awards_eur_value": 0.0,
+   "award_duration_in_days_first": null,
+   "cpv_aug_data": [
+    {
+     "cpv_aug_names": "Engineering design services",
+     "cpv_aug_codes": "71320000",
+     "relevance_score": 55.8963
+    },
+    {
+     "cpv_aug_names": "Architectural, engineering and planning services",
+     "cpv_aug_codes": "71240000",
+     "relevance_score": 20.5225
+    },
+    {
+     "cpv_aug_names": "Consultative engineering and construction services",
+     "cpv_aug_codes": "71310000",
+     "relevance_score": 9.8687
+    },
+    {
+     "cpv_aug_names": "Architectural design services",
+     "cpv_aug_codes": "71220000",
+     "relevance_score": 4.1245
+    },
+    {
+     "cpv_aug_names": "Engineering-related scientific and technical services",
+     "cpv_aug_codes": "71350000",
+     "relevance_score": 3.1857
+    }
+   ],
+   "tender_usd_value": 0.0,
+   "release_date": "2026-09-14T00:00:00+00:00",
+   "tag_status": "open",
+   "tender_title": "Record with no OCDS id",
+   "naics": [
+    {
+     "naics_code": "541330",
+     "naics_title": "Engineering Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    },
+    {
+     "naics_code": "541310",
+     "naics_title": "Architectural Services",
+     "naics_sector": "Professional/Scientific/Technical"
+    }
+   ],
+   "cpv_names": [],
+   "tender_url": "https://www.dtvp.de/Center/secured/company/projectForwarding.do?pid=2605203",
+   "closing_date": "2026-10-05T00:00:00+00:00",
+   "naics_codes": [
+    "541330",
+    "541310"
+   ],
+   "date_updated": "2026-09-15T02:10:15.053264",
+   "cpv_aug_names": [
+    "Engineering design services",
+    "Architectural, engineering and planning services",
+    "Consultative engineering and construction services",
+    "Architectural design services",
+    "Engineering-related scientific and technical services"
+   ],
+   "cpv_aug_codes": [
+    "71320000",
+    "71240000",
+    "71310000",
+    "71220000",
+    "71350000"
+   ],
+   "tender_id": "no-ocid-so-unusable",
+   "cpv_codes": [],
+   "content": "GH in Klein Bademeusel - Los 4 Tragwerksplanung  Art der Leistung\nTragwerksplanung\n\nUmfang der Leistung\nsiehe Anlage: 00_20260814_Stadt Forst_Aufgabenstellung_für_Planungsleistungen_Tragwerk   ",
+   "notice_id": null,
+   "contracts_eur_value": 0.0,
+   "buyer_address_street_address": "Lindenstraße 10-12",
+   "buyer_address_iso_alpha2": "DE",
+   "contracts_gbp_value": 0.0,
+   "tender_end_date": "2026-10-05T00:00:00+00:00",
+   "source_timezone": "UTC+02:00",
+   "supplier_ids": [],
+   "ocid": null,
+   "start_date": null,
+   "has_attachments": false,
+   "date_created": "2026-09-15T02:10:15.053264",
+   "award_start_date_first": null,
+   "tender_description": "Art der Leistung\nTragwerksplanung\n\nUmfang der Leistung\nsiehe Anlage: 00_20260814_Stadt Forst_Aufgabenstellung_für_Planungsleistungen_Tragwerk",
+   "award_descriptions": "",
+   "tender_gbp_value": 0.0,
+   "references_ocids": [
+    {
+     "ocds-0c46vo-0103-273785": 0.643
+    },
+    {
+     "ocds-0c46vo-0103-271310": 0.38099999999999995
+    },
+    {
+     "ocds-0c46vo-0103-273763": 0.7969999999999999
+    }
+   ],
+   "tender_amount": 0.0,
+   "award_titles": ""
+  }
+ ]
+}

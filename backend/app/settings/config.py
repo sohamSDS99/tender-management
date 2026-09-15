@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # --- credentials (never logged) ---
     sam_gov_api_key: str = ""
     highergov_api_key: str = ""
+    # Spend Network signs in with an account rather than a key: there is no API
+    # key to mint, so both halves are required and both are treated as secret.
+    # The email is not itself confidential, but it is half of a credential, and
+    # splitting the pair across a secret and a plain setting is how one ends up
+    # stored without the other.
+    spend_network_email: str = ""
+    spend_network_password: str = ""
 
     # --- per-source switches ---
     enable_ted: bool = True
@@ -66,6 +73,7 @@ class Settings(BaseSettings):
     enable_austender: bool = True
     enable_pncp: bool = True
     enable_highergov: bool = True
+    enable_spend_network: bool = True
     enable_oeffentlichevergabe: bool = True
 
     # --- source tuning ---
@@ -114,6 +122,27 @@ class Settings(BaseSettings):
     # someone saving a very broad one, not a tuning knob. A capped sweep is
     # reported as truncated rather than passing for full coverage.
     highergov_max_pages: int = 5
+    # Spend Network's only date filter is the upstream portal's publication
+    # date, not the date Spend Network ingested the notice - so a notice
+    # released last month and aggregated today falls outside a three-day sweep
+    # window entirely. There is no ingest-date filter to use instead, so the
+    # lookback is widened by this many days and the repeats are left to
+    # deduplicate in ingest. Affordable because the keyword search is precise:
+    # a whole month of it was 97 records, a week was 23.
+    spend_network_backfill_days: int = 30
+    # At 100 records a page that is 500 records a sweep, which is five times the
+    # busiest month measured. A guard against a broadened keyword list, not a
+    # tuning knob; a capped sweep is reported as truncated rather than passing
+    # for full coverage.
+    spend_network_max_pages: int = 5
+    # Seconds between paged requests. Not politeness: the throttle below counts
+    # requests, and a burst is what trips it. Zeroed in tests.
+    spend_network_page_pause_seconds: float = 2.0
+    # Running out of metered requests answers a bare HTML 403 with no
+    # Retry-After and no rate-limit headers, and every request made while
+    # blocked extends the block. This is the single wait before the single
+    # retry; ninety seconds of silence cleared it when measured.
+    spend_network_throttle_backoff_seconds: float = 90.0
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
@@ -355,6 +384,7 @@ SECRET_FIELDS = (
     "cron_secret",
     "sam_gov_api_key",
     "highergov_api_key",
+    "spend_network_password",
     "deepl_api_key",
     "database_url",
 )

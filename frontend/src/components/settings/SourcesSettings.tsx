@@ -8,6 +8,9 @@ import { SettingsPage, SettingsSection } from './SettingsPage';
 /**
  * Every connector, why it is or is not working, and how to re-run one.
  *
+ * The count in the blurb is derived, not written. It said "Eight" for as long
+ * as there were eight, and then for three releases after there were not.
+ *
  * The dashboard keeps its collapsed health strip — "where is this data coming
  * from" is a question a reader has on arrival, not one they go looking for
  * (D20). This page answers the other question: something is broken, what and
@@ -15,14 +18,15 @@ import { SettingsPage, SettingsSection } from './SettingsPage';
  * that the strip deliberately leaves out.
  *
  * The per-source fetch matters more than it looks. A single connector recovering
- * is the common case after a key or an outage is fixed, and re-running all eight
- * to test one costs thirteen minutes against eight public services.
+ * is the common case after a key or an outage is fixed, and re-running every one
+ * of them to test a single source costs thirteen minutes.
  */
 export function SourcesSettings({
   sources,
   volumes,
   busySource,
   onFetchSource,
+  onOpenSource,
   onChanged,
   onBack,
 }: {
@@ -31,6 +35,8 @@ export function SourcesSettings({
   volumes: SourceVolumes;
   busySource: string | null;
   onFetchSource: (name: string) => void;
+  /** Leave settings and show the notices this source brought. */
+  onOpenSource: (name: string) => void;
   /** Re-read /api/sources, so a saved key's hint appears without a reload. */
   onChanged: () => void;
   onBack: () => void;
@@ -44,7 +50,7 @@ export function SourcesSettings({
   return (
     <SettingsPage
       title="Sources"
-      blurb="Eight free public procurement feeds. One failing never fails a sweep — each gets its own run, so the rest still come through."
+      blurb={`${sources.length} procurement feeds, most of them free and public. One failing never fails a sweep — each gets its own run, so the rest still come through.`}
       onBack={onBack}
     >
       <SettingsSection title="At a glance">
@@ -96,6 +102,7 @@ export function SourcesSettings({
               source={source}
               busySource={busySource}
               onFetch={onFetchSource}
+              onOpen={onOpenSource}
               onCredentialSaved={onChanged}
               detailed
             />

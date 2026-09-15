@@ -417,6 +417,26 @@ the 50-point band. Precision is a property of the saved search, not of this code
 which is why the strong tier ("sds management", "ehs software") is what belongs
 in it. D36.
 
+**Spend Network ORs bare words, and quoting is the whole filter.**
+`search_term__is` *is* a real server-side search - `zzzzznonsensequery` returns 0
+- but unquoted it is OR-of-words, ignoring order. Measured over a fortnight:
+`safety data sheet` matched 4,770 notices and `"safety data sheet"` matched 23.
+`OR` between quoted phrases is additive (188 OR 9 = 196, with one overlap
+confirmed by `AND`), so the whole phrase list fits in one request. Drop the
+quotes and the API answers HTTP 200 with the feed - the same silent-success
+shape HigherGov has, from the other direction. `SpendNetworkConnector.build_query`
+is a named function for exactly this reason, and
+`test_spend_network_quotes_every_search_phrase` is the only thing that would
+notice. Unknown parameters are likewise accepted and ignored. D38.
+
+**Spend Network answers a bare HTML 403 when the account runs out of requests,
+and polling it extends the block.** No `Retry-After`, no rate-limit headers, no
+JSON - an nginx page from the front door. Twenty-five requests in quick
+succession tripped it; probing every 20s kept it closed for four minutes, while
+~90s of silence cleared it. The connector waits once, retries once, and then
+returns a short sweep logged as truncated. Never write a retry loop against this
+source. D38.
+
 **`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
 "not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
 minutes — every one guaranteed to fail, and against SAM each one spends a request from the same

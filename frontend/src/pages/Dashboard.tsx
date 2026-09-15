@@ -47,6 +47,7 @@ import { BucketNote, Notice } from '../components/Notice';
 import { Pager } from '../components/Pager';
 import { RunsTable } from '../components/RunsTable';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { SourceFocus, focusedSource } from '../components/SourceFocus';
 import { SourcesPanel } from '../components/SourcesPanel';
 import { SweepReport } from '../components/SweepReport';
 import { AccountSettings } from '../components/settings/AccountSettings';
@@ -342,6 +343,39 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
     [lensContext],
   );
 
+  /**
+   * Show everything one source has ever brought.
+   *
+   * Deliberately the "All tenders" lens and not the default view: the question
+   * being asked is "what did we get from this feed", and the default hides
+   * anything under 70 points, anything closed and anything marked not relevant.
+   * Answering it with a filtered subset would be answering a different
+   * question - and the one source anybody checks this way is usually the one
+   * they suspect of returning nothing useful, which is exactly the material the
+   * default would hide.
+   */
+  const openSource = useCallback(
+    (name: string) => {
+      const all = lensByKey('all');
+      setSettingsPage(null);
+      setSourcesOpen(false);
+      setSelectedId(null);
+      setFilters({
+        ...DEFAULT_FILTERS,
+        ...(all?.patch(lensContext) ?? {}),
+        sources: [name],
+        page: 1,
+      });
+    },
+    [lensContext],
+  );
+
+  /** The source being looked at on its own, if exactly one is selected. */
+  const focused = useMemo(
+    () => focusedSource(sources, filters.sources),
+    [filters.sources, sources],
+  );
+
   // Machine keys like "sds_management" have no business on screen, on a chip or
   // on a card badge.
   const categoryLabel = useCallback(
@@ -489,6 +523,7 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
         volumes={volumes}
         busySource={busySource}
         onFetchSource={(name) => void runAction('fetch', name)}
+        onOpenSource={openSource}
         onChanged={() => void loadMeta()}
         onBack={closeSettingsPage}
       />
@@ -519,6 +554,7 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
                 lastSweepAt={automation?.last_run?.started_at ?? null}
                 busySource={busySource}
                 onFetchSource={(name) => void runAction('fetch', name)}
+                onOpenSource={openSource}
               />
 
               <Toolbar
@@ -559,6 +595,20 @@ export function Dashboard({ auth, user }: { auth: Auth; user: User }) {
               />
 
               <main>
+                {/* Above the lens note, because when a single source is being
+                    looked at *that* is the heading of the page, and the lens
+                    note is a qualifier on it. */}
+                {focused ? (
+                  <SourceFocus
+                    source={focused}
+                    volume={volumes[focused.name]}
+                    shown={page?.total ?? 0}
+                    busySource={busySource}
+                    onFetch={(name) => void runAction('fetch', name)}
+                    onClear={() => onChange({ sources: [] })}
+                  />
+                ) : null}
+
                 {lensNote ? <BucketNote text={lensNote} /> : null}
 
                 <div className="results__head">

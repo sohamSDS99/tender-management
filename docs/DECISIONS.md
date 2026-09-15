@@ -2440,3 +2440,124 @@ there is no vocabulary that changes that, because the notice genuinely says one
 thing once. A German one-line notice will therefore land in "possible fit" and not
 on a landing view floored at 70. Whether that floor is right is a separate
 decision from this one, and it has not been made.
+
+---
+
+## D38 — Spend Network is an eleventh source, and its search is quoted or it is not a search
+
+Ten connectors and one recurring gap: the system reaches a portal only when
+somebody writes a connector for it. Germany took a whole decision (D37) and one
+new module. France, Ireland, the Philippines, Canada's municipal platforms and
+US state and local had none at all.
+
+Spend Network's Open Opportunities API is an aggregator over roughly forty
+national portals, OCDS-shaped, one account. Measured over a single 31-day window
+using this repo's own keyword list, it returned notices from fifteen upstream
+portals across fourteen countries — German DTVP and oeffentlichevergabe, French
+BOAMP, achatpublic and marchesonline, Irish and Northern Irish eTenders,
+Canadian bidsandtenders, AusTender, PhilGEPS, US opengov. Every record carries
+an `ocid`, so the overlap with TED and Find a Tender deduplicates on content
+rather than accumulating.
+
+**The credential is an account, not a key.** There is nothing to mint: the
+connector posts the email and password to `/api/v3/login/access-token` and
+carries the bearer token it gets back, which lasts eight days and is cached for
+its lifetime. Both halves go through the dashboard's existing write-only
+credential path — the password on the source card's key box, the address as a
+settable secret, on exactly the reasoning `HIGHERGOV_SEARCH_ID` established: one
+without the other is not a credential, and splitting them across two storage
+mechanisms is how one ends up set alone.
+
+**The search is quoted or it is not a search.** `search_term__is` is genuinely
+server-side — `zzzzznonsensequery` returns 0 — but its default is OR-of-words.
+Measured 2026-09-15 over a fortnight: `safety data sheet` unquoted matched
+**4 770** notices (safety 1 648, data 2 688, sheet 946, minus overlap) and its
+top hit was an ID-printer consumables tender; word order was ignored, with
+`sheet data safety` returning the identical set. `"safety data sheet"` matched
+**23**. `OR` between quoted phrases is additive and verified by arithmetic:
+`"safety data sheet"` (188) OR `"chemical management"` (9) returned 196, with
+`AND` confirming the single overlap. That is what lets the entire
+`SEARCH_PHRASES` list ride in one request rather than one request per phrase.
+
+The API reports no error when the quotes are missing. It returns HTTP 200 and a
+feed — the same failure shape HigherGov has, arrived at from the opposite
+direction, and the reason `build_query` is a named function with a test that
+asserts every phrase leaves quoted.
+
+**Unknown parameters are accepted and ignored,** as they are on HigherGov. A
+made-up parameter changed nothing and answered 200. So only parameters that
+appear in the published OpenAPI document are sent, and none of them was trusted
+to have filtered without having been measured doing so.
+
+**The window is widened rather than obeyed.** The only date filter is
+`release_date` — when the *upstream portal* published — and there is no filter
+on when Spend Network ingested. All 97 records in the sampled month had
+`date_created` on the sweep day against release dates spread across it, so a
+sweep windowed strictly on release date would never see a late arrival at all.
+`SPEND_NETWORK_BACKFILL_DAYS` (30) widens the floor and the repeats deduplicate
+in ingest at the cost of one unchanged row each. Affordable only because the
+keyword filter is precise: 97 records for a month, 23 for a week.
+
+**Running out of requests is not an API error.** The account tier meters
+requests and exhaustion answers a bare nginx `403 Forbidden` HTML page — no
+`Retry-After`, no rate-limit headers, no JSON. Twenty-five requests in quick
+succession tripped it, and every request made while blocked *extended* the
+block: polling once every twenty seconds kept it closed for four minutes, while
+roughly ninety seconds of silence cleared it. So pages are paced
+(`SPEND_NETWORK_PAGE_PAUSE_SECONDS`), the page budget is small, and a 403 costs
+one wait and one retry and then stops, returning what the sweep already has and
+logging it as truncated. Retrying into it is the one thing that makes it worse.
+
+**A predicted classification is not a classification.** `cpv_aug_data` is a
+model's guess and arrives on every record with its own relevance score;
+`cpv_codes` is what the buyer published and arrived on 20 of 97. They are stored
+under `CPV-PREDICTED` and `CPV` respectively, so nothing downstream can read a
+prediction as something a buyer wrote.
+
+**What it is worth.** A first live sweep over a 33-day window stored 108
+notices: 3 in the good-fit band (≥70) and 9 more in the review band (50–69),
+led by "Provision of Environmental, Health and Safety (EHS) Management" at 78,
+"Electronic substance register" at 72 and "Chemical management system and
+exposure register" at 67. The remaining 86 are what the relevance engine is for.
+One caveat worth recording: `GHS` is in `SEARCH_PHRASES` as a bare three-letter
+token and accounted for 13 of the matches, most of them German school buildings
+(*Gemeinschaftsgrundschule*). That term is shared with TED and was left alone
+here rather than changed under another source's feet.
+
+---
+
+## D39 — A source can be opened, because a count you cannot check is a claim
+
+Three surfaces reported a per-source stored count — the dashboard health strip,
+the Sources settings page, and both through the same `SourceCard` — and not one
+of them could open it. The number was the fact on the card a reader was most
+likely to want to check, and checking it meant knowing that the filters side
+panel hides a source checklist several scrolls down. With eleven sources, "is
+this one earning its place" had become a question the screen that raises it
+could not answer.
+
+So the count is now a way in. `See its notices` on any source card filters the
+list to that source, from either surface, and a `SourceFocus` panel heads the
+results with what that source is, when it last ran, when it last succeeded, and
+what it has ever stored.
+
+**It opens the All-tenders lens, not the default view.** The default hides
+anything under 70 points, anything closed and anything marked not relevant —
+which is most of what somebody checking a suspect source came to look at. A
+source drill-down that answered "what did we get from this feed" with the
+high-scoring active subset would be answering a different question, and the
+source anybody opens this way is usually the one they suspect of returning
+nothing useful.
+
+**Two numbers, never one.** The panel states what the source has ever stored
+*and* how many of those the filters currently on screen admit, and says the
+second only when it differs. Collapsing them would make whichever survived read
+as the other — and they differ the moment any lens or score floor is applied.
+
+**No panel when two sources are selected.** The sentence it writes is about one
+source beside a list belonging to both, which is false about each of them. The
+chip row already names them.
+
+The count in the Sources page blurb is now derived from the list rather than
+written into the copy. It said "Eight" for as long as there were eight, and then
+for three releases after there were not.

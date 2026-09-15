@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 CREDENTIAL_FIELDS: dict[str, str] = {
     "sam": "sam_gov_api_key",
     "highergov": "highergov_api_key",
+    # The password half. The email half is a settable setting below, for the
+    # same reason highergov_search_id is: it is not secret on its own, but it is
+    # useless without the other and storing one without the other is the failure
+    # worth designing against.
+    "spend_network": "spend_network_password",
 }
 
 #: ``Settings`` fields that may be set from the dashboard, under ``secret.{field}``.
@@ -64,6 +69,9 @@ SETTINGS_SECRETS: tuple[str, ...] = (
     # unfiltered firehose. Storing one without the other is the failure mode
     # worth designing against, so they go through the same door.
     "highergov_search_id",
+    # Spend Network signs in with an account, so the "key" an operator pastes on
+    # the source card is the password and this is the address it belongs to.
+    "spend_network_email",
 )
 
 #: Which of those are true secrets, so the hint masks them.

@@ -64,6 +64,42 @@ def highergov_settings(settings: Settings) -> Settings:
     )
 
 
+@pytest.fixture
+def spend_network_settings(settings: Settings) -> Settings:
+    """Spend Network signs in with an account, so it needs both halves.
+
+    ``page_size=2`` is what makes the pagination test reach a second page
+    against a three-record fixture, and the throttle wait is zeroed so the
+    give-up path can be asserted without the suite waiting ninety seconds.
+    """
+    return settings.model_copy(
+        update={
+            "spend_network_email": "tender-monitor@example.invalid",
+            "spend_network_password": "sn-password-not-real",
+            "page_size": 2,
+            "spend_network_max_pages": 4,
+            "spend_network_backfill_days": 30,
+            "spend_network_page_pause_seconds": 0.0,
+            "spend_network_throttle_backoff_seconds": 0.0,
+        }
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clear_spend_network_token_cache():
+    """The bearer token is cached for the life of the process, deliberately.
+
+    Which means one test's sign-in would satisfy the next test's, and the test
+    that asserts the connector signs in exactly once would pass even if it never
+    signed in at all.
+    """
+    from app.connectors.spend_network import _TOKEN_CACHE
+
+    _TOKEN_CACHE.clear()
+    yield
+    _TOKEN_CACHE.clear()
+
+
 @pytest.fixture(autouse=True)
 def _clear_derived_caches():
     """Both service caches are process-global; every test gets its own database.
