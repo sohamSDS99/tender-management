@@ -3,6 +3,35 @@ import type { SourceStatus } from '../types';
 import { api } from '../api/client';
 import { formatWhen, sourceHealth, type SourceHealth, type SourceVolume } from '../labels';
 
+/** "an API key", "a password". */
+function article(label: string): string {
+  return /^[aeiou]/i.test(label) ? 'an' : 'a';
+}
+
+/**
+ * What is stored, in the words of the source it belongs to.
+ *
+ * Nine sources take an API key and one signs in with an account, and the card
+ * used to call all of them a "key" — which is not a harmless imprecision. It is
+ * the difference between an operator pasting the right secret and going off to
+ * look for an API key that does not exist. (It was asked, unprompted, within a
+ * day of the source shipping.)
+ *
+ * A password's hint is masked entirely, so there are no trailing characters to
+ * show and "Password ····" would read as though four were being withheld.
+ */
+export function credentialHint(source: {
+  credential_label: string;
+  credential_configured: boolean;
+  credential_hint: string | null;
+}): string {
+  const label = source.credential_label;
+  const Label = label.charAt(0).toUpperCase() + label.slice(1);
+  if (!source.credential_configured) return `No ${label} set`;
+  const tail = (source.credential_hint ?? '').replace(/^…/, '');
+  return tail ? `${Label} ····${tail}` : `${Label} set`;
+}
+
 export const SOURCE_CARD_CLASS: Record<SourceHealth, string> = {
   good: ' src--good',
   warning: ' src--warning',
@@ -121,7 +150,9 @@ export function SourceCard({
               : 'No successful run yet'}
             {/* Only when one is actually missing. Saying "needs an API key"
                 beside a key that is set reads as the key not having worked. */}
-            {source.requires_api_key && !source.credential_configured ? ' · needs an API key' : ''}
+            {source.requires_api_key && !source.credential_configured
+              ? ` · needs ${article(source.credential_label)} ${source.credential_label}`
+              : ''}
             {!source.enabled ? ' · switched off in configuration' : ''}
           </p>
 
@@ -139,8 +170,8 @@ export function SourceCard({
                     className="input input--sm"
                     type="password"
                     autoComplete="off"
-                    placeholder="Paste the key"
-                    aria-label={`API key for ${source.display_name}`}
+                    placeholder={`Paste the ${source.credential_label}`}
+                    aria-label={`${source.credential_label} for ${source.display_name}`}
                     value={value}
                     onChange={(event) => setValue(event.target.value)}
                   />
@@ -166,13 +197,9 @@ export function SourceCard({
                 </>
               ) : (
                 <>
-                  <span className="src__keyhint">
-                    {source.credential_configured
-                      ? `Key ····${(source.credential_hint ?? '').replace(/^…/, '')}`
-                      : 'No key set'}
-                  </span>
+                  <span className="src__keyhint">{credentialHint(source)}</span>
                   <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}>
-                    {source.credential_configured ? 'Replace' : 'Add key'}
+                    {source.credential_configured ? 'Replace' : `Add ${source.credential_label}`}
                   </button>
                 </>
               )}

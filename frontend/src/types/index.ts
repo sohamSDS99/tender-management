@@ -121,6 +121,8 @@ export interface SourceStatus {
   homepage: string;
   enabled: boolean;
   requires_api_key: boolean;
+  /** What the credential is called on screen: "API key" for nine sources, "password" for the one that signs in. */
+  credential_label: string;
   /** Whether a key is stored. The value itself is never sent to the browser. */
   credential_configured: boolean;
   /** Last four characters, for confirming which key is set. */

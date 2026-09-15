@@ -392,3 +392,20 @@ def test_the_spend_network_email_is_shown_back_but_the_password_never_is(client)
     assert sources["spend_network"]["credential_configured"] is True
     assert sources["spend_network"]["credential_hint"] == "…", "a password hint shows nothing of it"
     assert "sn-password-not-real" not in client.get("/api/sources").text
+
+
+def test_a_source_says_what_its_credential_is_called(client) -> None:
+    """Nine sources take an API key; one signs in with an account.
+
+    Calling a password a "key" on screen is not a harmless imprecision - it sent
+    an operator looking for an API key that does not exist, within a day of the
+    source shipping. The word is the connector's to choose, so the browser never
+    has to guess it from the source name.
+    """
+    sources = {s["name"]: s for s in client.get("/api/sources").json()}
+    assert sources["spend_network"]["credential_label"] == "password"
+    assert sources["highergov"]["credential_label"] == "API key"
+    assert sources["sam"]["credential_label"] == "API key"
+    # Every source carries one, including the ones that need no credential at
+    # all, so the browser never has to handle a missing field.
+    assert all(s["credential_label"] for s in sources.values())

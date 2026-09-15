@@ -269,3 +269,47 @@ describe('opening a source from the dashboard', () => {
     expect(buttonSaying('See its notices')?.disabled).toBe(true);
   });
 });
+
+describe('what the credential is called', () => {
+  it('uses the word the source itself uses', async () => {
+    const { credentialHint } = await import('./SourceCard');
+    expect(
+      credentialHint({
+        credential_label: 'password',
+        credential_configured: false,
+        credential_hint: null,
+      }),
+    ).toBe('No password set');
+    expect(
+      credentialHint({
+        credential_label: 'API key',
+        credential_configured: false,
+        credential_hint: null,
+      }),
+    ).toBe('No API key set');
+  });
+
+  it('shows the last four of a key, because that says which key', async () => {
+    const { credentialHint } = await import('./SourceCard');
+    expect(
+      credentialHint({
+        credential_label: 'API key',
+        credential_configured: true,
+        credential_hint: '…1234',
+      }),
+    ).toBe('API key ····1234');
+  });
+
+  it('shows nothing of a password, and does not pretend to', async () => {
+    // A password's hint is masked entirely, so "Password ····" would read as
+    // though four characters were being withheld rather than none existing.
+    const { credentialHint } = await import('./SourceCard');
+    expect(
+      credentialHint({
+        credential_label: 'password',
+        credential_configured: true,
+        credential_hint: '…',
+      }),
+    ).toBe('Password set');
+  });
+});

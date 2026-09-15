@@ -107,6 +107,7 @@ def source_catalog(settings: Settings | None = None, db: Session | None = None) 
                 "homepage": connector.homepage,
                 "enabled": connector.enabled,
                 "requires_api_key": connector.requires_api_key,
+                "credential_label": connector.credential_label,
                 "unavailable_reason": connector.unavailable_reason(),
                 "keyword_prefiltered": connector.prefilter,
                 "notes": connector.notes,

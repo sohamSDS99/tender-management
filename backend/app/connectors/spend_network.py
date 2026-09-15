@@ -173,6 +173,7 @@ class SpendNetworkConnector(TenderConnector):
     display_name = "Spend Network (Open Opportunities)"
     homepage = "https://www.spendnetwork.com"
     requires_api_key = True
+    credential_label = "password"
     # The whole feed is paged and filtered here rather than searched server-side,
     # so this is the filter - not a second, coarser copy of one. Same mechanism
     # the UK feeds, CanadaBuys, AusTender and PNCP use.

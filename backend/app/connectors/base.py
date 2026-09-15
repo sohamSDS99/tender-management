@@ -250,6 +250,11 @@ class TenderConnector(ABC):
     display_name: str = ""
     homepage: str = ""
     requires_api_key: bool = False
+    #: What to call the credential on screen. Nine sources use an API key and
+    #: one signs in with an account, and calling a password a "key" is not a
+    #: harmless imprecision - it is the difference between an operator pasting
+    #: the right secret and going to look for one that does not exist.
+    credential_label: str = "API key"
     notes: str = ""
     # Sources with no server-side keyword search are prefiltered client-side so
     # we do not store an entire national tender feed. See keywords.PREFILTER_TERMS.

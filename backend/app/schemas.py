@@ -233,6 +233,8 @@ class SourceStatus(UtcModel):
     homepage: str
     enabled: bool
     requires_api_key: bool
+    #: What the credential is called on screen - "API key", "password".
+    credential_label: str = "API key"
     #: Whether a key is stored for this source. The value itself is never
     #: returned by any endpoint - see app/services/credentials.py.
     credential_configured: bool = False

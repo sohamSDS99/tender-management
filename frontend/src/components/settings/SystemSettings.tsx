@@ -192,12 +192,12 @@ export function SystemSettings({
       */}
       <SettingsSection
         title="Source credentials"
-        note="The other half of two sources. The secret half — the API key, the password — lives on the source's own card under Sources."
+        note="The other half of two sources. The secret half lives on the source's own card under Sources — HigherGov's is an API key, Spend Network's is the account password."
       >
         <SecretField
           field="spend_network_email"
           label="Spend Network account email"
-          hint="The address you sign in with at api.spendnetwork.cloud. The password goes on the Spend Network card under Sources; the source refuses to run until both are set."
+          hint="The address you sign in with at api.spendnetwork.cloud. The matching password goes in the box on the Spend Network card under Sources — that box takes the account password here, not an API key. The source refuses to run until both are set."
           placeholder="you@example.com"
           configured={at('spend_network_email').configured}
           current={at('spend_network_email').hint}
