@@ -274,7 +274,8 @@ async def test_normalises_the_documented_fields(ti_settings):
         {"scheme": "CPV", "code": "72260000", "description": "Software-related services"},
     ]
     assert sds.document_urls == ["https://tenderimpulse.com/documents/8156394/specification.pdf"]
-    assert sds.source_url == "https://qtenders.example.invalid/tender/QH-2026-0412"
+    # The notice copy, not `web`: live records leave `web` empty (D42).
+    assert sds.source_url == "https://tenderimpulse.com/documents/8156394/specification.pdf"
 
     lab = tenders["8156396"]
     assert lab.status == "closed"
@@ -430,3 +431,83 @@ async def test_a_store_that_fails_never_moves_the_bookmark(patched_session, ti_s
     run = patched_session.execute(select(FetchRun)).scalar_one()
     assert run.status == "failed"
     assert cursors.stored(patched_session, "tender_impulse") is None
+
+
+# --- the live evaluation sample (D42) -------------------------------------
+#
+# Synthetic records in the exact shape the issued credentials returned (the
+# real ones are paid vendor data, and this repo is public). Each place that
+# shape contradicts the documentation has a test below.
+
+
+def _live_feed(calls: list[httpx.Request]) -> httpx.MockTransport:
+    sample = fixture_json("tender_impulse_live_sample.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        last_id = int(request.url.params["lastid"])
+        tenders = sample["tenders"] if last_id < sample["fetchid"] else []
+        fetch_id = sample["fetchid"] if tenders else last_id
+        return httpx.Response(
+            200, json=envelope({"status": "success", "msg": "", "tenders": tenders, "fetchid": fetch_id})
+        )
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.fixture
+def live_settings(ti_settings: Settings) -> Settings:
+    return ti_settings.model_copy(update={"tender_impulse_start_id": "0"})
+
+
+async def test_a_starting_id_of_zero_is_a_starting_id(live_settings):
+    """The evaluation credential works from 0, and `0 or None` is None."""
+    connector = TenderImpulseConnector(live_settings, transport=_live_feed(calls := []))
+    assert connector.unavailable_reason() is None
+    tenders = await sweep(connector)
+    assert int(calls[0].url.params["lastid"]) == 0
+    assert len(tenders) == 9
+    assert connector.next_cursor == "100009"
+
+
+async def test_the_undocumented_description_field_is_the_description(live_settings):
+    tenders = {
+        t.source_notice_id: t
+        for t in await sweep(TenderImpulseConnector(live_settings, transport=_live_feed([])))
+    }
+    wa = tenders["100009"]
+    assert wa.description.startswith("Provision of a computerised chemical safety management system")
+    assert all(t.description for t in tenders.values()), "every live record carries `description`"
+
+
+async def test_na_is_an_empty_field_not_a_value(live_settings):
+    tenders = {
+        t.source_notice_id: t
+        for t in await sweep(TenderImpulseConnector(live_settings, transport=_live_feed([])))
+    }
+    wa = tenders["100009"]  # address, web, reference, location, other_information all "NA"
+    assert (wa.reference_number, wa.delivery_location) == (None, None)
+    assert "NA" not in (wa.description or "").split()
+    assert tenders["100005"].reference_number == "REF-100005-EXAMPLE"
+
+
+async def test_the_notice_link_is_the_tender_impulse_copy(live_settings):
+    """`web` is empty and `original_source` is a portal search page on every live record."""
+    tenders = await sweep(TenderImpulseConnector(live_settings, transport=_live_feed([])))
+    for tender in tenders:
+        assert tender.source_url and tender.source_url.startswith("https://tenderimpulse.com/upload/")
+        assert "search" not in tender.source_url
+
+
+async def test_a_planning_notice_is_a_planning_notice(live_settings):
+    tenders = {
+        t.source_notice_id: t
+        for t in await sweep(TenderImpulseConnector(live_settings, transport=_live_feed([])))
+    }
+    assert tenders["100003"].procurement_stage == "planning"  # contract_type "Planning"
+    assert tenders["100009"].procurement_stage == "tender"  # "Tender Notice"
+
+
+def test_the_default_url_is_the_one_the_issued_credentials_work_on():
+    """uat.php answers 401 "Invalid Token" to the token Tender Impulse issued."""
+    assert Settings(_env_file=None).tender_impulse_api_url.endswith("/tender/v2/live.php")

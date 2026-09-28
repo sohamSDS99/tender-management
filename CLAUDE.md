@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (41 records, D1–D41).
+`docs/DECISIONS.md` explains why it is built this way (42 records, D1–D42).
 
 ## What this is
 
@@ -27,7 +27,7 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 877 tests, all passing
+./.venv/bin/python -m pytest -q          # 883 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
@@ -483,6 +483,15 @@ failure whatever the HTTP status said. Its encryption key is the first
 reads every second half through `secret_hint`, not `stored_secret`. Switch that
 back and the key is sent to every browser that opens Settings.
 
+**Tender Impulse's live payload is not its documented one (D42).** The issued
+token works on `live.php` and is refused on the documented `uat.php`; the text
+is in an undocumented `description` field while the documented
+`other_information` is `"NA"`; `"NA"` fills every empty field; and the
+evaluation feed starts at `lastid=0` — test ids with `is None`, never
+truthiness. `tender_impulse_live_sample.json` mirrors the real payload's
+shape with invented text - never commit real records, they are paid vendor
+data and this repo is public.
+
 **`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
 "not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
 minutes — every one guaranteed to fail, and against SAM each one spends a request from the same
@@ -726,7 +735,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **877 passing, nothing skipped, nothing failing**. Treat any
+A green run is **883 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

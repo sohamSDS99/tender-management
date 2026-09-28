@@ -41,10 +41,11 @@ EVERY RESPONSE IS ENCRYPTED, AND THE CHECKSUM IS NOT OPTIONAL
 
 THE FEED IS TAKEN WHOLE, AND FILTERED HERE
     Tender Impulse advertises ~40,000 notices a day and offers no search, so
-    `keep()` applies this repo's PREFILTER_TERMS to title, buyer and
-    `other_information` (the only free-text field). The field list is a first
-    guess, not a measurement: D40's rule is to tune a prefilter on a raw day of
-    the feed, and no raw day existed when this was written. Records dropped
+    `keep()` applies this repo's PREFILTER_TERMS to title, buyer, `description`
+    and `other_information`. `description` is undocumented but is where live
+    records put their text (D42). The field list is still a first guess, not a
+    measurement: D40's rule is to tune a prefilter on a raw day of the feed, and
+    the only live data so far is a nine-record evaluation sample. Records dropped
     here are still behind the bookmark, so widening the terms later does not
     recover them.
 
@@ -72,12 +73,12 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from app.connectors.base import (
-    STAGE_TENDER,
     ConnectorError,
     NormalizedTender,
     TenderConnector,
     _redact,
     parse_datetime,
+    stage_from_code,
     status_from_deadline,
 )
 from app.connectors.keywords import looks_relevant
@@ -164,15 +165,23 @@ class TenderImpulseConnector(TenderConnector):
                 "TENDER_IMPULSE_ENCRYPTION_KEY is not set - paste it in the 'Encryption key' box "
                 "on this card. Every response is encrypted, so the token alone reads nothing."
             )
-        if not _as_id(self.settings.tender_impulse_cursor) and not _as_id(
-            self.settings.tender_impulse_start_id
-        ):
+        if self._resume_id() is None:
             return (
                 "TENDER_IMPULSE_START_ID is not set - Tender Impulse supplies the id to start "
                 "from with the credentials; paste it in the 'Starting id' box on this card. It is "
                 "only needed once: after the first stored batch the connector resumes on its own."
             )
         return None
+
+    def _resume_id(self) -> int | None:
+        """The bookmark if one is stored, else the starting id.
+
+        Compared with ``is None``, never truthiness: the evaluation feed
+        Tender Impulse issues starts at ``0``, and ``0 or None`` is None - which
+        refused the one starting id that credential actually works with.
+        """
+        cursor = _as_id(self.settings.tender_impulse_cursor)
+        return cursor if cursor is not None else _as_id(self.settings.tender_impulse_start_id)
 
     def keep(self, *texts: str | None) -> bool:
         """Not switchable by APPLY_KEYWORD_PREFILTER - see the module docstring."""
@@ -182,7 +191,7 @@ class TenderImpulseConnector(TenderConnector):
 
     async def fetch(self, date_from: datetime, date_to: datetime) -> list[NormalizedTender]:
         # The window is ignored on purpose: this API has no date parameter.
-        last_id = _as_id(self.settings.tender_impulse_cursor) or _as_id(self.settings.tender_impulse_start_id)
+        last_id = self._resume_id()
         if last_id is None:
             raise ConnectorError(self.source_name, "no bookmark and no TENDER_IMPULSE_START_ID to start from")
         state = _Sweep()
@@ -227,7 +236,10 @@ class TenderImpulseConnector(TenderConnector):
                     if not isinstance(raw, dict):
                         continue
                     if not self.keep(
-                        raw.get("title"), raw.get("authority_name"), raw.get("other_information")
+                        raw.get("title"),
+                        raw.get("authority_name"),
+                        raw.get("description"),
+                        raw.get("other_information"),
                     ):
                         continue
                     try:
@@ -311,15 +323,21 @@ class TenderImpulseConnector(TenderConnector):
         value, currency = _amount(raw.get("value_of_contract"))
         document = _url(raw.get("filepath"))
         notice_type = _text(raw.get("contract_type"))
+        # `description` is not in the documented field table but carries the
+        # text on every live record; `other_information` was "" or "NA" on all
+        # nine measured. Both are kept, the documented one second.
+        description = _join(_text(raw.get("description")), _text(raw.get("other_information")))
         return NormalizedTender(
             source=self.source_name,
             source_notice_id=str(tender_id),
-            # `web` is the authority's or the source portal's site - the nearest
-            # thing to an original notice this API carries.
-            source_url=_url(raw.get("web")),
+            # `filepath` is Tender Impulse's copy of the notice itself - what
+            # their own emails link as "Original Document". `web` was "" or "NA"
+            # on every live record, and `original_source` is the upstream
+            # portal's *search page*, not the notice, so neither is used.
+            source_url=document or _url(raw.get("web")),
             reference_number=_text(raw.get("reference")),
             title=_text(raw.get("title")) or f"Tender Impulse {tender_id}",
-            description=_text(raw.get("other_information")),
+            description=description,
             buyer_name=_text(raw.get("authority_name")),
             # A country name ("Australia"), not ISO-2 - stored as given, as
             # World Bank does, rather than guessed at.
@@ -328,7 +346,8 @@ class TenderImpulseConnector(TenderConnector):
             deadline=deadline,
             source_timezone=deadline_tz,
             status=status_from_deadline(deadline),
-            procurement_stage=STAGE_TENDER,
+            # "Tender Notice" on 8 of the 9 live records, "Planning" on one.
+            procurement_stage=stage_from_code(notice_type),
             notice_type=notice_type,
             estimated_value=value,
             currency=currency,
@@ -345,11 +364,28 @@ def _as_id(value: Any) -> int | None:
         return None
 
 
+#: What the feed writes in an empty field. Measured: "NA" in address, tel,
+#: fax, web, contact_name, location, reference and other_information on live
+#: records - stored as-is it would print "NA" as a buyer's reference number.
+_PLACEHOLDERS = frozenset({"na", "n/a", "-", "--", "null", "none"})
+
+
 def _text(value: Any) -> str | None:
     if value is None:
         return None
     text = " ".join(str(value).split())
+    if text.lower() in _PLACEHOLDERS:
+        return None
     return text or None
+
+
+def _join(*parts: str | None) -> str | None:
+    """Distinct non-empty parts, in order - `description` often equals the title."""
+    out: list[str] = []
+    for part in parts:
+        if part and part not in out:
+            out.append(part)
+    return "\n\n".join(out) or None
 
 
 def _url(value: Any) -> str | None:

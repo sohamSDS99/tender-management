@@ -169,12 +169,12 @@ class Settings(BaseSettings):
     # source that means ~1.46M notices a year at ~25KB each - roughly 37GB - and
     # the general switch's name says nothing about a global aggregator.
     spend_network_store_unfiltered: bool = False
-    # Tender Impulse pages by id, not by date, and every endpoint published so
-    # far is the vendor's UAT one. Production is a different URL, issued with
-    # production credentials; the docs say nothing else changes. Env-only on
-    # purpose - see D41: a settable URL is a way for anyone signed in to send
-    # the bearer token somewhere else.
-    tender_impulse_api_url: str = "https://tenderimpulse.com/web-api/tender/v2/uat.php"
+    # Tender Impulse pages by id, not by date. live.php, not the documented
+    # uat.php: the credentials Tender Impulse actually issued answer 401
+    # "Invalid Token" on uat.php (D42). Env-only on purpose - see D41: a
+    # settable URL is a way for anyone signed in to send the bearer token
+    # somewhere else.
+    tender_impulse_api_url: str = "https://tenderimpulse.com/web-api/tender/v2/live.php"
     # The `lastid` to start from when no bookmark is stored yet. Tender Impulse
     # supplies it with the credentials; once a sweep has stored a batch, the
     # bookmark in app_settings wins and this is never read again.
