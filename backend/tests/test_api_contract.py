@@ -17,6 +17,7 @@ import pytest
 from app.schemas import (
     AutomationStatus,
     FetchRunSchema,
+    SetupFieldStatus,
     SourceStatus,
     StatsResponse,
     TenderDetail,
@@ -31,6 +32,7 @@ PAIRS = [
     ("TenderDetail", TenderDetail),
     ("FetchRun", FetchRunSchema),
     ("SourceStatus", SourceStatus),
+    ("SetupField", SetupFieldStatus),
     ("Stats", StatsResponse),
     ("AutomationStatus", AutomationStatus),
 ]

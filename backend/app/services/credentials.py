@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.logging_config import log_ctx
 from app.models import AppSetting, Source, utcnow
+from app.services import cursors
 from app.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,8 @@ CREDENTIAL_FIELDS: dict[str, str] = {
     # useless without the other and storing one without the other is the failure
     # worth designing against.
     "spend_network": "spend_network_password",
+    # The token half. The encryption key is the other half, on the same card.
+    "tender_impulse": "tender_impulse_access_token",
 }
 
 #: ``Settings`` fields that may be set from the dashboard, under ``secret.{field}``.
@@ -72,10 +75,17 @@ SETTINGS_SECRETS: tuple[str, ...] = (
     # Spend Network signs in with an account, so the "key" an operator pastes on
     # the source card is the password and this is the address it belongs to.
     "spend_network_email",
+    # Tender Impulse's second half - and unlike the two above, a true secret,
+    # so it is also in OPAQUE_SECRETS and the card shows only its last four.
+    "tender_impulse_encryption_key",
+    # Not a secret: the id Tender Impulse says to start from, needed once.
+    "tender_impulse_start_id",
 )
 
 #: Which of those are true secrets, so the hint masks them.
-OPAQUE_SECRETS: frozenset[str] = frozenset({"slack_bot_token", "slack_webhook_url"})
+OPAQUE_SECRETS: frozenset[str] = frozenset(
+    {"slack_bot_token", "slack_webhook_url", "tender_impulse_encryption_key"}
+)
 
 
 def _key(source: str) -> str:
@@ -221,4 +231,9 @@ def settings_with_stored_credentials(db: Session, settings: Settings) -> Setting
         value = stored_secret(db, field)
         if value is not None:
             overlay[field] = value
+    # Not credentials, but the same rail for the same reason: every caller that
+    # asks a connector whether it can run builds it from this overlay (D41).
+    from app.connectors.registry import CONNECTOR_CLASSES
+
+    overlay.update(cursors.overlay(db, CONNECTOR_CLASSES))
     return settings.model_copy(update=overlay) if overlay else settings

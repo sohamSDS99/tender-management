@@ -228,10 +228,25 @@ export function SourceCard({
                 placeholder={source.credential_extra_placeholder}
                 configured={source.credential_extra_configured}
                 current={source.credential_extra_value}
+                secret={source.credential_extra_secret}
                 onSaved={() => onCredentialSaved?.()}
               />
             </div>
           ) : null}
+          {/* Anything else the source needs, on the same card for the same reason. */}
+          {(source.setup_fields ?? []).map((f) => (
+            <div className="src__extra" key={f.field}>
+              <SecretField
+                field={f.field}
+                label={f.label}
+                hint={f.hint}
+                placeholder={f.placeholder}
+                configured={f.configured}
+                current={f.value}
+                onSaved={() => onCredentialSaved?.()}
+              />
+            </div>
+          ))}
         </>
       ) : null}
 

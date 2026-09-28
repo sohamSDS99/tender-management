@@ -1,0 +1,88 @@
+{
+  "_note": "Shaped from the field table at https://tenderimpulse.com/api-documentation (no live record existed when this was written). Plaintext; the tests encrypt each batch the way the API does.",
+  "batches": [
+    {
+      "fetchid": 8156396,
+      "tenders": [
+        {
+          "tender_id": 8156394,
+          "title": "Safety Data Sheet Management Software and Chemical Inventory Platform",
+          "authority_name": "Queensland Health",
+          "address": "33 Charlotte Street, Brisbane QLD 4000",
+          "tel": "+61 7 0000 0000",
+          "fax": null,
+          "email": "procurement@example.invalid",
+          "web": "https://qtenders.example.invalid/tender/QH-2026-0412",
+          "contact_name": "Contracts Officer",
+          "contract_type": "Services",
+          "sectors": "Information Technology Tenders,Healthcare Tenders",
+          "cpv_codes": "48000000 : Software package and information systems,72260000 : Software-related services",
+          "country": "Australia",
+          "original_source": "QTenders",
+          "location": "Brisbane, Queensland",
+          "reference": "QH-2026-0412",
+          "contract_duration": "36 months",
+          "value_of_contract": "AUD 450,000",
+          "deadline": "2030-06-22",
+          "other_information": "Supply of an SDS library with authoring and chemical register functions for 14 hospitals.",
+          "filepath": "https://tenderimpulse.com/documents/8156394/specification.pdf",
+          "filename": "8156394/specification.pdf"
+        },
+        {
+          "tender_id": 8156395,
+          "title": "Road Resurfacing Works - Section 4",
+          "authority_name": "County Council",
+          "country": "Ireland",
+          "contract_type": "Works",
+          "cpv_codes": "45233142 : Road-repair works",
+          "value_of_contract": "Refer to tender document",
+          "deadline": "2030-07-01",
+          "other_information": "Asphalt overlay of 3.2 km.",
+          "filepath": "https://tenderimpulse.com/documents/8156395/boq.pdf",
+          "filename": "8156395/boq.pdf"
+        },
+        {
+          "tender_id": 8156396,
+          "title": "Provision of laboratory services",
+          "authority_name": "Ministry of Environment",
+          "country": "Kenya",
+          "contract_type": "Services",
+          "cpv_codes": "",
+          "value_of_contract": "",
+          "deadline": "2020-01-15",
+          "other_information": "Bidders must maintain a current chemical management system and supply an MSDS for every reagent.",
+          "filepath": "",
+          "filename": ""
+        }
+      ]
+    },
+    {
+      "fetchid": 8156398,
+      "tenders": [
+        {
+          "tender_id": 8156397,
+          "title": "Office furniture",
+          "authority_name": "Tax Administration",
+          "country": "Finland",
+          "contract_type": "Supply",
+          "deadline": "2030-03-01",
+          "other_information": null
+        },
+        {
+          "tender_id": 8156398,
+          "title": "EHS software for manufacturing sites",
+          "authority_name": "State Owned Enterprise",
+          "country": "India",
+          "contract_type": "Services",
+          "cpv_codes": "48000000",
+          "value_of_contract": "1250000 INR",
+          "deadline": "2030-02-10",
+          "other_information": "Incident reporting, permits and hazardous substance tracking.",
+          "web": "https://portal.example.invalid/notice?id=77&token=leaked-by-the-portal",
+          "filepath": "https://tenderimpulse.com/documents/8156398/rfp.pdf",
+          "filename": "8156398/rfp.pdf"
+        }
+      ]
+    }
+  ]
+}

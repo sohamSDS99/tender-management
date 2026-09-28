@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # stored without the other.
     spend_network_email: str = ""
     spend_network_password: str = ""
+    # Tender Impulse issues a pair, and both halves are secret: the access token
+    # authenticates every request and the encryption key decrypts every
+    # response (AES-128-CBC). Either one alone fetches nothing readable.
+    tender_impulse_access_token: str = ""
+    tender_impulse_encryption_key: str = ""
 
     # --- per-source switches ---
     enable_ted: bool = True
@@ -75,6 +80,7 @@ class Settings(BaseSettings):
     enable_highergov: bool = True
     enable_spend_network: bool = True
     enable_oeffentlichevergabe: bool = True
+    enable_tender_impulse: bool = True
 
     # --- source tuning ---
     # High-volume sources are queried with the keyword list below instead of
@@ -163,6 +169,33 @@ class Settings(BaseSettings):
     # source that means ~1.46M notices a year at ~25KB each - roughly 37GB - and
     # the general switch's name says nothing about a global aggregator.
     spend_network_store_unfiltered: bool = False
+    # Tender Impulse pages by id, not by date, and every endpoint published so
+    # far is the vendor's UAT one. Production is a different URL, issued with
+    # production credentials; the docs say nothing else changes. Env-only on
+    # purpose - see D41: a settable URL is a way for anyone signed in to send
+    # the bearer token somewhere else.
+    tender_impulse_api_url: str = "https://tenderimpulse.com/web-api/tender/v2/uat.php"
+    # The `lastid` to start from when no bookmark is stored yet. Tender Impulse
+    # supplies it with the credentials; once a sweep has stored a batch, the
+    # bookmark in app_settings wins and this is never read again.
+    tender_impulse_start_id: str = ""
+    # The bookmark: the last `fetchid` whose batch was stored. Not meant to be
+    # set by hand - services/cursors.py overlays it from app_settings, which
+    # ingest writes only after a batch is stored. It is a Settings field so the
+    # card, the sweep planner and the sweep all read the same value through
+    # the one overlay they already share.
+    tender_impulse_cursor: str = ""
+    # Every call returns one batch after the bookmark; a sweep keeps calling
+    # until a batch comes back empty. The feed is ~40,000 notices a day, so a
+    # backlog can be long - this bounds one sweep, and the next resumes from
+    # wherever this one stopped, because the bookmark moves only after a
+    # batch is stored.
+    tender_impulse_max_requests_per_sweep: int = 200
+    # The docs say to "wait a short while" between calls and publish no limit.
+    tender_impulse_page_pause_seconds: float = 1.0
+    # Same reasoning as spend_network_store_unfiltered: a global aggregator
+    # unfiltered is tens of thousands of notices a day.
+    tender_impulse_store_unfiltered: bool = False
     enable_canada_buys_open_feed: bool = True
     relevance_config_path: str = str(REPO_DIR / "config" / "relevance_profiles.yaml")
     run_migrations_on_startup: bool = True
@@ -405,6 +438,8 @@ SECRET_FIELDS = (
     "sam_gov_api_key",
     "highergov_api_key",
     "spend_network_password",
+    "tender_impulse_access_token",
+    "tender_impulse_encryption_key",
     "deepl_api_key",
     "database_url",
 )
