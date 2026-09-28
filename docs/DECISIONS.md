@@ -2750,3 +2750,48 @@ token. Unknown until a real batch arrives: the batch size, whether a publication
 date exists (none is documented — `publication_date` is left empty rather than
 invented), the real shape of `cpv_codes` and `value_of_contract`, and whether
 `web` is a notice link or only a homepage.
+
+## D42 — The real payload overrules the documentation in five places
+
+D41 was built from the documentation alone. On 2026-09-28 the evaluation
+credential Tender Impulse issued was run against the live service, and it
+returned nine sample records and then an empty batch. Five things
+contradicted the docs, and each would have failed silently:
+
+1. **The URL.** The docs show only `uat.php`. The issued token answers
+   **401 Invalid Token** there and works only on `live.php`, so the default is
+   now `live.php`. With the old default, pasting a correct token into the card
+   would have produced a card saying the token was wrong.
+2. **Starting id `0`.** The evaluation feed starts at 0. The availability check
+   tested the starting id for truthiness, and `not 0` is True, so the card
+   would have kept saying "TENDER_IMPULSE_START_ID is not set" with it set.
+   `_resume_id()` compares with `is None`.
+3. **`description` exists and is where the text is.** It is not in the
+   documented field table; `other_information` — the only documented free text,
+   and the one D41 stored — was `""` or `"NA"` on all nine. Every notice would
+   have been stored with no description, and the prefilter would have been
+   matching on title and buyer alone. Both fields are now read, `description`
+   first, and both feed the prefilter.
+4. **`"NA"` means empty.** Address, tel, fax, web, contact, location,
+   reference and other_information all carried a literal `"NA"`; stored as
+   given, a notice's reference number reads "NA". `_text` treats `NA`, `N/A`,
+   `-` and friends as absent.
+5. **The notice link is `filepath`.** `web` was empty or `"NA"` on all nine and
+   `original_source` is the upstream portal's *search page*. `filepath` is
+   Tender Impulse's copy of the notice — what their own emails link as
+   "Original Document" — so it is the source URL now. Also, `contract_type` is
+   `"Planning"` on one record, so the stage comes from `stage_from_code` rather
+   than being fixed at tender.
+
+The records themselves are **not** committed: they are a paid vendor's data
+and this repository is public. `tender_impulse_live_sample.json` is synthetic —
+the same field set, placeholders, links, string ids and one Planning record,
+with invented text — and each correction has a test that fails without it.
+Run through the relevance engine (locally, not stored anywhere) the real nine
+scored 30–71: one at 71 (manual review) and three more at 57–67.
+
+**What this credential is not.** It is an evaluation sample: nine fixed records
+and then nothing. It proves the whole path — auth, decryption, checksum,
+paging, normalisation, scoring — but it will not bring new tenders tomorrow.
+That takes the paid subscription, and D40's rule still stands for its first
+real day: re-measure the prefilter fields on it.
