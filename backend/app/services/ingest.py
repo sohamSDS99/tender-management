@@ -22,7 +22,7 @@ from app.connectors.registry import build_connector, enabled_sources
 from app.db import SessionLocal
 from app.logging_config import log_ctx
 from app.models import FetchRun, Tender, utcnow
-from app.services import feedback
+from app.services import cursors, feedback
 from app.services.credentials import settings_with_stored_credentials
 from app.services.matching_rules import engine_for
 from app.services.relevance import RelevanceEngine
@@ -272,6 +272,9 @@ async def _execute(
         else:
             tenders = await connector.fetch(date_from, date_to)
             stats = store_tenders(db, tenders, engine_for(db))
+            # An id-paged source's bookmark moves only now, after the batch is
+            # stored: moved first, a crash here would skip it for good (D41).
+            cursors.advance(db, connector)
             run.records_received = len(tenders)
             run.records_created = stats.created
             run.records_updated = stats.updated

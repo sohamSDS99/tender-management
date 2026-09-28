@@ -115,6 +115,16 @@ export interface TenderPage {
   pages: number;
 }
 
+/** One settable value a source card carries beyond its credential pair. Never a secret. */
+export interface SetupField {
+  field: string;
+  label: string;
+  hint: string;
+  placeholder: string;
+  configured: boolean;
+  value: string | null;
+}
+
 export interface SourceStatus {
   name: string;
   display_name: string;
@@ -129,8 +139,15 @@ export interface SourceStatus {
   credential_extra_hint: string;
   credential_extra_placeholder: string;
   credential_extra_configured: boolean;
-  /** Read back in full: an address and a saved search id are meant to be checked. */
+  /**
+   * Read back in full when it is an address or a saved search id, which are
+   * meant to be checked; only the last four when it is itself a secret.
+   */
   credential_extra_value: string | null;
+  /** True when that half is a secret: masked input, masked read-back. */
+  credential_extra_secret: boolean;
+  /** Further values set on this card - Tender Impulse's starting id. Empty for the rest. */
+  setup_fields: SetupField[];
   /** Whether a key is stored. The value itself is never sent to the browser. */
   credential_configured: boolean;
   /** Last four characters, for confirming which key is set. */

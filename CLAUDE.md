@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (36 records, D1–D36).
+`docs/DECISIONS.md` explains why it is built this way (41 records, D1–D41).
 
 ## What this is
 
@@ -27,14 +27,14 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 817 tests, all passing
+./.venv/bin/python -m pytest -q          # 877 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
 ./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
 
 # frontend
 cd frontend
 npm run lint                             # tsc --noEmit
-npx vitest run                           # 210 tests
+npx vitest run                           # 250 tests
 npm run format:check && npm run build
 
 # a full sweep by hand (safe to repeat; every write is idempotent)
@@ -465,6 +465,24 @@ which is reasonable. For a global aggregator it means ~1.46M notices a year at
 name says nothing about this source. The escape hatch is
 `SPEND_NETWORK_STORE_UNFILTERED`, deliberately named. D38.
 
+**Tender Impulse has no date window, and its bookmark is the whole of its
+coverage (D41).** A call returns the batch after a `lastid`; the window `fetch`
+is handed is ignored. The last stored `fetchid` lives in `app_settings`
+(`source.tender_impulse.cursor`) and **ingest moves it on the line after
+`store_tenders`** — never the connector, never before the store. Move it first
+and a crash skips that batch permanently: the vendor has no way to re-ask. It
+reaches the connector as the `tender_impulse_cursor` Settings field through
+`settings_with_stored_credentials`, because the card and the sweep planner
+judge availability through that overlay too.
+
+**Tender Impulse encrypts every response and reports errors inside a 200.**
+`{data, crc}`: AES-128-CBC, key UTF-8 padded with ASCII `"0"` to 16 bytes, MD5
+of the plaintext must equal `crc`. Then `status: "error"` in the plaintext is a
+failure whatever the HTTP status said. Its encryption key is the first
+*secret* second-half on a card — it is in `OPAQUE_SECRETS`, and `/api/sources`
+reads every second half through `secret_hint`, not `stored_secret`. Switch that
+back and the key is sent to every browser that opens Settings.
+
 **`base.py` clamps `Retry-After` to 120s (`MAX_RETRY_AFTER_SECONDS`).** When a server says
 "not before 00:00 UTC", roughly 15 hours out, the clamp turns that into four retries in six
 minutes — every one guaranteed to fail, and against SAM each one spends a request from the same
@@ -708,7 +726,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **817 passing, nothing skipped, nothing failing**. Treat any
+A green run is **877 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

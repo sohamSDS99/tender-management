@@ -227,6 +227,18 @@ class FetchResponse(UtcModel):
     batch_id: str | None = None
 
 
+class SetupFieldStatus(BaseModel):
+    """One settable value a source's card carries beyond its credential pair."""
+
+    field: str
+    label: str
+    hint: str = ""
+    placeholder: str = ""
+    configured: bool = False
+    #: Read back in full: nothing here is a secret (secrets are the pair's job).
+    value: str | None = None
+
+
 class SourceStatus(UtcModel):
     name: str
     display_name: str
@@ -241,10 +253,14 @@ class SourceStatus(UtcModel):
     credential_extra_label: str = ""
     credential_extra_hint: str = ""
     credential_extra_placeholder: str = ""
-    #: Whether that half is stored, and what is in force. Not a secret - an
-    #: address and a search id are both meant to be read back.
+    #: Whether that half is stored, and what is in force. An address and a
+    #: search id are read back in full; a half that is itself a secret (Tender
+    #: Impulse's encryption key) comes back as its last four only, and
+    #: credential_extra_secret tells the card to treat it as one.
     credential_extra_configured: bool = False
     credential_extra_value: str | None = None
+    credential_extra_secret: bool = False
+    setup_fields: list[SetupFieldStatus] = Field(default_factory=list)
     #: Whether a key is stored for this source. The value itself is never
     #: returned by any endpoint - see app/services/credentials.py.
     credential_configured: bool = False

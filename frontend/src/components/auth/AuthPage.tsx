@@ -90,7 +90,7 @@ export function AuthPage({ auth }: { auth: Auth }) {
           <dl className="gate__specimen">
             <div>
               <dt>Sources</dt>
-              <dd>8 public feeds, no paid API</dd>
+              <dd>Public feeds and paid aggregators</dd>
             </div>
             <div>
               <dt>Scoring</dt>

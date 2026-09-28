@@ -17,6 +17,7 @@ from app.connectors.pncp import PncpConnector
 from app.connectors.sam import SamGovConnector
 from app.connectors.spend_network import SpendNetworkConnector
 from app.connectors.ted import TedConnector
+from app.connectors.tender_impulse import TenderImpulseConnector
 from app.connectors.world_bank import WorldBankConnector
 from app.models import Source
 from app.settings import Settings, get_settings
@@ -33,6 +34,7 @@ CONNECTOR_CLASSES: tuple[type[TenderConnector], ...] = (
     HigherGovConnector,
     OeffentlicheVergabeConnector,
     SpendNetworkConnector,
+    TenderImpulseConnector,
 )
 
 SOURCE_NAMES: tuple[str, ...] = tuple(c.source_name for c in CONNECTOR_CLASSES)
@@ -112,6 +114,10 @@ def source_catalog(settings: Settings | None = None, db: Session | None = None) 
                 "credential_extra_label": connector.credential_extra_label,
                 "credential_extra_hint": connector.credential_extra_hint,
                 "credential_extra_placeholder": connector.credential_extra_placeholder,
+                # Further settable values that belong on this source's card -
+                # Tender Impulse's starting id. Declared by the connector, not
+                # the base class, so the nine that have none are untouched.
+                "setup_fields": [dict(f) for f in getattr(connector, "setup_fields", ())],
                 "unavailable_reason": connector.unavailable_reason(),
                 "keyword_prefiltered": connector.prefilter,
                 "notes": connector.notes,

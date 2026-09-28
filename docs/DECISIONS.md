@@ -2672,3 +2672,81 @@ same control over the terms, at ~1–3% of the rows. The cost is that widening t
 term list later does not recover the past: what was not kept was never stored,
 only re-fetchable.
 
+
+## D41 — Tender Impulse is a twelfth source, and the first one with no date window
+
+Tender Impulse (https://tenderimpulse.com/api-documentation) is a paid global
+aggregator advertising ~40,000 notices a day. It joins the registry as
+`tender_impulse`, and it breaks two assumptions every other connector shares.
+
+**There is no date window.** A call takes a `lastid` and returns the next batch
+after it, with a `fetchid` — the last id in that batch — to send next time. An
+empty batch means caught up. So `fetch(date_from, date_to)` ignores its window,
+and coverage is a **bookmark**: the last `fetchid` whose batch this system has
+stored. A dashboard sweep "30 days back" and the scheduled 72-hour sweep do the
+same thing here — read forward from the bookmark.
+
+**The bookmark moves only after the batch is stored, and ingest moves it — not
+the connector.** The vendor's docs are explicit that storing the `fetchid`
+first and then failing skips those records permanently, with no way to ask for
+them again. The connector reports `next_cursor`; `ingest._execute` calls
+`cursors.advance` on the line after `store_tenders` returns. That is one
+additive line in `ingest.py`, and `test_a_store_that_fails_never_moves_the_bookmark`
+is the vendor's warning as a test (moving the call above the store turns it red).
+A failure *after* some batches keeps what was read and stops the bookmark at the
+last complete batch, so the next sweep retries the one that failed; a failure on
+the first request is a failed run. A `fetchid` that does not advance stops the
+sweep rather than looping.
+
+**The bookmark is a Settings field, overlaid like a credential.** The card, the
+sweep planner and the sweep all decide availability by building a connector from
+`settings_with_stored_credentials`; if the bookmark were injected only inside the
+sweep, the card would report the source unconfigured the moment the starting id
+was cleared, while the sweep ran fine. So `tender_impulse_cursor` rides the same
+overlay (`services/cursors.overlay`), read from `app_settings` under
+`source.tender_impulse.cursor`.
+
+**Every response is encrypted.** `{data: "<b64 ct>:<b64 iv>", crc: "<md5>"}` —
+AES-128-CBC under the encryption key (UTF-8, padded with ASCII "0" or truncated
+to 16 bytes, as all four reference clients do), PKCS#7, then the MD5 of the
+plaintext must equal `crc` or the batch is discarded. An error is reported
+*inside* a 200 (`status: "error"`), the same shape of trap as Slack and MyMemory.
+This adds `cryptography` to the backend's requirements; it ships wheels for every
+platform the image is built on.
+
+**Three things are issued, and all three go on the card (D39).** The access
+token rides the card's key box; the encryption key is the second half; the
+starting id — needed once, until the first batch is stored — is a new
+`setup_fields` slot on the card, declared by the connector rather than the base
+class so the other eleven are untouched. The encryption key is the first second
+half that is itself a secret: the email and saved-search id before it are read
+back in full on purpose. So it is in `OPAQUE_SECRETS`, `/api/sources` returns
+it through `secret_hint` (last four) instead of `stored_secret` (all of it), and
+`credential_extra_secret` tells the card to mask the input.
+
+**The API URL is environment-only.** Every documented endpoint is UAT;
+production is a different URL issued with production credentials. It could have
+been a settable value like the rest, but a URL anyone signed in can change is a
+way to send the bearer token to a server of their choosing.
+
+**Filtered here, on an unmeasured field list.** Like Spend Network (D38, D40),
+the feed is taken whole and `keep()` applies `PREFILTER_TERMS` to title, buyer
+and `other_information` — the only free-text field. D40 says a field list must
+be tuned against a raw day of the feed; none existed when this was written, so
+this is a first guess to re-measure on the first real day, not a finding. The
+general `APPLY_KEYWORD_PREFILTER` does not reach it; `TENDER_IMPULSE_STORE_UNFILTERED`
+does.
+
+**What was not done.** The reference client downloads every tender's document to
+local disk; at 40,000 a day that is a disk, not a feature, so the `filepath` URL
+is kept as a link. The Contract Award and Tender News APIs share the same
+mechanism and were left out: this product surfaces opportunities to bid on.
+
+**Unverified until credentials exist.** Built and tested against fixtures
+encrypted the way the docs describe, including a fixed AES vector independent of
+the test's own encrypt helper. The live endpoint answers `401 Invalid Token`
+(text/html) without a token, which the connector turns into a message naming the
+token. Unknown until a real batch arrives: the batch size, whether a publication
+date exists (none is documented — `publication_date` is left empty rather than
+invented), the real shape of `cpv_codes` and `value_of_contract`, and whether
+`web` is a notice link or only a homepage.

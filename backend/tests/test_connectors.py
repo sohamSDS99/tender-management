@@ -8,7 +8,7 @@ v2 response schema).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -763,7 +763,10 @@ def _spend_network_handler(calls: list[httpx.Request], refuse: list[tuple[str, i
                 json={
                     "access_token": "sn-token-not-real",
                     "token_type": "bearer",
-                    "expiration_date": "2026-09-23T04:33:25.900350+00:00",
+                    # Dated from the wall clock, because the cache compares it
+                    # to the wall clock: the literal "2026-09-23" this used to
+                    # be expired on that day and turned the reuse test red.
+                    "expiration_date": (datetime.now(UTC) + timedelta(days=8)).isoformat(),
                 },
             )
         day = request.url.params.get("release_date__gte")
@@ -1173,6 +1176,7 @@ def test_registry_exposes_every_required_source(settings):
         "highergov",
         "oeffentlichevergabe",
         "spend_network",
+        "tender_impulse",
     }
     assert len(build_all(settings)) == len(SOURCE_NAMES)
     assert build_connector("ted", settings).display_name == "EU TED"

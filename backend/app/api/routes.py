@@ -29,6 +29,7 @@ from app.schemas import (
     RescoreResponse,
     ScheduleResponse,
     ScheduleUpdate,
+    SetupFieldStatus,
     SortOption,
     SourceRequest,
     SourceStatus,
@@ -43,6 +44,7 @@ from app.security import has_cron_secret
 from app.services import automation, feedback, ingest, operator, schedule_settings, scheduler, translator
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
+    OPAQUE_SECRETS,
     SETTINGS_SECRETS,
     credential_hint,
     secret_hint,
@@ -242,22 +244,33 @@ def list_sources(
             .order_by(FetchRun.finished_at.desc())
             .limit(1)
         ).scalar_one_or_none()
+        setup_fields = [
+            SetupFieldStatus(
+                **f,
+                configured=stored_secret(db, f["field"]) is not None,
+                value=stored_secret(db, f["field"]),
+            )
+            for f in entry.pop("setup_fields", [])  # type: ignore[attr-defined]
+        ]
         out.append(
             SourceStatus(
                 **entry,
+                setup_fields=setup_fields,
                 credential_configured=stored_credential(db, name) is not None,
                 credential_hint=credential_hint(db, name),
-                # The other half, read back in full: an address and a saved
-                # search id are both meant to be checked, not masked.
+                # The other half. An address and a saved search id are read
+                # back in full to be checked; secret_hint masks the one that is
+                # itself a secret, so an encryption key never reaches a browser.
                 credential_extra_configured=bool(
                     entry["credential_extra_field"]
                     and stored_secret(db, str(entry["credential_extra_field"]))
                 ),
                 credential_extra_value=(
-                    stored_secret(db, str(entry["credential_extra_field"]))
+                    secret_hint(db, str(entry["credential_extra_field"]))
                     if entry["credential_extra_field"]
                     else None
                 ),
+                credential_extra_secret=entry["credential_extra_field"] in OPAQUE_SECRETS,
                 tender_count=counts.get(name, 0),
                 running=name in running,
                 last_status=last_run.status if last_run else None,

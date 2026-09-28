@@ -15,3 +15,6 @@ psycopg[binary]==3.2.3
 # native build step, and the model file ships in the wheel - which matters on a
 # platform where the image is rebuilt on every deploy. See D33 amended.
 py3langid==0.3.0
+# AES-128-CBC for Tender Impulse, whose every response is encrypted (D41).
+# Prebuilt wheels on every platform the image is built for; no compiler needed.
+cryptography==50.0.1
