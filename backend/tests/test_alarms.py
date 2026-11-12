@@ -60,3 +60,34 @@ def test_alarm_settings_parse(settings):
     assert settings.alarm_cc_list == ["abir@sdsmanager.com", "soham@sdsmanager.com", "shafiq@sdsmanager.com"]
     assert settings.alarm_workday_numbers == {0, 1, 2, 3, 4}
     assert settings.alarm_work_window == (10, 18)
+
+
+# --- the alarms table --------------------------------------------------------
+
+
+def _alarm(check_key="sweep_missed", subject="", **kw):
+    from app.models import Alarm
+
+    return Alarm(check_key=check_key, subject=subject, title="t", detail="", **kw)
+
+
+def test_only_one_open_alarm_per_problem(db_session):
+    from sqlalchemy.exc import IntegrityError
+
+    db_session.add(_alarm())
+    db_session.commit()
+    db_session.add(_alarm())
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_a_closed_alarm_does_not_block_the_next_one_and_subjects_are_separate(db_session):
+    from app.models import Alarm, utcnow
+
+    db_session.add(_alarm(resolved_at=utcnow()))
+    db_session.add(_alarm())  # same problem, but the first is closed
+    db_session.add(_alarm("source_failing", "pncp"))
+    db_session.add(_alarm("source_failing", "ted"))
+    db_session.commit()
+    assert db_session.query(Alarm).count() == 4

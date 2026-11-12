@@ -1,3 +1,4 @@
+from app.models.alarm import Alarm
 from app.models.app_setting import (
     KEY_JOIN_TOKEN,
     KEY_LAST_RESCORE_AT,
@@ -18,6 +19,7 @@ from app.models.translation import TenderTranslation
 from app.models.user import ROLE_ADMIN, ROLE_MEMBER, ROLES, Invite, User, UserSession
 
 __all__ = [
+    "Alarm",
     "Tender",
     "FetchRun",
     "SlackNotification",
