@@ -619,3 +619,44 @@ def test_a_mailer_that_raises_leaves_the_alarm_unsent_for_the_next_tick(db_sessi
     alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
     [alarm] = open_alarms(db_session)
     assert alarm.emailed_at is None
+
+
+# --- GET /api/alarms -----------------------------------------------------------
+
+
+def test_the_alarms_endpoint_is_behind_sign_in(anon_client):
+    assert anon_client.get("/api/alarms").status_code == 401
+
+
+def test_the_alarms_endpoint_reports_open_recent_and_the_fix_rate(client, db_session):
+    from app.models import Alarm, utcnow
+
+    now = utcnow()
+
+    def add(key, opened, resolved=None, subject=""):
+        db_session.add(
+            Alarm(
+                check_key=key, subject=subject, title=key, detail="d", opened_at=opened, resolved_at=resolved
+            )
+        )
+
+    add("sweep_missed", now - timedelta(hours=1))  # open
+    add("no_data", now - timedelta(days=3), now - timedelta(days=3) + timedelta(minutes=30))  # quick fix
+    add("source_failing", now - timedelta(days=20), now - timedelta(days=10), "pncp")  # 10 days: too slow
+    add("sweeps_paused", now - timedelta(days=60), now - timedelta(days=45))  # outside the 30 days
+    db_session.commit()
+
+    body = client.get("/api/alarms").json()
+    assert [a["check_key"] for a in body["open"]] == ["sweep_missed"]
+    assert body["open"][0]["opened_at"].endswith("Z")
+    assert [a["check_key"] for a in body["recent"]] == ["no_data", "source_failing", "sweeps_paused"]
+    assert body["last_30_days"] == {"closed": 2, "fixed_within_one_working_day": 1, "percent": 50.0}
+
+
+def test_no_closed_alarms_is_no_rate_rather_than_a_perfect_one(client):
+    body = client.get("/api/alarms").json()
+    assert body == {
+        "open": [],
+        "recent": [],
+        "last_30_days": {"closed": 0, "fixed_within_one_working_day": 0, "percent": None},
+    }

@@ -633,6 +633,43 @@ def record_crash(exc: BaseException, session_factory: Callable[[], Session], set
             log_ctx(logger, logging.ERROR, "could not send the crash alarm", error=type(mail_exc).__name__)
 
 
+# --- reading them back ---------------------------------------------------------
+
+RECENT_LIMIT = 20
+
+
+def overview(db: Session, settings: Settings, now: datetime | None = None) -> dict[str, object]:
+    """Open alarms, the most recently closed, and the 30-day fix rate."""
+    now = now or utcnow()
+    open_rows = db.execute(
+        select(Alarm).where(Alarm.resolved_at.is_(None)).order_by(Alarm.opened_at.desc())
+    ).scalars()
+    recent = db.execute(
+        select(Alarm)
+        .where(Alarm.resolved_at.is_not(None))
+        .order_by(Alarm.resolved_at.desc())
+        .limit(RECENT_LIMIT)
+    ).scalars()
+    closed = (
+        db.execute(
+            select(Alarm).where(Alarm.resolved_at.is_not(None), Alarm.resolved_at >= now - timedelta(days=30))
+        )
+        .scalars()
+        .all()
+    )
+    day = working_day_hours(settings)
+    fixed = sum(1 for a in closed if working_hours_between(a.opened_at, a.resolved_at, settings) <= day)
+    return {
+        "open": list(open_rows),
+        "recent": list(recent),
+        "last_30_days": {
+            "closed": len(closed),
+            "fixed_within_one_working_day": fixed,
+            "percent": round(100 * fixed / len(closed), 1) if closed else None,
+        },
+    }
+
+
 # --- the watchdog --------------------------------------------------------------
 
 #: Catches what no sweep can report about itself: a sweep that never started (3),
