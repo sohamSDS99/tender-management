@@ -34,7 +34,7 @@ from app.db import SessionLocal, init_db
 from app.jobs.schedule import next_run_local
 from app.logging_config import configure_logging, log_ctx
 from app.models import FetchRun, SlackNotification, Tender, utcnow
-from app.services import automation, ingest, notifier
+from app.services import alarms, automation, ingest, notifier
 from app.settings import Settings, get_settings, redact
 
 logger = logging.getLogger(__name__)
@@ -249,6 +249,14 @@ async def run_once(
         exit=report.exit_code,
         next_run=next_run_local().strftime("%Y-%m-%d %H:%M %Z"),
     )
+
+    # Alarms (D43) read what this run just wrote. They may never change its
+    # outcome: evaluate_safely does not raise, and this guard is for the case
+    # where even that assumption is wrong.
+    try:
+        await asyncio.to_thread(alarms.evaluate_safely, SessionLocal, settings)
+    except Exception as exc:
+        log_ctx(logger, logging.ERROR, "alarm check after the sweep failed", error=type(exc).__name__)
     return report
 
 
@@ -299,18 +307,26 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("cannot prepare the database: %s", redact(str(exc), settings))
         return EXIT_INGEST_FAILED
 
-    report = asyncio.run(
-        run_once(
-            sources=args.sources or None,
-            days_back=args.days_back,
-            trigger=args.trigger,
-            notify=not args.no_notify,
-            dry_run_notify=args.dry_run_notify,
-            seed=args.seed or args.seed_reset,
-            seed_reset=args.seed_reset,
-            settings=settings,
+    try:
+        report = asyncio.run(
+            run_once(
+                sources=args.sources or None,
+                days_back=args.days_back,
+                trigger=args.trigger,
+                notify=not args.no_notify,
+                dry_run_notify=args.dry_run_notify,
+                seed=args.seed or args.seed_reset,
+                seed_reset=args.seed_reset,
+                settings=settings,
+            )
         )
-    )
+    except Exception as exc:
+        # Alarm 1, then the crash carries on exactly as it did before (D43).
+        try:
+            alarms.record_crash(exc, SessionLocal, settings)
+        except Exception as alarm_exc:
+            log_ctx(logger, logging.ERROR, "could not raise the crash alarm", error=type(alarm_exc).__name__)
+        raise
     if args.json:
         print(json.dumps(report.as_dict(), indent=2))
     else:

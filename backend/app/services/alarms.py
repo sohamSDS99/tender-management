@@ -23,6 +23,7 @@ Nothing in this module may break a sweep. ``evaluate_safely`` and
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 from collections.abc import Callable
@@ -30,6 +31,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -39,7 +42,7 @@ from app.models import KEY_RUN_HOURS, Alarm, AppSetting, FetchRun, SlackNotifica
 from app.services import mailer
 from app.services.automation import IN_FLIGHT, _batch_status, last_batch
 from app.services.schedule_settings import enabled_changed_at, get_enabled, get_run_hours
-from app.settings import Settings, redact
+from app.settings import Settings, get_settings, redact
 
 logger = logging.getLogger(__name__)
 
@@ -497,10 +500,14 @@ def _release(db: Session, alarm: Alarm, column: str) -> None:
 def _deliver(db: Session, alarm: Alarm, column: str, email: Email, settings: Settings, now: datetime) -> bool:
     if not _claim(db, alarm, column, now):
         return False
-    if mailer.send(email.subject, email.text, email.html, to=email.to, cc=email.cc, settings=settings):
-        return True
-    _release(db, alarm, column)
-    return False
+    try:
+        sent = mailer.send(email.subject, email.text, email.html, to=email.to, cc=email.cc, settings=settings)
+    except Exception as exc:  # send() promises not to raise; a claim must never outlive a lie
+        log_ctx(logger, logging.ERROR, "email failed", subject=email.subject, error=type(exc).__name__)
+        sent = False
+    if not sent:
+        _release(db, alarm, column)
+    return sent
 
 
 def _open(db: Session, problem: Problem, now: datetime) -> None:
@@ -624,3 +631,56 @@ def record_crash(exc: BaseException, session_factory: Callable[[], Session], set
             mailer.send(email.subject, email.text, email.html, to=email.to, cc=email.cc, settings=settings)
         except Exception as mail_exc:
             log_ctx(logger, logging.ERROR, "could not send the crash alarm", error=type(mail_exc).__name__)
+
+
+# --- the watchdog --------------------------------------------------------------
+
+#: Catches what no sweep can report about itself: a sweep that never started (3),
+#: sweeps left paused (7), reminders, retries and closing.
+WATCHDOG_MINUTES = 10
+_watchdog: AsyncIOScheduler | None = None
+
+
+async def _watchdog_tick() -> None:
+    from app.db import SessionLocal
+
+    await asyncio.to_thread(evaluate_safely, SessionLocal, get_settings())
+
+
+def start_watchdog(settings: Settings) -> AsyncIOScheduler | None:
+    """Start the 10-minute check on the running loop. Idempotent.
+
+    Separate from the sweep scheduler on purpose: ``start_scheduler`` returns
+    None while sweeps are paused, and pausing sweeps must not silence alarms.
+    """
+    global _watchdog
+    if not settings.alarms_enabled or _watchdog is not None:
+        return _watchdog
+    watchdog = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+    watchdog.add_job(
+        _watchdog_tick,
+        IntervalTrigger(minutes=WATCHDOG_MINUTES),
+        id="alarm-watchdog",
+        coalesce=True,
+        max_instances=1,
+        # First look a minute after start-up, not ten: a container that was down
+        # through a due sweep should say so promptly.
+        next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    watchdog.start()
+    _watchdog = watchdog
+    log_ctx(logger, logging.INFO, "alarm watchdog started", every_minutes=WATCHDOG_MINUTES)
+    return watchdog
+
+
+def stop_watchdog() -> None:
+    """Stop it and always drop the reference (same reasoning as stop_scheduler)."""
+    global _watchdog
+    if _watchdog is None:
+        return
+    try:
+        _watchdog.shutdown(wait=False)
+    except Exception as exc:
+        log_ctx(logger, logging.WARNING, "alarm watchdog did not shut down cleanly", error=type(exc).__name__)
+    finally:
+        _watchdog = None

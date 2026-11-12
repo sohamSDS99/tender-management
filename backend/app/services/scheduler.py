@@ -15,6 +15,7 @@ Actions workflow call, so there is one run implementation, not three.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from zoneinfo import ZoneInfo
@@ -72,8 +73,17 @@ async def _job() -> None:
     # At module scope that closes a cycle whose resolution depends on which file
     # a test happens to import first. The job only needs it when it fires.
     from app.jobs.scheduled_fetch import run_once
+    from app.services import alarms
 
-    report = await run_once(trigger=TRIGGER_NAME)
+    try:
+        report = await run_once(trigger=TRIGGER_NAME)
+    except Exception as exc:
+        # Alarm 1, then the crash carries on exactly as it did before (D43).
+        try:
+            await asyncio.to_thread(alarms.record_crash, exc, SessionLocal, get_settings())
+        except Exception as alarm_exc:
+            log_ctx(logger, logging.ERROR, "could not raise the crash alarm", error=type(alarm_exc).__name__)
+        raise
     log_ctx(
         logger,
         logging.INFO if report.exit_code == 0 else logging.ERROR,

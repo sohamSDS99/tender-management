@@ -454,3 +454,168 @@ def test_two_evaluators_cannot_send_the_same_email_twice(db_session, on_settings
     [alarm] = open_alarms(db_session)
     # The other evaluator already stamped it: this one must not send.
     assert alarms._claim(db_session, alarm, "emailed_at", dhaka(10, 13, 16)) is False
+
+
+# --- hooks: the sweep, the crash, the watchdog ---------------------------------
+
+import asyncio  # noqa: E402
+
+from app.jobs import scheduled_fetch  # noqa: E402
+from app.services import scheduler  # noqa: E402
+
+
+@pytest.fixture
+def wired(db_session, settings, monkeypatch):
+    """run_once, main() and the scheduler job all pointed at the test database."""
+    factory = db_session.info["factory"]
+    monkeypatch.setattr(scheduled_fetch, "SessionLocal", factory)
+    monkeypatch.setattr(scheduler, "SessionLocal", factory)
+    monkeypatch.setattr(scheduled_fetch, "get_settings", lambda: settings)
+    monkeypatch.setattr(scheduler, "get_settings", lambda: settings)
+    monkeypatch.setattr(scheduled_fetch, "init_db", lambda: None)
+    monkeypatch.setattr(scheduled_fetch, "configure_logging", lambda level: None)
+    return db_session
+
+
+def fake_fetch(db_session, statuses):
+    """Stands in for ingest.run_fetch: writes finished FetchRun rows, returns their ids."""
+    from app.models import FetchRun, utcnow
+
+    async def run_fetch(sources, days_back, trigger, settings, batch_id=None):
+        rows = [
+            FetchRun(
+                source=s,
+                status=st,
+                started_at=utcnow(),
+                finished_at=utcnow(),
+                batch_id=batch_id,
+                records_received=3,
+            )
+            for s, st in statuses.items()
+        ]
+        db_session.add_all(rows)
+        db_session.commit()
+        return [r.id for r in rows]
+
+    return run_fetch
+
+
+def test_the_end_of_a_sweep_runs_the_checks(wired, settings, outbox, monkeypatch):
+    monkeypatch.setattr(
+        scheduled_fetch.ingest, "run_fetch", fake_fetch(wired, {"ted": "failed", "pncp": "failed"})
+    )
+    report = asyncio.run(scheduled_fetch.run_once(notify=False, settings=settings))
+    assert report.exit_code == scheduled_fetch.EXIT_INGEST_FAILED
+    assert [a.check_key for a in open_alarms(wired)] == [alarms.ALL_SOURCES_FAILED]
+    assert len(outbox) == 1
+
+
+def test_a_crash_inside_run_once_opens_alarm_1_and_still_reaches_the_caller(
+    wired, settings, outbox, monkeypatch
+):
+    async def explode(*a, **k):
+        raise RuntimeError("database went away mid-run")
+
+    monkeypatch.setattr(scheduled_fetch.ingest, "run_fetch", explode)
+
+    with pytest.raises(RuntimeError, match="mid-run"):
+        scheduled_fetch.main(["--no-notify"])
+    [alarm] = open_alarms(wired)
+    assert alarm.check_key == alarms.SWEEP_CRASHED
+    assert outbox[0]["subject"] == "[ALARM] Tender Monitor — the sweep crashed — owner: Tanjir"
+
+    with pytest.raises(RuntimeError, match="mid-run"):  # the in-process scheduler's job too
+        asyncio.run(scheduler._job())
+    assert len(open_alarms(wired)) == 1 and len(outbox) == 1  # still one problem, one email
+
+
+def test_a_crash_alarm_that_itself_fails_still_lets_the_original_crash_through(
+    wired, settings, outbox, monkeypatch
+):
+    async def explode(*a, **k):
+        raise RuntimeError("the real crash")
+
+    monkeypatch.setattr(scheduled_fetch.ingest, "run_fetch", explode)
+    monkeypatch.setattr(alarms, "record_crash", lambda *a: 1 / 0)
+    with pytest.raises(RuntimeError, match="the real crash"):
+        scheduled_fetch.main(["--no-notify"])
+    with pytest.raises(RuntimeError, match="the real crash"):
+        asyncio.run(scheduler._job())
+
+
+@pytest.mark.parametrize("broken", ["evaluate", "evaluate_safely", "send"])
+def test_an_exception_in_alarm_code_never_changes_a_sweeps_exit_code(
+    wired, settings, outbox, monkeypatch, broken
+):
+    statuses = {"ted": "success", "pncp": "failed", "austender": "failed"}
+    monkeypatch.setattr(scheduled_fetch.ingest, "run_fetch", fake_fetch(wired, statuses))
+    clean = asyncio.run(scheduled_fetch.run_once(notify=False, settings=settings)).exit_code
+
+    def boom(*a, **k):
+        raise RuntimeError("alarm bug")
+
+    target = mailer if broken == "send" else alarms
+    monkeypatch.setattr(target, broken, boom)
+    for _ in range(3):  # a third pncp failure would open an alarm, and its email raises
+        report = asyncio.run(scheduled_fetch.run_once(notify=False, settings=settings))
+        assert report.exit_code == clean == scheduled_fetch.EXIT_OK
+
+
+def test_the_watchdog_runs_on_its_own_scheduler_even_with_sweeps_paused(settings):
+    async def lifecycle():
+        assert scheduler.start_scheduler(settings, hours=[0, 12], enabled=False) is None  # paused
+        watchdog = alarms.start_watchdog(settings)
+        try:
+            assert watchdog is not None and watchdog.running
+            assert [j.id for j in watchdog.get_jobs()] == ["alarm-watchdog"]
+            assert alarms.start_watchdog(settings) is watchdog  # idempotent
+        finally:
+            alarms.stop_watchdog()
+        assert alarms._watchdog is None
+
+    asyncio.run(lifecycle())
+
+
+def test_the_watchdog_does_not_start_when_alarms_are_off(settings):
+    async def lifecycle():
+        assert alarms.start_watchdog(settings.model_copy(update={"alarms_enabled": False})) is None
+
+    asyncio.run(lifecycle())
+
+
+def test_the_watchdog_tick_evaluates(monkeypatch, settings):
+    calls = []
+    monkeypatch.setattr(alarms, "evaluate_safely", lambda factory, s: calls.append(s))
+    monkeypatch.setattr(alarms, "get_settings", lambda: settings)
+    asyncio.run(alarms._watchdog_tick())
+    assert calls == [settings]
+
+
+def test_lifespan_starts_and_stops_the_watchdog(monkeypatch, settings):
+    from fastapi import FastAPI
+
+    from app import main
+
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main.automation, "reap_interrupted_runs", lambda *a, **k: 0)
+    monkeypatch.setattr(main, "SessionLocal", lambda: type("S", (), {"close": lambda self: None})())
+    monkeypatch.setattr(main, "configure_logging", lambda level: None)
+
+    async def lifecycle():
+        async with main.lifespan(FastAPI()):
+            assert alarms._watchdog is not None and alarms._watchdog.running
+        assert alarms._watchdog is None
+
+    asyncio.run(lifecycle())
+
+
+def test_a_mailer_that_raises_leaves_the_alarm_unsent_for_the_next_tick(db_session, on_settings, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("bug in send")
+
+    sweep(db_session, dhaka(10, 0))
+    monkeypatch.setattr(mailer, "send", boom)
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    [alarm] = open_alarms(db_session)
+    assert alarm.emailed_at is None
