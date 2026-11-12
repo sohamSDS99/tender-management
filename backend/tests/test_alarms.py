@@ -660,3 +660,28 @@ def test_no_closed_alarms_is_no_rate_rather_than_a_perfect_one(client):
         "recent": [],
         "last_30_days": {"closed": 0, "fixed_within_one_working_day": 0, "percent": None},
     }
+
+
+# --- the heartbeat workflow ------------------------------------------------------
+
+
+def test_the_heartbeat_only_reads_health_and_can_never_start_a_sweep():
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "alarm-heartbeat.yml"
+    text = path.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(text)
+    assert "/health" in text
+    # A second trigger owner is exactly what D2 forbids.
+    for forbidden in (
+        "scheduled_fetch",
+        "/api/fetch",
+        "DATABASE_URL",
+        "CRON_SECRET",
+        "docker",
+        "pip install",
+    ):
+        assert forbidden not in text, forbidden
+    assert workflow["permissions"] == {"contents": "read", "actions": "read"}

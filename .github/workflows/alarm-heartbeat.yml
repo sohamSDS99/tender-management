@@ -1,0 +1,128 @@
+# Who watches the alarm? (D43)
+#
+# Every alarm inside the backend dies with the backend. This runs on GitHub's
+# servers instead: once an hour it asks the deployment's public /health - which
+# already does a real database round-trip and is outside the sign-in gate (D26) -
+# and emails only when the answer CHANGES:
+#
+#   down, and the previous heartbeat was up   -> [ALARM] Tender Monitor is down
+#   up,   and the previous heartbeat was down -> [FIXED] Tender Monitor is back
+#
+# The run's own conclusion IS the state: a failed run means "down". The previous
+# state is the previous completed run's conclusion, read with `gh run list`. So
+# one outage is one email, not one an hour.
+#
+# It never starts a sweep and never touches the database: it only reads /health.
+# So it cannot become a second trigger owner (D2).
+#
+# Secrets:   BREVO_API_KEY (empty = dry run: the email is printed, not sent),
+#            ALARM_FROM (a Brevo-verified sender), TENDER_PUBLIC_URL.
+# Variables (optional, defaults below): ALARM_OWNER_NAME, ALARM_TO, ALARM_CC.
+name: Alarm heartbeat
+
+on:
+  schedule:
+    - cron: '17 * * * *'  # hourly, off the top of the hour when Actions is busiest
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Probe this base URL instead of TENDER_PUBLIC_URL (to test: give a wrong one)'
+        type: string
+        default: ''
+
+concurrency:
+  group: alarm-heartbeat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read  # gh run list
+
+jobs:
+  heartbeat:
+    name: Is Tender Monitor answering?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+      ALARM_FROM: ${{ secrets.ALARM_FROM }}
+      BASE_URL: ${{ inputs.url || secrets.TENDER_PUBLIC_URL }}
+      OWNER: ${{ vars.ALARM_OWNER_NAME || 'Tanjir' }}
+      ALARM_TO: ${{ vars.ALARM_TO || 'tanjir@sdsmanager.com' }}
+      ALARM_CC: ${{ vars.ALARM_CC || 'abir@sdsmanager.com,soham@sdsmanager.com,shafiq@sdsmanager.com' }}
+    steps:
+      - name: Probe /health
+        id: probe
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::notice::TENDER_PUBLIC_URL is not set; nothing to watch."
+            echo "state=unconfigured" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Three tries over ~40s: one dropped packet is not an outage.
+          if body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 10 --retry-all-errors "${BASE_URL%/}/health" 2>&1); then
+            echo "state=up" >> "$GITHUB_OUTPUT"
+            echo "up: $body"
+          else
+            echo "state=down" >> "$GITHUB_OUTPUT"
+            # The reason goes into the email; keep it short and on one line.
+            echo "reason=$(echo "$body" | tr '\n' ' ' | cut -c1-300)" >> "$GITHUB_OUTPUT"
+            echo "down: $body"
+          fi
+
+      - name: Read the previous heartbeat
+        id: previous
+        if: steps.probe.outputs.state != 'unconfigured'
+        run: |
+          # The newest completed run that decided something (cancelled ones did not).
+          # No history yet counts as "up", so a first run that finds it down still says so.
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow alarm-heartbeat.yml \
+                   --status completed --limit 20 --json conclusion \
+                   --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].conclusion // "success"')
+          if [ "$last" = "failure" ]; then echo "state=down" >> "$GITHUB_OUTPUT"; else echo "state=up" >> "$GITHUB_OUTPUT"; fi
+          echo "previous heartbeat: $last"
+
+      - name: Email when the state changed
+        if: steps.probe.outputs.state != 'unconfigured' && steps.probe.outputs.state != steps.previous.outputs.state
+        env:
+          NOW: ${{ steps.probe.outputs.state }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          when=$(TZ=Asia/Dhaka date '+%a %d %b %H:%M')
+          if [ "$NOW" = "down" ]; then
+            subject="[ALARM] Tender Monitor is down — owner: $OWNER"
+            text=$(printf 'What broke   Tender Monitor is not answering at all\nChecked      %s (Dhaka), from GitHub Actions\nOwner        %s — please fix within one working day\n\nWhy\n  %s/health did not answer 200 after 3 tries.\n  %s\n  The container, the database, or Railway itself is down. While it is down,\n  the alarms inside Tender Monitor cannot send anything.\n\nHow to check\n  Logs: Railway → Tender-Management → backend\n  Run:  %s\n\nOne email per outage. A FIXED email follows when it answers again.\n' \
+              "$when" "$OWNER" "${BASE_URL%/}" "$REASON" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          else
+            subject="[FIXED] Tender Monitor is back — owner: $OWNER"
+            text=$(printf 'Fixed        Tender Monitor is answering again\nChecked      %s (Dhaka), from GitHub Actions\nOwner        %s\n\n%s/health answered 200.\n' \
+              "$when" "$OWNER" "${BASE_URL%/}")
+          fi
+          to=$(jq -cn --arg s "$ALARM_TO" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | map({email: .})')
+          cc=$(jq -cn --arg s "$ALARM_CC" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | map({email: .})')
+          payload=$(jq -n --arg from "$ALARM_FROM" --arg subject "$subject" --arg text "$text" \
+                          --argjson to "$to" --argjson cc "$cc" \
+            '{sender: {email: $from, name: "Tender Monitor"}, to: $to, subject: $subject, textContent: $text,
+              htmlContent: ("<pre>" + ($text | @html) + "</pre>")} + (if ($cc | length) > 0 then {cc: $cc} else {} end)')
+          if [ -z "$BREVO_API_KEY" ]; then
+            echo "::warning::BREVO_API_KEY is not set - dry run, this email was not sent:"
+            echo "$subject"; echo "$text"
+            exit 0
+          fi
+          code=$(curl -sS -o brevo.json -w '%{http_code}' --max-time 20 \
+                   -H "api-key: $BREVO_API_KEY" -H 'content-type: application/json' -H 'accept: application/json' \
+                   -d "$payload" https://api.brevo.com/v3/smtp/email) || code=000
+          if [ "${code:0:1}" = "2" ]; then
+            echo "sent: $subject"
+          else
+            # Not fatal: the run's conclusion must stay the probe's answer, or the
+            # next heartbeat would read an email failure as an outage.
+            echo "::error::Brevo answered $code: $(head -c 300 brevo.json 2>/dev/null)"
+          fi
+
+      - name: Record the state
+        if: steps.probe.outputs.state == 'down'
+        run: |
+          echo "::error::Tender Monitor did not answer ${BASE_URL%/}/health"
+          exit 1
