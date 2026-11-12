@@ -79,7 +79,8 @@ services:
       ALARMS_ENABLED: ${ALARMS_ENABLED:-true}
       ALARM_OWNER_NAME: ${ALARM_OWNER_NAME:-Tanjir}
       ALARM_TO: ${ALARM_TO:-tanjir@sdsmanager.com}
-      ALARM_CC: ${ALARM_CC:-abir@sdsmanager.com,soham@sdsmanager.com,shafiq@sdsmanager.com}
+      # "-" not ":-": an explicitly empty ALARM_CC means no CC, not the default list.
+      ALARM_CC: ${ALARM_CC-abir@sdsmanager.com,soham@sdsmanager.com,shafiq@sdsmanager.com}
       ALARM_FROM: ${ALARM_FROM:-alarms@sdsmanager.com}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       ALARM_WORKDAYS: ${ALARM_WORKDAYS:-mon,tue,wed,thu,fri}
