@@ -17,6 +17,7 @@ from app.db import get_db
 from app.jobs.schedule import next_run_local, utc_cron_expressions
 from app.models import FetchRun, Source, Tender, TenderTranslation, utcnow
 from app.schemas import (
+    AlarmsResponse,
     AutomationStatus,
     CredentialRequest,
     FeedbackRequest,
@@ -41,7 +42,16 @@ from app.schemas import (
     TriggerUpdate,
 )
 from app.security import has_cron_secret
-from app.services import automation, feedback, ingest, operator, schedule_settings, scheduler, translator
+from app.services import (
+    alarms,
+    automation,
+    feedback,
+    ingest,
+    operator,
+    schedule_settings,
+    scheduler,
+    translator,
+)
 from app.services.credentials import (
     CREDENTIAL_FIELDS,
     OPAQUE_SECRETS,
@@ -730,6 +740,19 @@ async def trigger_fetch(
     # Merged here rather than returned by ingest: the window rule belongs to the
     # operator path, and app/services/ingest.py is additive-only.
     return {**started, "days_back": days_back, "batch_id": batch_id}
+
+
+@router.get("/api/alarms", response_model=AlarmsResponse, tags=["system"])
+def list_alarms(
+    db: Session = Depends(get_db), settings: Settings = Depends(settings_dep)
+) -> dict[str, object]:
+    """Open alarms, recently closed ones, and how many were fixed within one working day (D43).
+
+    Behind the sign-in gate like every route (D26). There is deliberately no way
+    to acknowledge or close an alarm here: an alarm closes when the data shows
+    the system works again.
+    """
+    return alarms.overview(db, settings)
 
 
 @router.get("/api/fetch-runs", response_model=list[FetchRunSchema], tags=["fetch"])

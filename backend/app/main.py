@@ -12,9 +12,9 @@ from fastapi.responses import HTMLResponse
 
 from app.api import auth_router, router
 from app.db import SessionLocal, init_db
-from app.logging_config import configure_logging
+from app.logging_config import configure_logging, log_ctx
 from app.security import SecurityHeadersMiddleware, enforce_sign_in
-from app.services import automation
+from app.services import alarms, automation
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.settings import get_settings
 
@@ -43,10 +43,17 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
     start_scheduler(settings)
+    # Its own scheduler, not the sweep one: that one is never started while
+    # sweeps are paused, and the alarms must not go quiet with it (D43).
+    try:
+        alarms.start_watchdog(settings)
+    except Exception as exc:
+        log_ctx(logger, logging.ERROR, "alarm watchdog did not start", error=type(exc).__name__)
     try:
         yield
     finally:
         stop_scheduler()
+        alarms.stop_watchdog()
 
 
 def create_app() -> FastAPI:

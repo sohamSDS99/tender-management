@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -361,6 +362,28 @@ class Settings(BaseSettings):
     # is ever reachable from the internet (README section 13).
     enable_api_docs: bool = True
 
+    # --- alarms (D43) ---
+    # When the system breaks, email a named owner (To) and the team (CC).
+    alarms_enabled: bool = True
+    alarm_owner_name: str = "Tanjir"
+    alarm_to: str = "tanjir@sdsmanager.com"
+    alarm_cc: str = "abir@sdsmanager.com,soham@sdsmanager.com,shafiq@sdsmanager.com"
+    # Must be a sender Brevo has verified, or every send is refused.
+    alarm_from: str = "alarms@sdsmanager.com"
+    # Secret. Empty = dry run: the email is logged and nothing is sent.
+    brevo_api_key: str = ""
+    # Office days and hours in SCHEDULER_TIMEZONE. One working day = the length
+    # of this window (8 hours for 10-18); only these hours count toward a reminder.
+    alarm_workdays: str = "mon,tue,wed,thu,fri"
+    alarm_work_hours: str = "10-18"
+    alarm_reminder_working_hours: float = 4
+    alarm_source_fail_streak: int = 3
+    alarm_no_data_days: int = 3
+    # "auto" expects sweeps only while the dashboard says they are on. "always"
+    # expects them regardless - for when GitHub Actions owns the schedule (D2) and
+    # this process's switch therefore reads off.
+    alarm_expect_sweeps: Literal["auto", "always"] = "auto"
+
     @model_validator(mode="after")
     def _resolve_relative_paths(self) -> Settings:
         """Make relative paths repo-relative, not cwd-relative.
@@ -406,6 +429,26 @@ class Settings(BaseSettings):
         return sorted(set(out))
 
     @property
+    def alarm_to_list(self) -> list[str]:
+        return [a.strip() for a in self.alarm_to.split(",") if a.strip()]
+
+    @property
+    def alarm_cc_list(self) -> list[str]:
+        return [a.strip() for a in self.alarm_cc.split(",") if a.strip()]
+
+    @property
+    def alarm_workday_numbers(self) -> set[int]:
+        """Office days as weekday numbers, Monday = 0."""
+        names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+        return {names.index(d.strip()[:3].lower()) for d in self.alarm_workdays.split(",") if d.strip()}
+
+    @property
+    def alarm_work_window(self) -> tuple[int, int]:
+        """(start_hour, end_hour) of the office day, e.g. (10, 18)."""
+        start, _, end = self.alarm_work_hours.partition("-")
+        return int(start), int(end)
+
+    @property
     def app_base_url(self) -> str:
         return self.public_app_url.rstrip("/")
 
@@ -441,6 +484,7 @@ SECRET_FIELDS = (
     "tender_impulse_access_token",
     "tender_impulse_encryption_key",
     "deepl_api_key",
+    "brevo_api_key",
     "database_url",
 )
 

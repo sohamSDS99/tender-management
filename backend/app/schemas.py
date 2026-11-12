@@ -194,6 +194,33 @@ class FetchRequest(BaseModel):
     )
 
 
+class AlarmOut(UtcModel):
+    """One problem the alarm system raised (D43). Read-only: alarms close themselves."""
+
+    id: int
+    check_key: str
+    subject: str
+    title: str
+    detail: str
+    opened_at: datetime
+    emailed_at: datetime | None
+    reminded_at: datetime | None
+    resolved_at: datetime | None
+
+
+class AlarmFixRate(UtcModel):
+    closed: int
+    fixed_within_one_working_day: int
+    # None when nothing closed in the period: no rate, rather than a flattering 100.
+    percent: float | None
+
+
+class AlarmsResponse(UtcModel):
+    open: list[AlarmOut]
+    recent: list[AlarmOut]
+    last_30_days: AlarmFixRate
+
+
 class FetchRunSchema(UtcModel):
     id: int
     source: str

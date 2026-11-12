@@ -75,6 +75,20 @@ services:
       # is false; set it true wherever the dashboard is behind HTTPS.
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       SESSION_LIFETIME_DAYS: ${SESSION_LIFETIME_DAYS:-14}
+      # Alarms (D43). BREVO_API_KEY empty = dry run: emails only go to the log.
+      ALARMS_ENABLED: ${ALARMS_ENABLED:-true}
+      ALARM_OWNER_NAME: ${ALARM_OWNER_NAME:-Tanjir}
+      ALARM_TO: ${ALARM_TO:-tanjir@sdsmanager.com}
+      # "-" not ":-": an explicitly empty ALARM_CC means no CC, not the default list.
+      ALARM_CC: ${ALARM_CC-abir@sdsmanager.com,soham@sdsmanager.com,shafiq@sdsmanager.com}
+      ALARM_FROM: ${ALARM_FROM:-alarms@sdsmanager.com}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      ALARM_WORKDAYS: ${ALARM_WORKDAYS:-mon,tue,wed,thu,fri}
+      ALARM_WORK_HOURS: ${ALARM_WORK_HOURS:-10-18}
+      ALARM_REMINDER_WORKING_HOURS: ${ALARM_REMINDER_WORKING_HOURS:-4}
+      ALARM_SOURCE_FAIL_STREAK: ${ALARM_SOURCE_FAIL_STREAK:-3}
+      ALARM_NO_DATA_DAYS: ${ALARM_NO_DATA_DAYS:-3}
+      ALARM_EXPECT_SWEEPS: ${ALARM_EXPECT_SWEEPS:-auto}
     volumes:
       - ./config:/app/config:ro
     ports:
