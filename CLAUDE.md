@@ -2,7 +2,7 @@
 
 Working notes for this repository. Everything here is a fact that cost something
 to learn — most of it was a bug first. `README.md` explains the product;
-`docs/DECISIONS.md` explains why it is built this way (42 records, D1–D42).
+`docs/DECISIONS.md` explains why it is built this way (43 records, D1–D43).
 
 ## What this is
 
@@ -27,9 +27,9 @@ link points at the wrong port.
 ```bash
 # backend — use the 3.12 venv, never the system python
 cd backend
-./.venv/bin/python -m pytest -q          # 883 tests, all passing
+./.venv/bin/python -m pytest -q          # 937 tests, all passing
 ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .
-./.venv/bin/alembic upgrade head         # 10 revisions, head f4a2c9e8b117
+./.venv/bin/alembic upgrade head         # 12 revisions, head a7d3e9f1c402
 
 # frontend
 cd frontend
@@ -726,6 +726,38 @@ token becomes the right answer the moment anything here is exposed differently.
 `fetch_runs` rows older than `STALE_RUN_MINUTES`; without that, one orphaned
 `running` row disables operator fetches for ever. D23.
 
+## Alarms (D43)
+
+When it breaks, it emails **one named owner** (To) and the team (CC), owner in
+the subject. Seven checks in `app/services/alarms.py`; one email per problem,
+one REMINDER after 4 office hours (Mon–Fri 10–18 Dhaka), a FIXED email when the
+data shows it works again. Nobody clicks anything, and the emails carry no
+action links — every route is behind sign-in (D26) and mail scanners click.
+
+- **Alarm code must never change a sweep.** Every call into it is wrapped and
+  logged; a crash opens alarm 1 and is then re-raised unchanged. Keep it so: a
+  new hook gets its own `try/except` even though the callee promises not to raise.
+- **The watchdog is its own `AsyncIOScheduler`**, started in `lifespan`. Do not
+  move it onto the sweep scheduler — that one is not started while sweeps are
+  paused, and the pause is one of the things it alarms on.
+- **Check 3 reads `get_run_hours()` and `get_enabled()`**; never hard-code 00:00
+  and 12:00. With GitHub Actions as trigger owner, set `ALARM_EXPECT_SWEEPS=always`
+  or check 3 is silent (the container's switch reads off).
+- **`BREVO_API_KEY` empty = dry run**: the email is logged, not sent, and the
+  ALARM is re-tried (re-logged) every tick. `tests/__init__.py` blanks the key
+  before `.env` is read, because `Settings` reads the repo's `.env` and a real key
+  there would otherwise let the suite send real email. Do not remove it.
+- **`mailer.send` answers True only on a 2xx.** A refusal leaves `emailed_at`
+  NULL and the next tick retries; the conditional-UPDATE claim in `_deliver` is
+  what stops the sweep's own check and the watchdog sending the same email twice.
+- **CLAUDE.md named `f4a2c9e8b117` as the migration head after
+  `a1c4e7b9d206` had already been added on top of it.** Read the head off
+  `alembic heads`, not off this file — a second head breaks `upgrade head`, and
+  with it startup.
+- `.github/workflows/alarm-heartbeat.yml` watches the container from outside and
+  only reads `/health`; `test_the_heartbeat_only_reads_health_and_can_never_start_a_sweep`
+  keeps it from becoming a second trigger owner (D2).
+
 ## Known-failing tests
 
 None. This section held four for a while — `test_stats_summarise_the_dashboard`
@@ -735,7 +767,7 @@ right about the cause and reached for a bigger remedy than it needed: threading 
 `now` through `store_tenders`/`upsert_tender` would have touched frozen core,
 when the fixture was the thing telling the lie. See the wall-clock rule above.
 
-A green run is **883 passing, nothing skipped, nothing failing**. Treat any
+A green run is **937 passing, nothing skipped, nothing failing**. Treat any
 failure as yours until a clean checkout says otherwise.
 
 ## Frontend

@@ -2795,3 +2795,118 @@ and then nothing. It proves the whole path — auth, decryption, checksum,
 paging, normalisation, scoring — but it will not bring new tenders tomorrow.
 That takes the paid subscription, and D40's rule still stands for its first
 real day: re-measure the prefilter fields on it.
+
+---
+
+## D43 — Alarms email a named owner
+
+**Decision.** When Tender Monitor breaks, it emails one named owner (To) and the
+team (CC), with the owner in the subject: `[ALARM] Tender Monitor — <what
+broke> — owner: Tanjir`. One email per problem; a single REMINDER to everyone
+(all in To) once it has been open `ALARM_REMINDER_WORKING_HOURS` office hours;
+and a FIXED email when the alarm closes itself. Carried by
+`app/services/alarms.py` (the checks, the office-hours clock, open/remind/close,
+the email text and the watchdog), `app/services/mailer.py` (Brevo's HTTP API),
+`app/models/alarm.py` with migration `a7d3e9f1c402`, three hooks
+(`scheduled_fetch.run_once` and `main`, `scheduler._job`), `main.lifespan`,
+`GET /api/alarms`, and `.github/workflows/alarm-heartbeat.yml`.
+`docs/ALARMS-PLAN.md` is the plan it was built from.
+
+Seven checks, each a read over tables the system already writes:
+
+| # | Problem | Seen from | Closes when |
+|---|---|---|---|
+| 1 | the sweep crashed | `record_crash`, called from the crash catch | a later sweep finishes |
+| 2 | every source failed | the newest batch in `fetch_runs` (2+ sources) | a sweep has one working source |
+| 3 | a due sweep did not run | `get_run_hours`, `get_enabled`, `fetch_runs` | any sweep starts and finishes |
+| 4 | one source failed N in a row | that source's last N finished runs | it works once |
+| 5 | the Slack digest was not delivered | the newest batch in `slack_notifications` | the next digest is delivered |
+| 6 | nothing received in N days | `sum(records_received)` | any notice is received |
+| 7 | sweeps paused > 1 working day | `get_enabled`, `enabled_changed_at` | sweeps are switched back on |
+
+**Why a named owner.** An alarm addressed to four people is addressed to nobody:
+each reads it, sees three others on it, and assumes one of them has it. The
+subject names who fixes it, so the other three can see at a glance that it is
+not theirs and still know it happened.
+
+**Why it closes itself, and why the email has nothing to click.** Every route is
+behind sign-in (D26), so an "I'm on it" or "Mark fixed" link would need a new
+public door, signed per alarm — exactly what D26 refuses. And mail security
+scanners fetch every link in an inbound message, so such a link would mark
+alarms handled with no person involved. Closing on the data is better anyway:
+the "fixed" time is proven by the next sweep that works, not claimed by whoever
+clicked.
+
+**Why office hours.** "Fix within one working day" is the promise, so that is
+what the clock counts: `ALARM_WORKDAYS` × `ALARM_WORK_HOURS` in
+`SCHEDULER_TIMEZONE`, 8 hours a day by default. An alarm at 02:00 Tuesday is
+due 18:00 Tuesday; one at 16:00 Friday is due 16:00 Monday. The email still goes
+out at once, whenever it is. `GET /api/alarms` reports how many closed alarms in
+the last 30 days were fixed within one working day, with `percent: null` when
+none closed rather than a flattering 100.
+
+**Why three checks need patience.** Single sources time out now and then — on
+2026-08-21 pncp timed out while six others stored 269 notices — so check 4 waits
+for `ALARM_SOURCE_FAIL_STREAK` (3) in a row. A missed sweep is judged 75 minutes
+after it was due: the scheduler's `misfire_grace_time` is 60 minutes, plus 15.
+And the hours are read with `get_run_hours`, never hard-coded, so check 3
+follows the dashboard (D19). A slot due before sweeps were switched on, or
+before the hours were last changed, was never owed.
+
+**The alarm code can never break a sweep.** Every call into it is inside a
+`try/except` that logs with `log_ctx`; `evaluate_safely` and `record_crash`
+also never raise themselves, and `mailer.send` never raises. A crash is
+recorded and then re-raised unchanged, so a sweep's exit code and traceback are
+exactly what they were before. Tests pin both.
+
+**An email is never silently lost, and never sent twice.** `emailed_at`,
+`reminded_at` and `fixed_emailed_at` are claimed with a conditional `UPDATE`
+before sending, so the sweep's own evaluation and the watchdog cannot both send
+it; a refusal un-stamps the claim and the next tick retries. A partial unique
+index on `(check_key, subject) WHERE resolved_at IS NULL` stops two evaluators
+opening the same alarm. A check that cannot tell right now (a sweep is in
+flight, sweeps are paused) returns `None`, and its open alarms are left exactly
+as they are — neither re-sent nor closed.
+
+**The watchdog has its own scheduler.** An `AsyncIOScheduler` started in
+`lifespan`, every 10 minutes, first tick one minute after start. Not a job on
+the sweep scheduler: `start_scheduler` returns `None` while sweeps are paused,
+and pausing sweeps must not also silence the alarm that says they are paused.
+
+**Who watches the alarm.** Everything above dies with the container. The
+heartbeat workflow runs on GitHub's servers, reads `/health` once an hour
+(public, and already a real database round-trip), and emails only when the
+state changes; the previous state is the previous run's conclusion, from
+`gh run list`. It only reads `/health`, so it is not a second trigger owner (D2).
+
+**Alternatives rejected.** SMTP — Railway blocks outbound SMTP on its cheaper
+plans, and `httpx` already does HTTP, so Brevo's API needs no new package. A job
+on the sweep scheduler — silenced by a pause (above). Alarming on every single
+failure — people learn to ignore the email, which is worse than none.
+Acknowledge links — D26 and the scanners (above). An external monitoring
+service — another account and another place for the truth to drift from the
+data; the heartbeat covers the one gap an in-process alarm cannot.
+
+**Consequences / accepted risk.**
+
+* **`ALARM_EXPECT_SWEEPS` must match who owns the schedule.** With GitHub
+  Actions as the trigger owner the container's switch reads off, so in `auto`
+  check 3 stays quiet and check 7 never fires. Set `always` there. A GitHub
+  self-test run (no `DATABASE_URL`, D10) writes to a throwaway database, so the
+  real one sees no sweep and check 3 fires — correctly.
+* **Check 5 sees what the ledger sees.** A failed *heartbeat* digest (no new
+  tenders, so no ledger row) does not open it; the run's exit code 2 still says so.
+* **A crash with the database down is emailed but has no row**, so no FIXED
+  email follows it.
+* **Check 4 has no per-source "disabled" knowledge.** A source switched off
+  after three failures keeps its alarm open until it next runs and works.
+* **The heartbeat records state in its own conclusion.** If Brevo refuses the
+  ALARM email the run still fails (down), so the next run will not re-send it;
+  the failure is in the run log as an `::error::`.
+* **Dry run is the default.** With `BREVO_API_KEY` empty every email is logged
+  at WARNING and nothing is sent; an unsent ALARM is re-logged every tick until
+  a key is set. `tests/__init__.py` blanks the key before `.env` is read, so the
+  suite cannot send a real email even on a machine whose `.env` holds one.
+* **The addresses are in this public repository** as defaults in
+  `config.py`, `.env.example`, `docker-compose.yml` and the workflow. Override
+  them per deployment with `ALARM_TO`, `ALARM_CC` and `ALARM_OWNER_NAME`.
