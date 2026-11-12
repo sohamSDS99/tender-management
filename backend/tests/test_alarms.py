@@ -91,3 +91,366 @@ def test_a_closed_alarm_does_not_block_the_next_one_and_subjects_are_separate(db
     db_session.add(_alarm("source_failing", "ted"))
     db_session.commit()
     assert db_session.query(Alarm).count() == 4
+
+
+# --- the office-hours clock ----------------------------------------------------
+
+from datetime import datetime, timedelta  # noqa: E402
+
+from app.services import alarms  # noqa: E402
+
+
+def dhaka(day: int, hour: int, minute: int = 0) -> datetime:
+    """A November 2026 Dhaka wall-clock time, as the naive UTC the database stores.
+
+    10 Nov 2026 is a Tuesday; 6 Nov a Friday; 7-8 Nov the weekend.
+    """
+    return datetime(2026, 11, day, hour, minute) - timedelta(hours=6)
+
+
+@pytest.mark.parametrize(
+    "start, end, hours",
+    [
+        (dhaka(6, 16), dhaka(9, 16), 8),  # Fri 16:00 -> Mon 16:00
+        (dhaka(10, 2), dhaka(10, 12), 2),  # Tue 02:00 -> Tue 12:00
+        (dhaka(7, 0), dhaka(8, 23, 59), 0),  # Sat -> Sun
+        (dhaka(10, 13, 15), dhaka(11, 13, 15), 8),  # Tue 13:15 -> Wed 13:15
+        (dhaka(10, 12), dhaka(10, 11), 0),  # backwards
+    ],
+)
+def test_working_hours_between(settings, start, end, hours):
+    assert alarms.working_hours_between(start, end, settings) == pytest.approx(hours)
+
+
+@pytest.mark.parametrize(
+    "opened, fix_by, remind_at",
+    [  # the table in docs/ALARMS-PLAN.md section 3
+        (dhaka(10, 13, 15), dhaka(11, 13, 15), dhaka(10, 17, 15)),
+        (dhaka(10, 2), dhaka(10, 18), dhaka(10, 14)),
+        (dhaka(6, 16), dhaka(9, 16), dhaka(9, 12)),
+        (dhaka(7, 12), dhaka(9, 18), dhaka(9, 14)),
+    ],
+)
+def test_fix_by_and_reminder_times(settings, opened, fix_by, remind_at):
+    assert alarms.add_working_hours(opened, 8, settings) == fix_by
+    assert alarms.add_working_hours(opened, 4, settings) == remind_at
+
+
+# --- evaluate: open, retry, remind, close --------------------------------------
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Replaces mailer.send. Records every email; `outbox.accept` decides the answer."""
+
+    class Outbox(list):
+        accept = True
+
+    box = Outbox()
+
+    def fake_send(subject, text, html, *, to, cc, settings):
+        box.append({"subject": subject, "text": text, "html": html, "to": to, "cc": cc})
+        return box.accept
+
+    monkeypatch.setattr(mailer, "send", fake_send)
+    return box
+
+
+@pytest.fixture
+def on_settings(settings):
+    """Sweeps switched on by environment default, at 00:00 and 12:00 Dhaka."""
+    return settings.model_copy(update={"enable_scheduler": True})
+
+
+_batch_counter = iter(range(10_000))
+
+
+def sweep(db, started, statuses=None, received=5, finished=True):
+    """One sweep: a FetchRun per source, sharing a batch id."""
+    from app.models import FetchRun
+
+    batch = f"b{next(_batch_counter)}"
+    for source, status in (statuses or {"ted": "success", "pncp": "success"}).items():
+        db.add(
+            FetchRun(
+                source=source,
+                status=status if finished else "running",
+                started_at=started,
+                finished_at=started + timedelta(minutes=13) if finished else None,
+                records_received=received if status != "failed" else 0,
+                batch_id=batch,
+                trigger="cron",
+                error_message="ReadTimeout" if status == "failed" else None,
+            )
+        )
+    db.commit()
+    return batch
+
+
+def open_alarms(db):
+    from app.models import Alarm
+
+    return db.query(Alarm).filter(Alarm.resolved_at.is_(None)).populate_existing().all()
+
+
+def all_alarms(db):
+    from app.models import Alarm
+
+    return db.query(Alarm).order_by(Alarm.id).populate_existing().all()
+
+
+def test_a_missed_sweep_opens_one_alarm_and_sends_one_email(db_session, on_settings, outbox):
+    sweep(db_session, dhaka(10, 0))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 14))
+    assert outbox == [] and open_alarms(db_session) == []  # 74 minutes late: not yet
+
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 25))  # a second tick
+
+    [alarm] = open_alarms(db_session)
+    assert alarm.check_key == alarms.SWEEP_MISSED
+    assert len(outbox) == 1
+    email = outbox[0]
+    assert email["subject"] == "[ALARM] Tender Monitor — the 12:00 sweep did not run — owner: Tanjir"
+    assert email["to"] == ["tanjir@sdsmanager.com"]
+    assert email["cc"] == ["abir@sdsmanager.com", "soham@sdsmanager.com", "shafiq@sdsmanager.com"]
+    assert "Tue 10 Nov 00:00 (Dhaka) — finished OK" in email["text"]
+    assert "Fix by       Wed 11 Nov 13:15 (Dhaka)" in email["text"]
+    assert "http" not in email["text"].replace(on_settings.app_base_url, "")  # no action links
+
+
+def test_when_a_sweep_then_finishes_the_alarm_closes_with_one_fixed_email(db_session, on_settings, outbox):
+    sweep(db_session, dhaka(10, 0))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    sweep(db_session, dhaka(10, 15, 40))  # someone starts one by hand
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 15, 55))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 16, 5))
+
+    assert open_alarms(db_session) == []
+    assert [e["subject"].split(" ")[0] for e in outbox] == ["[ALARM]", "[FIXED]"]
+    fixed = outbox[1]
+    assert fixed["subject"] == "[FIXED] Tender Monitor — the 12:00 sweep did not run — owner: Tanjir"
+    assert fixed["cc"] == on_settings.alarm_cc_list
+    assert "Open for     2 h 40 min (2.7 office hours, within one working day)" in fixed["text"]
+
+
+def test_a_sweep_still_running_does_not_close_a_missed_alarm(db_session, on_settings, outbox):
+    sweep(db_session, dhaka(10, 0))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    sweep(db_session, dhaka(10, 13, 30), finished=False)  # stuck
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 15))
+    assert len(open_alarms(db_session)) == 1 and len(outbox) == 1
+
+
+def test_one_source_alarms_on_its_third_failure_in_a_row_and_closes_on_one_success(
+    db_session, settings, outbox
+):
+    now = dhaka(10, 12)
+    for n in range(2):
+        sweep(db_session, now - timedelta(days=2 - n), {"ted": "success", "pncp": "failed"})
+    alarms.evaluate(db_session, settings, now=now)
+    assert open_alarms(db_session) == []
+
+    sweep(db_session, now, {"ted": "success", "pncp": "failed"})
+    alarms.evaluate(db_session, settings, now=now + timedelta(minutes=15))
+    [alarm] = open_alarms(db_session)
+    assert (alarm.check_key, alarm.subject) == (alarms.SOURCE_FAILING, "pncp")
+    assert outbox[-1]["subject"] == "[ALARM] Tender Monitor — pncp failed 3 sweeps in a row — owner: Tanjir"
+    assert "ReadTimeout" in outbox[-1]["text"]
+
+    sweep(db_session, now + timedelta(hours=12), {"ted": "success", "pncp": "success"})
+    alarms.evaluate(db_session, settings, now=now + timedelta(hours=12, minutes=15))
+    assert open_alarms(db_session) == []
+    assert outbox[-1]["subject"].startswith("[FIXED] Tender Monitor — pncp failed 3 sweeps in a row")
+
+
+def test_a_refused_email_is_left_unsent_and_the_next_tick_sends_it(db_session, on_settings, outbox):
+    sweep(db_session, dhaka(10, 0))
+    outbox.accept = False
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    [alarm] = open_alarms(db_session)
+    assert alarm.emailed_at is None and len(outbox) == 1
+
+    outbox.accept = True
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 25))
+    [alarm] = open_alarms(db_session)
+    assert alarm.emailed_at == dhaka(10, 13, 25) and len(outbox) == 2
+
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 35))
+    assert len(outbox) == 2
+
+
+def test_the_reminder_goes_to_everyone_after_four_office_hours_never_counting_the_weekend(
+    db_session, settings, outbox
+):
+    friday_4pm = dhaka(6, 16)
+    for n in range(3):
+        sweep(db_session, friday_4pm - timedelta(hours=12 * (2 - n)), {"ted": "success", "pncp": "failed"})
+    alarms.evaluate(db_session, settings, now=friday_4pm)
+    assert len(outbox) == 1  # the alarm itself
+
+    for now in (dhaka(6, 23), dhaka(7, 12), dhaka(8, 23, 59), dhaka(9, 11, 59)):
+        alarms.evaluate(db_session, settings, now=now)
+    assert len(outbox) == 1  # Fri 16-18 + Mon 10-11:59 is under 4 office hours
+
+    alarms.evaluate(db_session, settings, now=dhaka(9, 12))
+    alarms.evaluate(db_session, settings, now=dhaka(9, 14))
+    assert len(outbox) == 2  # exactly one reminder
+    reminder = outbox[1]
+    assert reminder["subject"] == "[REMINDER] Tender Monitor — pncp failed 3 sweeps in a row — owner: Tanjir"
+    assert reminder["to"] == settings.alarm_to_list + settings.alarm_cc_list
+    assert reminder["cc"] == []
+
+
+def test_paused_sweeps_silence_check_3_and_raise_check_7_after_one_working_day(
+    db_session, on_settings, outbox
+):
+    from app.models import KEY_SCHEDULER_ENABLED, AppSetting
+
+    sweep(db_session, dhaka(10, 0))
+    db_session.add(AppSetting(key=KEY_SCHEDULER_ENABLED, value="false", updated_at=dhaka(10, 10)))
+    db_session.commit()
+
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 20))  # 12:00 missed, but paused
+    alarms.evaluate(db_session, on_settings, now=dhaka(11, 10))  # exactly 8 office hours
+    assert open_alarms(db_session) == [] and outbox == []
+
+    alarms.evaluate(db_session, on_settings, now=dhaka(11, 10, 10))
+    [alarm] = open_alarms(db_session)
+    assert alarm.check_key == alarms.SWEEPS_PAUSED
+    assert "switched off for more than one working day" in outbox[0]["subject"]
+
+    row = db_session.get(AppSetting, KEY_SCHEDULER_ENABLED)
+    row.value, row.updated_at = "true", dhaka(11, 11)
+    db_session.commit()
+    alarms.evaluate(db_session, on_settings, now=dhaka(11, 11, 5))
+    assert open_alarms(db_session) == []
+    assert outbox[-1]["subject"].startswith("[FIXED]")
+
+
+def test_expect_sweeps_always_ignores_the_pause_switch(db_session, settings, outbox):
+    always = settings.model_copy(update={"alarm_expect_sweeps": "always"})  # switch reads off
+    sweep(db_session, dhaka(10, 0))
+    alarms.evaluate(db_session, always, now=dhaka(10, 13, 15))
+    assert [a.check_key for a in open_alarms(db_session)] == [alarms.SWEEP_MISSED]
+    assert "ALARM_EXPECT_SWEEPS=always" in outbox[0]["text"]
+
+
+def test_a_slot_from_before_sweeps_were_switched_on_was_never_owed(db_session, on_settings, outbox):
+    from app.models import KEY_SCHEDULER_ENABLED, AppSetting
+
+    db_session.add(AppSetting(key=KEY_SCHEDULER_ENABLED, value="true", updated_at=dhaka(10, 12, 30)))
+    db_session.commit()
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 14))
+    assert outbox == []
+
+
+def test_every_source_failing_alarms_and_closes_when_one_works(db_session, settings, outbox):
+    sweep(db_session, dhaka(10, 12), {"ted": "failed", "pncp": "failed", "sam_gov": "failed"})
+    alarms.evaluate(db_session, settings, now=dhaka(10, 12, 15))
+    assert [a.check_key for a in open_alarms(db_session)] == [alarms.ALL_SOURCES_FAILED]
+    assert (
+        outbox[0]["subject"]
+        == "[ALARM] Tender Monitor — every source failed in the last sweep — owner: Tanjir"
+    )
+
+    sweep(db_session, dhaka(11, 0), finished=False)  # in flight: undecided, left open
+    alarms.evaluate(db_session, settings, now=dhaka(11, 0, 5))
+    assert len(open_alarms(db_session)) == 1
+
+    sweep(db_session, dhaka(11, 1), {"ted": "success", "pncp": "failed"})
+    alarms.evaluate(db_session, settings, now=dhaka(11, 1, 20))
+    assert open_alarms(db_session) == []
+    assert outbox[-1]["subject"].startswith("[FIXED]")
+
+
+def test_one_source_fetched_by_hand_failing_is_not_every_source(db_session, settings, outbox):
+    sweep(db_session, dhaka(10, 12), {"austender": "failed"})
+    alarms.evaluate(db_session, settings, now=dhaka(10, 12, 15))
+    assert outbox == []
+
+
+def test_an_undelivered_digest_alarms_and_the_next_delivered_one_closes_it(db_session, settings, outbox):
+    from app.models import SlackNotification
+
+    db_session.add(
+        SlackNotification(tender_id=1, run_batch_id="d1", status="failed", claimed_at=dhaka(10, 12))
+    )
+    db_session.add(SlackNotification(tender_id=2, run_batch_id="d1", status="sent", claimed_at=dhaka(10, 12)))
+    db_session.commit()
+    alarms.evaluate(db_session, settings, now=dhaka(10, 12, 15))
+    assert [a.check_key for a in open_alarms(db_session)] == [alarms.SLACK_UNDELIVERED]
+    assert "1 failed" in outbox[0]["text"]
+
+    db_session.add(SlackNotification(tender_id=3, run_batch_id="d2", status="sent", claimed_at=dhaka(11, 0)))
+    db_session.commit()
+    alarms.evaluate(db_session, settings, now=dhaka(11, 0, 15))
+    assert open_alarms(db_session) == []
+
+
+def test_nothing_received_in_three_days_alarms_once_the_system_is_old_enough(db_session, settings, outbox):
+    now = dhaka(10, 12)
+    sweep(db_session, now - timedelta(days=2), received=0)
+    sweep(db_session, now - timedelta(days=1), received=0)
+    alarms.evaluate(db_session, settings, now=now)
+    assert outbox == []  # only two days of history: too young to judge
+
+    sweep(db_session, now - timedelta(days=5), received=40)
+    alarms.evaluate(db_session, settings, now=now)
+    assert [a.check_key for a in open_alarms(db_session)] == [alarms.NO_DATA]
+
+    sweep(db_session, now + timedelta(hours=1), received=1)
+    alarms.evaluate(db_session, settings, now=now + timedelta(hours=2))
+    assert open_alarms(db_session) == []
+
+
+def test_a_recorded_crash_alarms_now_and_closes_when_a_later_sweep_finishes(db_session, settings, outbox):
+    from app.models import utcnow
+
+    alarms.record_crash(RuntimeError("database went away"), db_session.info["factory"], settings)
+    [alarm] = open_alarms(db_session)
+    assert alarm.check_key == alarms.SWEEP_CRASHED
+    assert outbox[0]["subject"] == "[ALARM] Tender Monitor — the sweep crashed — owner: Tanjir"
+    assert "RuntimeError: database went away" in outbox[0]["text"]
+
+    alarms.record_crash(RuntimeError("again"), db_session.info["factory"], settings)  # second crash
+    assert len(all_alarms(db_session)) == 1 and len(outbox) == 1
+
+    sweep(db_session, utcnow() + timedelta(minutes=1))
+    alarms.evaluate(db_session, settings, now=utcnow() + timedelta(minutes=20))
+    assert open_alarms(db_session) == []
+    assert outbox[-1]["subject"] == "[FIXED] Tender Monitor — the sweep crashed — owner: Tanjir"
+
+
+def test_a_crash_with_no_database_still_sends_the_email(settings, outbox):
+    def no_database():
+        raise RuntimeError("connection refused")
+
+    alarms.record_crash(RuntimeError("database down"), no_database, settings)
+    assert outbox[0]["subject"] == "[ALARM] Tender Monitor — the sweep crashed — owner: Tanjir"
+    assert "the database could not be read" in outbox[0]["text"]
+
+
+def test_a_check_that_raises_is_skipped_and_the_rest_still_run(db_session, settings, outbox, monkeypatch):
+    monkeypatch.setattr(
+        alarms,
+        "CHECKS",
+        (("boom", lambda *a: 1 / 0),) + tuple(c for c in alarms.CHECKS if c[0] != "boom"),
+    )
+    sweep(db_session, dhaka(10, 12), {"ted": "failed", "pncp": "failed"})
+    alarms.evaluate(db_session, settings, now=dhaka(10, 12, 15))
+    assert [a.check_key for a in open_alarms(db_session)] == [alarms.ALL_SOURCES_FAILED]
+
+
+def test_alarms_disabled_sends_nothing(db_session, settings, outbox):
+    sweep(db_session, dhaka(10, 12), {"ted": "failed", "pncp": "failed"})
+    alarms.evaluate(db_session, settings.model_copy(update={"alarms_enabled": False}), now=dhaka(10, 13))
+    assert outbox == [] and all_alarms(db_session) == []
+
+
+def test_two_evaluators_cannot_send_the_same_email_twice(db_session, on_settings, outbox):
+    sweep(db_session, dhaka(10, 0))
+    alarms.evaluate(db_session, on_settings, now=dhaka(10, 13, 15))
+    [alarm] = open_alarms(db_session)
+    # The other evaluator already stamped it: this one must not send.
+    assert alarms._claim(db_session, alarm, "emailed_at", dhaka(10, 13, 16)) is False
